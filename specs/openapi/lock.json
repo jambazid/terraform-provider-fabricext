@@ -1,0 +1,48 @@
+{
+  "repository": "https://github.com/microsoft/fabric-rest-api-specs",
+  "branch": "main",
+  "commit_sha": "36c12f02c1a286f5d121a0fa814d782e41e0fa0b",
+  "commit_date": "2026-09-22T22:09:08Z",
+  "files": {
+    "common/definitions.json": {
+      "sha256": "92bf66c12498d09a2016020c924deb9fa17c5983672c85df4da2554ac20aa4bc",
+      "source_url": "https://raw.githubusercontent.com/microsoft/fabric-rest-api-specs/36c12f02c1a286f5d121a0fa814d782e41e0fa0b/common/definitions.json"
+    },
+    "platform/swagger.json": {
+      "sha256": "7c07790eae542e832d8d5c59b31032408dc1a70672c87471b4d8187dcc58c1cd",
+      "source_url": "https://raw.githubusercontent.com/microsoft/fabric-rest-api-specs/36c12f02c1a286f5d121a0fa814d782e41e0fa0b/platform/swagger.json"
+    },
+    "platform/definitions/platform.json": {
+      "sha256": "43e5dae558c71cf5528713c5759f92220f8e194969ed9e907fb9c55182394933",
+      "source_url": "https://raw.githubusercontent.com/microsoft/fabric-rest-api-specs/36c12f02c1a286f5d121a0fa814d782e41e0fa0b/platform/definitions/platform.json"
+    },
+    "warehouse/swagger.json": {
+      "sha256": "2e3e0389245b9766fc6f5703eb622e436a69bb73753004af783d052ceb85eaa4",
+      "source_url": "https://raw.githubusercontent.com/microsoft/fabric-rest-api-specs/36c12f02c1a286f5d121a0fa814d782e41e0fa0b/warehouse/swagger.json"
+    },
+    "warehouse/definitions.json": {
+      "sha256": "e461c4616dee5b25cbe8fb9d30ae30b629dae426361cdf691c998af72b9177a0",
+      "source_url": "https://raw.githubusercontent.com/microsoft/fabric-rest-api-specs/36c12f02c1a286f5d121a0fa814d782e41e0fa0b/warehouse/definitions.json"
+    },
+    "lakehouse/swagger.json": {
+      "sha256": "d1621c9a562281461756ba72c9a44197371bdea51c04196d03b3fe4ba4d1ed47",
+      "source_url": "https://raw.githubusercontent.com/microsoft/fabric-rest-api-specs/36c12f02c1a286f5d121a0fa814d782e41e0fa0b/lakehouse/swagger.json"
+    },
+    "lakehouse/definitions.json": {
+      "sha256": "90c32e9d09179277eb0c3019fe367fe56462d4374f44d4857fb595cc202421f4",
+      "source_url": "https://raw.githubusercontent.com/microsoft/fabric-rest-api-specs/36c12f02c1a286f5d121a0fa814d782e41e0fa0b/lakehouse/definitions.json"
+    },
+    "sqlDatabase/swagger.json": {
+      "sha256": "674bb14fdc3d2f945320f5c0138a3c497919fbce3fb3f958689933fc46d19d9f",
+      "source_url": "https://raw.githubusercontent.com/microsoft/fabric-rest-api-specs/36c12f02c1a286f5d121a0fa814d782e41e0fa0b/sqlDatabase/swagger.json"
+    },
+    "sqlDatabase/definitions.json": {
+      "sha256": "bbaef6b86741438035ed0316977cb3091ad3b711cc6a2e59f38ea6a33a3ff360",
+      "source_url": "https://raw.githubusercontent.com/microsoft/fabric-rest-api-specs/36c12f02c1a286f5d121a0fa814d782e41e0fa0b/sqlDatabase/definitions.json"
+    },
+    "overlays/item-permissions.json": {
+      "sha256": "66e35f43b95995d46dcbf5423c9e0f86f058460c1586d66e3ae855b38c00edbe",
+      "source_url": "local://specs/openapi/overlays/item-permissions.json"
+    }
+  }
+}

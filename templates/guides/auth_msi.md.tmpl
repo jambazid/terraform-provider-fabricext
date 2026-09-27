@@ -1,0 +1,31 @@
+---
+page_title: "Authenticating using Managed Identity (MSI)"
+subcategory: "Authentication Guides"
+description: |-
+  How to configure the fabricext provider using Azure System-Assigned or User-Assigned Managed Identity.
+---
+
+# Authenticating using Managed Identity (MSI)
+
+This guide explains how to authenticate the `fabricext` provider using Azure Managed Identities on Azure Virtual Machines, Azure Container Apps, or Azure Kubernetes Service (AKS).
+
+## System-Assigned Managed Identity
+
+{{ tffile "examples/provider/managed_identity_system.tf" }}
+
+Or set the environment variable:
+
+```bash
+export FABRIC_USE_MSI="true"
+```
+
+## User-Assigned Managed Identity
+
+{{ tffile "examples/provider/managed_identity_user.tf" }}
+
+Or set environment variables:
+
+```bash
+export FABRIC_USE_MSI="true"
+export FABRIC_CLIENT_ID="<client-id-of-user-assigned-msi>"
+```

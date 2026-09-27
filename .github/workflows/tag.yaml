@@ -1,0 +1,100 @@
+---
+name: tag
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".changes/v*.md"
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    name: tag | create
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.extract.outputs.tag }}
+      created: ${{ steps.create_tag.outputs.created }}
+    steps:
+      - name: runner | harden
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1  # v2.21.1
+        with:
+          egress-policy: audit
+
+      - name: repo | checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: paths | detect release notes
+        id: filter
+        uses: step-security/paths-filter@5f3d1a83daa17363d18b529d60375e1e36566799  # v4.0.3
+        with:
+          list-files: shell
+          filters: |
+            release:
+              - added|modified: '.changes/v*.md'
+
+      - name: tag | extract-version
+        id: extract
+        env:
+          RELEASE_FILES: ${{ steps.filter.outputs.release_files }}
+        run: |
+          set -euo pipefail
+          FILES="$(echo "${RELEASE_FILES:-}" | tr ' ' '\n' | grep -E '^\.changes/v.*\.md$' || true)"
+          if [ -z "${FILES}" ]; then
+            FILES="$(ls -1v .changes/v*.md 2>/dev/null | tail -n 1 || true)"
+          fi
+          if [ -z "${FILES}" ]; then
+            echo "No .changes/v*.md file detected."
+            echo "tag=" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          VERSION_FILE="$(echo "${FILES}" | head -n 1)"
+          TAG_NAME="$(basename "${VERSION_FILE}" .md)"
+          if ! echo "${TAG_NAME}" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "Error: Release file name '${VERSION_FILE}' does not yield valid SemVer tag '${TAG_NAME}' (vX.Y.Z)" >&2
+            exit 1
+          fi
+          echo "tag=${TAG_NAME}" >> "${GITHUB_OUTPUT}"
+          echo "Detected release tag: ${TAG_NAME}"
+
+      - name: tag | push-tag
+        id: create_tag
+        if: steps.extract.outputs.tag != ''
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ steps.extract.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if git rev-parse "${TAG_NAME}" >/dev/null 2>&1; then
+            echo "Tag ${TAG_NAME} already exists. Skipping."
+            echo "created=false" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${TAG_NAME}" -m "Release ${TAG_NAME}"
+          AUTH_HEADER="AUTHORIZATION: basic $(printf 'x-access-token:%s' "${GITHUB_TOKEN}" | base64 -w 0)"
+          git -c "http.https://github.com/.extraheader=${AUTH_HEADER}" push origin "refs/tags/${TAG_NAME}"
+          echo "created=true" >> "${GITHUB_OUTPUT}"
+          echo "Pushed tag ${TAG_NAME} to origin"
+
+  release:
+    name: release | trigger
+    needs:
+      - tag
+    if: needs.tag.outputs.created == 'true' && needs.tag.outputs.tag != ''
+    uses: $/.github/workflows/release.yaml
+    with:
+      tag: ${{ needs.tag.outputs.tag }}

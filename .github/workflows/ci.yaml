@@ -1,0 +1,169 @@
+---
+name: ci
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  changes:
+    name: repo | paths-filter
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - name: runner | harden
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1  # v2.21.1
+        with:
+          egress-policy: audit
+
+      - name: paths | filter
+        id: filter
+        uses: step-security/paths-filter@5f3d1a83daa17363d18b529d60375e1e36566799  # v4.0.3
+        with:
+          filters: |
+            code:
+              - '!docs/**'
+              - '!README.md'
+              - '!CONTRIBUTING.md'
+              - '!CHANGELOG.md'
+              - '!**.docx'
+              - '!LICENSE'
+
+  lint:
+    name: provider | lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: runner | harden
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1  # v2.21.1
+        with:
+          egress-policy: audit
+
+      - name: repo | checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: mise | setup
+        uses: step-security/mise-action@6e96d2ffbc65c037f23c78818f2a339d6cf830f7  # v4.2.4
+
+      - name: specs | check
+        run: mise run specs:check
+
+      - name: spec | verify
+        run: mise run spec:verify
+
+      - name: provider | lint
+        run: mise run lint
+
+      - name: docs | check
+        run: mise run docs:check
+
+      - name: goreleaser | check
+        run: mise exec -- goreleaser check
+
+  scan:
+    name: trivy | scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: runner | harden
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1  # v2.21.1
+        with:
+          egress-policy: audit
+
+      - name: repo | checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: mise | setup
+        uses: step-security/mise-action@6e96d2ffbc65c037f23c78818f2a339d6cf830f7  # v4.2.4
+
+      - name: security | scan
+        run: mise run scan
+
+  test:
+    name: provider | test
+    needs: [changes]
+    if: |
+      always() &&
+      !cancelled() &&
+      (needs.changes.result == 'success' || needs.changes.result == 'skipped') &&
+      (github.event_name != 'pull_request' || needs.changes.outputs.code == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: runner | harden
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1  # v2.21.1
+        with:
+          egress-policy: audit
+
+      - name: repo | checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: mise | setup
+        uses: step-security/mise-action@6e96d2ffbc65c037f23c78818f2a339d6cf830f7  # v4.2.4
+
+      - name: test | unit
+        run: mise run test:unit
+
+      - name: test | acc
+        run: mise run test:acc
+
+      - name: coverage | summary
+        run: python3 scripts/coverage_summary.py coverage.out --html coverage.html -o coverage-summary.md >> $GITHUB_STEP_SUMMARY
+
+      - name: coverage | archive
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: test-coverage-report
+          path: |
+            coverage.out
+            coverage.html
+            coverage-summary.md
+          retention-days: 14
+
+      - name: pr | find-comment
+        id: find_comment
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        uses: peter-evans/find-comment@b30e6a3c0ed37e7c023ccd3f1db5c6c0b0c23aad  # v4.0.0
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-author: 'github-actions[bot]'
+          body-includes: '<!-- test-coverage-summary -->'
+
+      - name: pr | comment-coverage
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9  # v5.0.0
+        with:
+          comment-id: ${{ steps.find_comment.outputs.comment-id }}
+          issue-number: ${{ github.event.pull_request.number }}
+          body-path: coverage-summary.md
+          edit-mode: replace

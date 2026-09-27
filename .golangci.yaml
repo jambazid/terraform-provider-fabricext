@@ -1,0 +1,53 @@
+---
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - copyloopvar
+    - depguard
+    - durationcheck
+    - errcheck
+    - errorlint
+    - forcetypeassert
+    - gocritic
+    - govet
+    - ineffassign
+    - makezero
+    - misspell
+    - nilerr
+    - nolintlint
+    - predeclared
+    - revive
+    - staticcheck
+    - unconvert
+    - unparam
+    - unused
+    - usetesting
+  settings:
+    depguard:
+      rules:
+        main:
+          list-mode: lax
+          deny:
+            - pkg: "github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
+              desc: "Use github.com/hashicorp/terraform-plugin-testing/helper/acctest"
+            - pkg: "github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
+              desc: "Use github.com/hashicorp/terraform-plugin-testing/helper/resource"
+            - pkg: "github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+              desc: "Use github.com/hashicorp/terraform-plugin-testing/terraform"
+            - pkg: "github.com/hashicorp/terraform-plugin-sdk/v2"
+              desc: "Use Terraform Plugin Framework (Protocol v6)"
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+formatters:
+  enable:
+    - gofmt

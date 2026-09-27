@@ -1,0 +1,8 @@
+---
+kind: security
+body: >-
+  Harden release automation and supply-chain governance: scope GHA secrets
+  explicitly in tag.yaml avoiding secrets inheritance, add SemVer validation and
+  pre-release verification gate to release.yaml, pin GoReleaser to locked version,
+  add Terraform ecosystem to Dependabot, validate UUIDs and normalize principal_type
+  in ImportState, and enforce role collapsing precedence hierarchy.
