@@ -1,0 +1,29 @@
+---
+name: "📖 Documentation Issue"
+description: "Report missing, incorrect, or unclear provider documentation"
+title: "[DOCS] "
+labels: ["documentation"]
+body:
+  - type: textarea
+    id: page
+    attributes:
+      label: "Documentation Page"
+      description: "URL or file path of the affected documentation (e.g. `docs/resources/lakehouse_permission.md`)."
+    validations:
+      required: true
+
+  - type: textarea
+    id: issue
+    attributes:
+      label: "Issue Description"
+      description: "What is incorrect, unclear, or missing?"
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: "Suggested Improvement"
+      description: "How could the documentation or example be improved?"
+    validations:
+      required: false

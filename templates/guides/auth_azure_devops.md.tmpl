@@ -1,0 +1,31 @@
+---
+page_title: "Authenticating with Azure DevOps Workload Identity Federation"
+subcategory: "Authentication Guides"
+description: |-
+  How to configure the fabricext provider using Azure DevOps Pipeline Workload Identity Federation with a service connection.
+---
+
+# Authenticating with Azure DevOps Workload Identity Federation
+
+This guide explains how to authenticate the `fabricext` provider using Azure DevOps Workload Identity Federation with Azure Pipelines.
+
+## Azure Pipelines YAML Example
+
+In your Azure Pipelines pipeline, make sure `$(System.AccessToken)` is accessible to the task:
+
+```yaml
+steps:
+  - task: AzureCLI@2
+    inputs:
+      azureSubscription: 'my-fabric-service-connection'
+      scriptType: 'bash'
+      scriptLocation: 'inlineScript'
+      inlineScript: |
+        terraform apply
+    env:
+      SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+```
+
+## Provider Configuration
+
+{{ tffile "examples/provider/azure_devops_oidc.tf" }}

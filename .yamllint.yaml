@@ -1,0 +1,23 @@
+extends: default
+
+ignore: |
+  .git/
+  .mise/
+  .tessl/
+  .agents/
+  .claude/
+  .gemini/
+  .github/skills/
+  .vscode/
+  bin/
+  dist/
+  specs/inputs/
+
+rules:
+  document-start: disable
+  line-length:
+    max: 160
+    level: warning
+  truthy:
+    allowed-values: ["true", "false", "on"]
+    check-keys: false

@@ -1,0 +1,114 @@
+{
+  "name": "fabric-provider",
+  "mode": "managed",
+  "dependencies": {
+    "samhvw8/dotfiles": {
+      "version": "a2f3204c2d98ec9648d1baa2c7f0e2e1ae8a21aa",
+      "source": "https://github.com/samhvw8/dotfiles",
+      "include": {
+        "skills": [
+          "mise-expert"
+        ]
+      }
+    },
+    "github/awesome-copilot": {
+      "version": "6c4d33b9cfca967a28bb2962ef4d55e4a384c88c",
+      "source": "https://github.com/github/awesome-copilot",
+      "include": {
+        "skills": [
+          "gh-cli",
+          "git-commit",
+          "refactor",
+          "github-issues",
+          "sql-optimization"
+        ]
+      }
+    },
+    "pgdogdev/pgdog": {
+      "version": "c5e5c3481e90c91137fc244897cc53eca806488b",
+      "source": "https://github.com/pgdogdev/pgdog",
+      "include": {
+        "skills": [
+          "rust"
+        ]
+      }
+    },
+    "joshuadavidthomas/agent-skills": {
+      "version": "516dee7a422b90937b2958d11c03694154ab9c09",
+      "source": "https://github.com/joshuadavidthomas/agent-skills",
+      "include": {
+        "skills": [
+          "rust"
+        ]
+      }
+    },
+    "tessl-labs/devops-essentials": {
+      "version": "0.1.1"
+    },
+    "inference-sh/skills": {
+      "version": "dc9595a77e14d031768b8cfc9f49036958185839",
+      "source": "https://github.com/inference-sh/skills",
+      "include": {
+        "skills": [
+          "technical-blog-writing"
+        ]
+      }
+    },
+    "tessl-labs/skill-discovery": {
+      "version": "0.27.0"
+    },
+    "tessl-labs/spec-driven-development": {
+      "version": "2.0.1"
+    },
+    "tessl/plugin-creator": {
+      "version": "0.1.4"
+    },
+    "modular/skills": {
+      "version": "28f5fd7f13917c429a65272966f7f4c8f97931f7",
+      "source": "https://github.com/modular/skills"
+    },
+    "trailofbits/skills": {
+      "version": "0cc1c73a5e96749ab32d7ea5e14892fafa6972ae",
+      "source": "https://github.com/trailofbits/skills",
+      "include": {
+        "skills": [
+          "modern-python"
+        ]
+      }
+    },
+    "wshobson/agents": {
+      "version": "9b15b34b0bfc13a815cbfc2366e14ea549e09422",
+      "source": "https://github.com/wshobson/agents",
+      "include": {
+        "skills": [
+          "python-performance-optimization",
+          "python-testing-patterns",
+          "python-design-patterns",
+          "python-packaging",
+          "python-code-style",
+          "python-project-structure",
+          "python-anti-patterns",
+          "python-type-safety",
+          "python-observability",
+          "python-resilience",
+          "python-resource-management"
+        ]
+      }
+    },
+    "hashicorp/agent-skills": {
+      "version": "516354c484b43fa5469567485113dd0c769c3d24",
+      "source": "https://github.com/hashicorp/agent-skills"
+    },
+    "samber/cc-skills-golang": {
+      "version": "19a0626ae8565d27a7b7bdf59d8d99d94d7e284c",
+      "source": "https://github.com/samber/cc-skills-golang"
+    }
+  },
+  "agents": [
+    "claude-code",
+    "gemini",
+    "copilot",
+    "copilot-vscode",
+    "tessl-agent"
+  ]
+}

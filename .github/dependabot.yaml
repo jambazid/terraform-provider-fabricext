@@ -1,0 +1,52 @@
+---
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    target-branch: main
+    assignees:
+      - jambazid
+    reviewers:
+      - jambazid
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: dependencies(gomod)
+    cooldown:
+      default-days: 7
+    groups:
+      terraform-plugin:
+        patterns:
+          - "github.com/hashicorp/terraform-plugin-*"
+
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: main
+    assignees:
+      - jambazid
+    reviewers:
+      - jambazid
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: dependencies(gha)
+    cooldown:
+      default-days: 7
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+
+  - package-ecosystem: terraform
+    directory: /modules/permissions
+    target-branch: main
+    assignees:
+      - jambazid
+    reviewers:
+      - jambazid
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: dependencies(tf)
+    cooldown:
+      default-days: 7

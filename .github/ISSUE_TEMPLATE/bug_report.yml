@@ -1,0 +1,90 @@
+---
+name: "🐛 Bug Report"
+description: "Report a bug, unexpected behavior, or crash in terraform-provider-fabricext"
+title: "[BUG] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for taking the time to report an issue!
+        Please ensure all sensitive information (tokens, secrets, tenant IDs) is redacted before submitting.
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: "Component"
+      description: "Which resource, data source, or module is affected?"
+      options:
+        - "fabricext_warehouse_permission"
+        - "fabricext_sql_database_permission"
+        - "fabricext_lakehouse_permission"
+        - "fabricext_item (data source)"
+        - "modules/permissions (wrapper module)"
+        - "Provider Configuration / Authentication"
+        - "Other"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: "Description"
+      description: "A clear and concise description of what the bug is."
+    validations:
+      required: true
+
+  - type: textarea
+    id: terraform-config
+    attributes:
+      label: "Terraform Configuration (MWE)"
+      description: "Please provide a Minimal Working Example (MWE) HCL configuration reproducing the problem. Redact sensitive values."
+      render: hcl
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: "Steps to Reproduce"
+      description: "Steps or commands run to reproduce the behavior."
+      placeholder: |
+        1. Run `terraform init`
+        2. Run `terraform apply`
+        3. See error...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: "Expected Behavior"
+      description: "What did you expect to happen?"
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual-behavior
+    attributes:
+      label: "Actual Behavior"
+      description: "What actually happened instead."
+    validations:
+      required: true
+
+  - type: textarea
+    id: debug-output
+    attributes:
+      label: "Debug Output / Logs"
+      description: "Relevant log output, preferably with `TF_LOG=DEBUG`. Ensure all bearer tokens and secrets are redacted!"
+      render: shell
+    validations:
+      required: false
+
+  - type: input
+    id: versions
+    attributes:
+      label: "Terraform & Provider Versions"
+      description: "Output of `terraform version`."
+      placeholder: "Terraform v1.9.6, provider registry.terraform.io/jambazid/fabricext v0.1.0"
+    validations:
+      required: true
