@@ -1,0 +1,19 @@
+[global]
+exclude = [
+  ".git/**",
+  ".mise/**",
+  ".tessl/**",
+  ".agents/**",
+  ".claude/**",
+  ".gemini/**",
+  ".github/skills/**",
+  ".vscode/**",
+  "docs/**",
+  "specs/inputs/**",
+]
+disable = [
+  "MD013",
+  "MD024",
+  "MD033",
+  "MD041",
+]

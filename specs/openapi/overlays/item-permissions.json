@@ -1,0 +1,513 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "Fabric Item Permissions Overlay APIs (Warehouse & SQLDatabase)",
+    "version": "v1"
+  },
+  "schemes": [
+    "https"
+  ],
+  "host": "api.fabric.microsoft.com",
+  "basePath": "/v1",
+  "paths": {
+    "/workspaces/{workspaceId}/warehouses/{warehouseId}/permissions": {
+      "get": {
+        "summary": "Lists item permissions granted on the specified Warehouse.",
+        "operationId": "WarehousePermissions_List",
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspaceId",
+            "type": "string",
+            "format": "uuid",
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "warehouseId",
+            "type": "string",
+            "format": "uuid",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/ItemPermissionsResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "schema": {
+              "$ref": "#/definitions/ItemPermissionErrorResponse"
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "headers": {
+              "Retry-After": {
+                "type": "integer"
+              }
+            },
+            "schema": {
+              "$ref": "#/definitions/ItemPermissionErrorResponse"
+            }
+          },
+          "default": {
+            "description": "Error response",
+            "schema": {
+              "$ref": "#/definitions/ItemPermissionErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/workspaces/{workspaceId}/warehouses/{warehouseId}/grantPermissions": {
+      "post": {
+        "summary": "Grants item permissions on the specified Warehouse to a Microsoft Entra principal.",
+        "operationId": "WarehousePermissions_Grant",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspaceId",
+            "type": "string",
+            "format": "uuid",
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "warehouseId",
+            "type": "string",
+            "format": "uuid",
+            "required": true
+          },
+          {
+            "in": "body",
+            "name": "request",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ItemPermissionModifyRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad Request",
+            "schema": {
+              "$ref": "#/definitions/ItemPermissionErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "schema": {
+              "$ref": "#/definitions/ItemPermissionErrorResponse"
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "headers": {
+              "Retry-After": {
+                "type": "integer"
+              }
+            },
+            "schema": {
+              "$ref": "#/definitions/ItemPermissionErrorResponse"
+            }
+          },
+          "default": {
+            "description": "Error response",
+            "schema": {
+              "$ref": "#/definitions/ItemPermissionErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/workspaces/{workspaceId}/warehouses/{warehouseId}/revokePermissions": {
+      "post": {
+        "summary": "Revokes item permissions on the specified Warehouse from a Microsoft Entra principal.",
+        "operationId": "WarehousePermissions_Revoke",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspaceId",
+            "type": "string",
+            "format": "uuid",
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "warehouseId",
+            "type": "string",
+            "format": "uuid",
+            "required": true
+          },
+          {
+            "in": "body",
+            "name": "request",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ItemPermissionModifyRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad Request",
+            "schema": {
+              "$ref": "#/definitions/ItemPermissionErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "schema": {
+              "$ref": "#/definitions/ItemPermissionErrorResponse"
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "headers": {
+              "Retry-After": {
+                "type": "integer"
+              }
+            },
+            "schema": {
+              "$ref": "#/definitions/ItemPermissionErrorResponse"
+            }
+          },
+          "default": {
+            "description": "Error response",
+            "schema": {
+              "$ref": "#/definitions/ItemPermissionErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/workspaces/{workspaceId}/sqlDatabases/{sqlDatabaseId}/permissions": {
+      "get": {
+        "summary": "Lists item permissions granted on the specified SQLDatabase.",
+        "operationId": "SQLDatabasePermissions_List",
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspaceId",
+            "type": "string",
+            "format": "uuid",
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "sqlDatabaseId",
+            "type": "string",
+            "format": "uuid",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/ItemPermissionsResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "schema": {
+              "$ref": "#/definitions/ItemPermissionErrorResponse"
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "headers": {
+              "Retry-After": {
+                "type": "integer"
+              }
+            },
+            "schema": {
+              "$ref": "#/definitions/ItemPermissionErrorResponse"
+            }
+          },
+          "default": {
+            "description": "Error response",
+            "schema": {
+              "$ref": "#/definitions/ItemPermissionErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/workspaces/{workspaceId}/sqlDatabases/{sqlDatabaseId}/grantPermissions": {
+      "post": {
+        "summary": "Grants item permissions on the specified SQLDatabase to a Microsoft Entra principal.",
+        "operationId": "SQLDatabasePermissions_Grant",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspaceId",
+            "type": "string",
+            "format": "uuid",
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "sqlDatabaseId",
+            "type": "string",
+            "format": "uuid",
+            "required": true
+          },
+          {
+            "in": "body",
+            "name": "request",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ItemPermissionModifyRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad Request",
+            "schema": {
+              "$ref": "#/definitions/ItemPermissionErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "schema": {
+              "$ref": "#/definitions/ItemPermissionErrorResponse"
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "headers": {
+              "Retry-After": {
+                "type": "integer"
+              }
+            },
+            "schema": {
+              "$ref": "#/definitions/ItemPermissionErrorResponse"
+            }
+          },
+          "default": {
+            "description": "Error response",
+            "schema": {
+              "$ref": "#/definitions/ItemPermissionErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/workspaces/{workspaceId}/sqlDatabases/{sqlDatabaseId}/revokePermissions": {
+      "post": {
+        "summary": "Revokes item permissions on the specified SQLDatabase from a Microsoft Entra principal.",
+        "operationId": "SQLDatabasePermissions_Revoke",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspaceId",
+            "type": "string",
+            "format": "uuid",
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "sqlDatabaseId",
+            "type": "string",
+            "format": "uuid",
+            "required": true
+          },
+          {
+            "in": "body",
+            "name": "request",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ItemPermissionModifyRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad Request",
+            "schema": {
+              "$ref": "#/definitions/ItemPermissionErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "schema": {
+              "$ref": "#/definitions/ItemPermissionErrorResponse"
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "headers": {
+              "Retry-After": {
+                "type": "integer"
+              }
+            },
+            "schema": {
+              "$ref": "#/definitions/ItemPermissionErrorResponse"
+            }
+          },
+          "default": {
+            "description": "Error response",
+            "schema": {
+              "$ref": "#/definitions/ItemPermissionErrorResponse"
+            }
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "ItemPermissionPrincipal": {
+      "type": "object",
+      "required": [
+        "id",
+        "type"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "User",
+            "Group",
+            "ServicePrincipal",
+            "ServicePrincipalProfile"
+          ]
+        }
+      }
+    },
+    "ItemPermissionEnum": {
+      "type": "string",
+      "enum": [
+        "Read",
+        "ReadData",
+        "ReadAll",
+        "SubscribeOneLakeEvents",
+        "Write",
+        "Reshare"
+      ]
+    },
+    "ItemPermissionModifyRequest": {
+      "type": "object",
+      "required": [
+        "principal",
+        "permissions"
+      ],
+      "properties": {
+        "principal": {
+          "$ref": "#/definitions/ItemPermissionPrincipal"
+        },
+        "permissions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/ItemPermissionEnum"
+          }
+        }
+      }
+    },
+    "ItemPermissionAssignment": {
+      "type": "object",
+      "required": [
+        "principal",
+        "permissions"
+      ],
+      "properties": {
+        "principal": {
+          "$ref": "#/definitions/ItemPermissionPrincipal"
+        },
+        "permissions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ItemPermissionEnum"
+          }
+        }
+      }
+    },
+    "ItemPermissionsResponse": {
+      "type": "object",
+      "required": [
+        "value"
+      ],
+      "properties": {
+        "value": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ItemPermissionAssignment"
+          }
+        }
+      }
+    },
+    "ItemPermissionErrorResponse": {
+      "type": "object",
+      "required": [
+        "errorCode",
+        "message"
+      ],
+      "properties": {
+        "errorCode": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "isRetriable": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

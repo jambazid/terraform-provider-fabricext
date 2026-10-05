@@ -1,0 +1,91 @@
+default_install_hook_types:
+  - pre-commit
+  - commit-msg
+
+exclude: ^(\.tessl/|\.agents/|\.claude/|\.gemini/|\.github/skills/|\.vscode/|specs/inputs/)
+
+repos:
+  - repo: local
+    hooks:
+      - id: commitizen
+        name: git | commitizen
+        entry: mise exec -- cz check --message-length-limit 72 --commit-msg-file
+        language: system
+        stages: [commit-msg]
+
+      - id: yamllint
+        name: yaml | yamllint
+        entry: mise exec -- yamllint -c .yamllint.yaml
+        language: system
+        types: [yaml]
+        stages: [pre-commit]
+
+      - id: rumdl
+        name: docs | rumdl
+        entry: mise exec -- rumdl check --config .rumdl.toml
+        language: system
+        types: [markdown]
+        exclude: ^(docs/|specs/inputs/)
+        stages: [pre-commit]
+
+      - id: zizmor
+        name: gha | zizmor
+        entry: mise exec -- zizmor .
+        language: system
+        files: ^\.github/workflows/.*\.ya?ml$
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: trivy-fs
+        name: security | trivy-fs
+        entry: mise exec -- trivy fs --config trivy.yaml .
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: trivy-config
+        name: security | trivy-config
+        entry: mise exec -- trivy config --config trivy.yaml .
+        language: system
+        files: ^(modules|examples)/.*\.tf$
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: terraform-fmt
+        name: terraform | fmt
+        entry: mise exec -- terraform fmt -check -recursive examples/ modules/
+        language: system
+        files: ^(modules|examples)/.*\.tf$
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: openapi-specs-check
+        name: openapi | specs-check
+        entry: mise exec -- python3 scripts/check_openapi_specs.py
+        language: system
+        files: ^specs/openapi/
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: spec-verify
+        name: specs | spec-verify
+        entry: mise exec -- python3 scripts/verify_specs.py
+        language: system
+        files: ^specs/.*\.spec\.md$
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: golangci-lint
+        name: go | golangci-lint
+        entry: mise exec -- golangci-lint run
+        language: system
+        types: [go]
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: copywrite
+        name: license | copywrite
+        entry: mise exec -- copywrite headers --plan
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]

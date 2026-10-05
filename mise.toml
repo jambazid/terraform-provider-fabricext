@@ -1,0 +1,168 @@
+[tools]
+"pipx:headroom-ai" = { version = "latest", extras = ["proxy", "mcp"] }
+"npm:tessl" = { version = "latest" }
+"npm:@anthropic-ai/claude-code" = "latest"
+"npm:actions-up" = "latest"
+"pipx:commitizen" = "latest"
+"pipx:yamllint" = "latest"
+"aqua:hashicorp/terraform-plugin-docs" = "latest"
+"aqua:caarlos0/svu" = "latest"
+"aqua:hashicorp/copywrite" = "latest"
+
+bun = "latest"
+changie = "latest"
+github-cli = "latest"
+go = "latest"
+golangci-lint = "latest"
+goreleaser = "latest"
+node = "latest"
+pipx = "latest"
+prek = { version = "latest", postinstall = "prek install && prek install --hook-type commit-msg" }
+rumdl = "latest"
+terraform = "latest"
+trivy = "latest"
+uv = "latest"
+zizmor = "latest"
+
+[settings]
+lockfile = true
+minimum_release_age = "7d"
+
+[settings.npm]
+package_manager = "bun"
+
+[tasks.default]
+description = "List all available tasks"
+alias = "help"
+run = "mise tasks ls"
+
+[tasks."tessl:init"]
+description = "Initialize Tessl rules and agent skills"
+run = """
+tessl --version
+tessl init --agent=claude-code --agent=gemini --agent=copilot --agent=copilot-vscode || true
+"""
+
+[tasks.init]
+description = "Initialize repository tooling and install git hooks"
+depends = ["tessl:init"]
+run = "prek install && prek install --hook-type commit-msg"
+
+[tasks.build]
+description = "Compile the terraform-provider-fabricext binary"
+sources = ["main.go", "go.mod", "go.sum", "internal/**/*.go"]
+outputs = ["bin/terraform-provider-fabricext"]
+run = "CGO_ENABLED=0 go build -trimpath -ldflags='-s -w -X main.version=0.1.0' -o bin/terraform-provider-fabricext ."
+
+[tasks.install-local]
+description = "Install provider into local ~/.terraform.d/plugins filesystem mirror"
+depends = ["build"]
+run = """
+OS="$(go env GOOS)"
+ARCH="$(go env GOARCH)"
+PLUGIN_DIR="${HOME}/.terraform.d/plugins/registry.terraform.io/jambazid/fabricext/0.1.0/${OS}_${ARCH}"
+mkdir -p "${PLUGIN_DIR}"
+cp bin/terraform-provider-fabricext "${PLUGIN_DIR}/terraform-provider-fabricext_v0.1.0"
+chmod +x "${PLUGIN_DIR}/terraform-provider-fabricext_v0.1.0"
+echo "Installed local provider binary to ${PLUGIN_DIR}/terraform-provider-fabricext_v0.1.0"
+"""
+
+[tasks."specs:check"]
+description = "Verify vendored Microsoft Fabric OpenAPI specs and lockfile SHA-256 checksums"
+run = "python3 scripts/check_openapi_specs.py"
+
+[tasks."specs:sync"]
+description = "Sync vendored Microsoft Fabric OpenAPI specs from upstream microsoft/fabric-rest-api-specs"
+run = "python3 scripts/check_openapi_specs.py --sync"
+
+[tasks."test:unit"]
+description = "Run Go unit tests with race detector and coverage"
+run = "go test -v -race -shuffle=on -coverprofile=coverage.out ./internal/credentials/... ./internal/client/... ./internal/testutil/... ./internal/provider/..."
+
+[tasks."test:acc"]
+description = "Run hermetic Terraform acceptance tests (TF_ACC=1) against OpenAPI-validated fabricmock"
+run = "TF_ACC=1 go test -v -race -shuffle=on ./internal/provider/... -timeout 15m"
+
+[tasks.test]
+description = "Run all unit and acceptance tests"
+depends = ["test:unit", "test:acc"]
+
+[tasks.docs]
+description = "Generate and validate Terraform Registry documentation via tfplugindocs"
+run = """
+tfplugindocs generate --provider-name fabricext --rendered-provider-name "Fabric Extensions (fabricext)"
+tfplugindocs validate --provider-name fabricext
+"""
+
+[tasks."docs:check"]
+description = "Verify generated Registry documentation is up to date with zero drift"
+run = """
+set -euo pipefail
+BEFORE="$(find docs -type f | sort | xargs sha256sum)"
+tfplugindocs generate --provider-name fabricext --rendered-provider-name "Fabric Extensions (fabricext)"
+tfplugindocs validate --provider-name fabricext
+AFTER="$(find docs -type f | sort | xargs sha256sum)"
+if [ "${BEFORE}" != "${AFTER}" ]; then
+  echo "ERROR: docs/ is out of sync with templates/examples/schemas. Run 'mise run docs'." >&2
+  exit 1
+fi
+"""
+
+[tasks.scan]
+description = "Run Trivy (filesystem + Terraform config) and Zizmor GitHub Actions security scanners"
+run = """
+trivy fs --config trivy.yaml .
+trivy config --config trivy.yaml .
+zizmor .
+"""
+
+[tasks.lint]
+description = "Run YAML, Markdown, Go, and Terraform linters"
+run = """
+yamllint -c .yamllint.yaml .
+rumdl check --config .rumdl.toml .
+golangci-lint run
+terraform fmt -check -recursive examples/ modules/
+copywrite headers --plan
+"""
+
+[tasks.format]
+description = "Format Go and Terraform source files"
+run = """
+gofmt -s -w .
+terraform fmt -recursive examples/ modules/
+"""
+
+[tasks.bump]
+description = "Upgrade GitHub Actions pinned SHAs respecting the 7-day minimum release age"
+run = "actions-up --min-age 7"
+
+[tasks."spec:verify"]
+description = "Verify YAML frontmatter, targets, and [@test] links across specs/*.spec.md"
+run = "python3 scripts/verify_specs.py"
+
+[tasks.check]
+description = "Run the full verification gate (specs:check, lint, scan, test, docs:check, spec:verify, goreleaser check)"
+depends = ["specs:check", "lint", "scan", "test", "docs:check", "spec:verify"]
+run = "goreleaser check"
+
+[tasks."license:check"]
+description = "Verify copyright and license headers across all source files"
+run = "copywrite headers --plan"
+
+[tasks."license:fix"]
+description = "Format and apply copyright and license headers across all source files"
+run = "copywrite headers"
+
+[tasks."changelog:new"]
+description = "Create a new changelog fragment via Changie"
+alias = "fragment"
+run = "changie new"
+
+[tasks."changelog:batch"]
+description = "Batch unreleased changelog fragments into a release entry"
+run = "changie batch auto"
+
+[tasks."changelog:preview"]
+description = "Preview unreleased changelog batch output"
+run = "changie batch --dry-run patch"

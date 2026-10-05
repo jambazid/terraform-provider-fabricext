@@ -1,0 +1,102 @@
+---
+name: ci
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  lint:
+    name: provider | lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: runner | harden
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1  # v2.21.1
+        with:
+          egress-policy: audit
+
+      - name: repo | checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: mise | setup
+        uses: step-security/mise-action@6e96d2ffbc65c037f23c78818f2a339d6cf830f7  # v4.2.4
+
+      - name: specs | check
+        run: mise run specs:check
+
+      - name: spec | verify
+        run: mise run spec:verify
+
+      - name: provider | lint
+        run: mise run lint
+
+      - name: docs | check
+        run: mise run docs:check
+
+      - name: goreleaser | check
+        run: mise exec -- goreleaser check
+
+  scan:
+    name: trivy | scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: runner | harden
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1  # v2.21.1
+        with:
+          egress-policy: audit
+
+      - name: repo | checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: mise | setup
+        uses: step-security/mise-action@6e96d2ffbc65c037f23c78818f2a339d6cf830f7  # v4.2.4
+
+      - name: security | scan
+        run: mise run scan
+
+  test:
+    name: provider | test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: runner | harden
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1  # v2.21.1
+        with:
+          egress-policy: audit
+
+      - name: repo | checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: mise | setup
+        uses: step-security/mise-action@6e96d2ffbc65c037f23c78818f2a339d6cf830f7  # v4.2.4
+
+      - name: test | unit
+        run: mise run test:unit
+
+      - name: test | acc
+        run: mise run test:acc

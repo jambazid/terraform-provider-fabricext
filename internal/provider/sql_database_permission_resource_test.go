@@ -1,0 +1,217 @@
+// Copyright jambazid 2026
+// SPDX-License-Identifier: MPL-2.0
+
+package provider
+
+import (
+	"fmt"
+	"regexp"
+	"slices"
+	"testing"
+
+	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/hashicorp/terraform-plugin-testing/terraform"
+	"github.com/jambazid/terraform-provider-fabricext/internal/testutil/fabricmock"
+)
+
+func TestAccSQLDatabasePermissionResource_CRUDDowngradeAndImport(t *testing.T) {
+	t.Parallel()
+
+	srv := fabricmock.NewServer(t)
+	wsID := "11111111-1111-1111-1111-111111111111"
+	dbID := "44444444-4444-4444-4444-444444444444"
+	principalID := "55555555-5555-5555-5555-555555555555"
+
+	srv.UpsertItem(fabricmock.Item{
+		ID:          dbID,
+		WorkspaceID: wsID,
+		DisplayName: "operational_orders_db",
+		Type:        "SQLDatabase",
+	})
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			// 1. Create with role_type = "read_data"
+			{
+				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
+resource "fabricext_sql_database_permission" "test" {
+  workspace_id      = %q
+  sql_database_name = "operational_orders_db"
+  principal_id      = %q
+  principal_type    = "Group"
+  role_type         = "read_data"
+}
+`, wsID, principalID),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("fabricext_sql_database_permission.test", "id", wsID+"/"+dbID+"/Group/"+principalID),
+					resource.TestCheckResourceAttr("fabricext_sql_database_permission.test", "sql_database_id", dbID),
+					resource.TestCheckResourceAttr("fabricext_sql_database_permission.test", "role_type", "read_data"),
+				),
+			},
+			// 2. Change to role_type = "read_spark"
+			{
+				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
+resource "fabricext_sql_database_permission" "test" {
+  workspace_id      = %q
+  sql_database_name = "operational_orders_db"
+  principal_id      = %q
+  principal_type    = "Group"
+  role_type         = "read_spark"
+}
+`, wsID, principalID),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("fabricext_sql_database_permission.test", "role_type", "read_spark"),
+					func(_ *terraform.State) error {
+						perms := srv.GetPrincipalPermissions(wsID, "SQLDatabase", dbID, principalID)
+						if !slices.Contains(perms, "ReadAll") || !slices.Contains(perms, "SubscribeOneLakeEvents") {
+							return fmt.Errorf("expected ReadAll and SubscribeOneLakeEvents on server, got %v", perms)
+						}
+						if slices.Contains(perms, "ReadData") {
+							return fmt.Errorf("expected ReadData to be revoked when switching to read_spark, got %v", perms)
+						}
+						return nil
+					},
+				),
+			},
+			// 3. Downgrade to role_type = "read"
+			{
+				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
+resource "fabricext_sql_database_permission" "test" {
+  workspace_id      = %q
+  sql_database_name = "operational_orders_db"
+  principal_id      = %q
+  principal_type    = "Group"
+  role_type         = "read"
+}
+`, wsID, principalID),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("fabricext_sql_database_permission.test", "role_type", "read"),
+					func(_ *terraform.State) error {
+						perms := srv.GetPrincipalPermissions(wsID, "SQLDatabase", dbID, principalID)
+						if !slices.Equal(perms, []string{"Read"}) {
+							return fmt.Errorf("expected only [Read] after downgrade, got %v", perms)
+						}
+						return nil
+					},
+				),
+			},
+			// 4. Test write and reshare presets
+			{
+				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
+resource "fabricext_sql_database_permission" "test" {
+  workspace_id      = %q
+  sql_database_name = "operational_orders_db"
+  principal_id      = %q
+  principal_type    = "Group"
+  role_type         = "write"
+}
+`, wsID, principalID),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("fabricext_sql_database_permission.test", "role_type", "write"),
+				),
+			},
+			{
+				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
+resource "fabricext_sql_database_permission" "test" {
+  workspace_id      = %q
+  sql_database_name = "operational_orders_db"
+  principal_id      = %q
+  principal_type    = "Group"
+  role_type         = "reshare"
+}
+`, wsID, principalID),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("fabricext_sql_database_permission.test", "role_type", "reshare"),
+				),
+			},
+			// 5. ImportState verification
+			{
+				ResourceName:      "fabricext_sql_database_permission.test",
+				ImportState:       true,
+				ImportStateVerify: true,
+			},
+		},
+	})
+}
+
+func TestAccSQLDatabasePermissionResource_Disappears(t *testing.T) {
+	t.Parallel()
+
+	srv := fabricmock.NewServer(t)
+	wsID := "11111111-1111-1111-1111-111111111111"
+	dbID := "44444444-4444-4444-4444-444444444444"
+	principalID := "55555555-5555-5555-5555-555555555555"
+
+	srv.UpsertItem(fabricmock.Item{
+		ID:          dbID,
+		WorkspaceID: wsID,
+		DisplayName: "operational_orders_db",
+		Type:        "SQLDatabase",
+	})
+
+	cfg := testAccProviderConfig(srv) + fmt.Sprintf(`
+resource "fabricext_sql_database_permission" "test" {
+  workspace_id      = %q
+  sql_database_name = "operational_orders_db"
+  principal_id      = %q
+  role_type         = "read_data"
+}
+`, wsID, principalID)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: cfg,
+				Check: func(_ *terraform.State) error {
+					srv.ClearPrincipalPermissions(wsID, "SQLDatabase", dbID, principalID)
+					return nil
+				},
+				ExpectNonEmptyPlan: true,
+			},
+			{
+				Config: cfg,
+				Check: func(_ *terraform.State) error {
+					srv.RemoveItem(wsID, dbID)
+					return nil
+				},
+				ExpectNonEmptyPlan: true,
+			},
+		},
+	})
+}
+
+func TestAccSQLDatabasePermissionResource_ValidationErrors(t *testing.T) {
+	t.Parallel()
+
+	srv := fabricmock.NewServer(t)
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccProviderConfig(srv) + `
+resource "fabricext_sql_database_permission" "invalid_role" {
+  workspace_id      = "11111111-1111-1111-1111-111111111111"
+  sql_database_name = "operational_orders_db"
+  principal_id      = "55555555-5555-5555-5555-555555555555"
+  role_type         = "super_admin"
+}
+`,
+				ExpectError: regexp.MustCompile(`Attribute role_type value must be one of`),
+			},
+			{
+				Config: testAccProviderConfig(srv) + `
+resource "fabricext_sql_database_permission" "invalid_uuid" {
+  workspace_id      = "invalid-uuid"
+  sql_database_name = "operational_orders_db"
+  principal_id      = "55555555-5555-5555-5555-555555555555"
+  role_type         = "read_data"
+}
+`,
+				ExpectError: regexp.MustCompile(`must be a valid UUID`),
+			},
+		},
+	})
+}

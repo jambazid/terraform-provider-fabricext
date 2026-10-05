@@ -1,0 +1,128 @@
+---
+name: changelog
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+      - labeled
+      - unlabeled
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: changelog | check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: runner | harden
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1  # v2.21.1
+        with:
+          egress-policy: audit
+
+      - name: repo | checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: filter | paths
+        id: filter
+        uses: step-security/paths-filter@5f3d1a83daa17363d18b529d60375e1e36566799  # v4.0.3
+        with:
+          filters: |
+            changelog:
+              - '.changes/unreleased/**.yaml'
+              - '.changes/unreleased/**.yml'
+
+      - name: mise | setup
+        uses: step-security/mise-action@6e96d2ffbc65c037f23c78818f2a339d6cf830f7  # v4.2.4
+
+      - name: changelog | evaluate
+        id: evaluate
+        env:
+          ACTOR: ${{ github.actor }}
+          HAS_CHANGELOG: ${{ steps.filter.outputs.changelog }}
+          IS_DRAFT: ${{ github.event.pull_request.draft }}
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: |
+          set -euo pipefail
+
+          # Check if skipped via actor, draft, or label
+          if [ "${ACTOR}" = "dependabot[bot]" ] || echo "${LABELS}" | grep -q 'skip-changelog' || [ "${IS_DRAFT}" = "true" ]; then
+            echo "status=skipped" >> "${GITHUB_OUTPUT}"
+            echo "### Changelog Check: Skipped" >> "${GITHUB_STEP_SUMMARY}"
+            echo "Changelog entry skipped (draft PR, Dependabot, or 'skip-changelog' label)." >> "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+
+          if [ "${HAS_CHANGELOG}" = "true" ]; then
+            echo "status=present" >> "${GITHUB_OUTPUT}"
+            PREVIEW="$(mise exec -- changie batch --dry-run auto || mise exec -- changie batch --dry-run 0.1.0)"
+            {
+              echo "preview<<EOF"
+              echo "${PREVIEW}"
+              echo "EOF"
+            } >> "${GITHUB_OUTPUT}"
+            echo "### Changelog Check: Passed" >> "${GITHUB_STEP_SUMMARY}"
+            echo "#### Preview:" >> "${GITHUB_STEP_SUMMARY}"
+            echo "${PREVIEW}" >> "${GITHUB_STEP_SUMMARY}"
+          else
+            echo "status=missing" >> "${GITHUB_OUTPUT}"
+            echo "### Changelog Check: Missing" >> "${GITHUB_STEP_SUMMARY}"
+            echo "No unreleased changelog fragment found in \`.changes/unreleased/\`." >> "${GITHUB_STEP_SUMMARY}"
+            echo "Please run \`mise run changelog:new\` or apply the \`skip-changelog\` label." >> "${GITHUB_STEP_SUMMARY}"
+          fi
+
+      - name: comment | find
+        id: find_comment
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        uses: step-security/find-comment@1d7bf2a0c1b6802305aa3cf2e7c0e47568915caf  # v4.0.0
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-author: "github-actions[bot]"
+          body-includes: "<!-- changelog-preview -->"
+
+      - name: comment | update-preview
+        if: github.event.pull_request.head.repo.full_name == github.repository && steps.evaluate.outputs.status == 'present'
+        uses: step-security/create-or-update-comment@5497a4d6a6aece527d2f86e14b7a18e01fbd5d48  # v5.0.1
+        with:
+          comment-id: ${{ steps.find_comment.outputs.comment-id }}
+          issue-number: ${{ github.event.pull_request.number }}
+          edit-mode: replace
+          body: |
+            <!-- changelog-preview -->
+            ### Changelog Preview :memo:
+            ${{ steps.evaluate.outputs.preview }}
+
+      - name: comment | update-missing
+        if: github.event.pull_request.head.repo.full_name == github.repository && steps.evaluate.outputs.status == 'missing'
+        uses: step-security/create-or-update-comment@5497a4d6a6aece527d2f86e14b7a18e01fbd5d48  # v5.0.1
+        with:
+          comment-id: ${{ steps.find_comment.outputs.comment-id }}
+          issue-number: ${{ github.event.pull_request.number }}
+          edit-mode: replace
+          body: |
+            <!-- changelog-preview -->
+            ### Changelog Fragment Missing :warning:
+            Please add an unreleased fragment by running:
+            ```bash
+            mise run changelog:new
+            ```
+            Or add the `skip-changelog` label if this PR does not require release notes.
+
+      - name: gate | enforce
+        if: steps.evaluate.outputs.status == 'missing'
+        run: |
+          echo "ERROR: Changelog fragment required. Run 'mise run changelog:new' or add 'skip-changelog' label." >&2
+          exit 1

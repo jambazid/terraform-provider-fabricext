@@ -1,0 +1,145 @@
+---
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v0.1.0)"
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v0.1.0)"
+        required: true
+        type: string
+    secrets:
+      GPG_PRIVATE_KEY:
+        required: false
+      PASSPHRASE:
+        required: false
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: release | prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      should_release: ${{ steps.check.outputs.should_release }}
+      release_tag: ${{ steps.check.outputs.release_tag }}
+    steps:
+      - name: runner | harden
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1  # v2.21.1
+        with:
+          egress-policy: audit
+
+      - name: repo | checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: release | check
+        id: check
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          set -euo pipefail
+          if [ -n "${INPUT_TAG}" ]; then
+            echo "should_release=true" >> "${GITHUB_OUTPUT}"
+            echo "release_tag=${INPUT_TAG}" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          if [ "${REF_TYPE}" = "tag" ]; then
+            echo "should_release=true" >> "${GITHUB_OUTPUT}"
+            echo "release_tag=${REF_NAME}" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          FILES="$(ls -1v .changes/v*.md 2>/dev/null | tail -n 1 || true)"
+          if [ -n "${FILES}" ]; then
+            TAG="$(basename "${FILES}" .md)"
+            echo "should_release=true" >> "${GITHUB_OUTPUT}"
+            echo "release_tag=${TAG}" >> "${GITHUB_OUTPUT}"
+          else
+            echo "should_release=false" >> "${GITHUB_OUTPUT}"
+            echo "release_tag=" >> "${GITHUB_OUTPUT}"
+          fi
+
+  release:
+    name: provider | release
+    needs:
+      - prepare
+    if: needs.prepare.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: runner | harden
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1  # v2.21.1
+        with:
+          egress-policy: audit
+
+      - name: repo | checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ needs.prepare.outputs.release_tag }}
+
+      - name: mise | setup
+        uses: step-security/mise-action@6e96d2ffbc65c037f23c78818f2a339d6cf830f7  # v4.2.4
+        with:
+          install_args: "go"
+
+      - name: notes | prepare
+        id: notes
+        env:
+          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          NOTES_FILE=".changes/${RELEASE_TAG}.md"
+          if [ -f "${NOTES_FILE}" ]; then
+            echo "release_notes_arg=--release-notes=${NOTES_FILE}" >> "${GITHUB_OUTPUT}"
+          else
+            echo "release_notes_arg=" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: gpg | import
+        id: import_gpg
+        uses: step-security/ghaction-import-gpg@c0b4a334b9b72bfaaebec86ef022a78a5b17f828  # v7.0.0
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.PASSPHRASE }}
+
+      - name: goreleaser | release
+        uses: step-security/goreleaser-action@0b0370b85341e59c5eca041619966f53c80fbd41  # v7.2.3
+        with:
+          distribution: goreleaser
+          version: latest
+          args: release --clean ${{ steps.notes.outputs.release_notes_arg }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
+
+      - name: attest | build-provenance
+        uses: actions/attest-build-provenance@c074443f1aee8d4aeeae555aebba3282517141b2  # v2.2.3
+        with:
+          subject-path: "dist/*.zip"

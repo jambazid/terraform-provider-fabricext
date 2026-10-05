@@ -1,3 +1,64 @@
+# Rust:
+/target
+/target-*
+Cargo.lock
+**/*.record
+
+# Mise:
+.mise/
+
+# References:
+/references
+
+# Go & Provider Build Artifacts:
+/bin/
+/dist/
+terraform-provider-*
+coverage.out
+*.coverprofile
+*.test
+
+# AGENTS:
+.github/rules/
+.github/skills/
+.github/mcp.json
+.tessl/
+.mcp.json
+.agents/rules/
+.agents/skills/
+.cursor/
+.gemini/
+.claude/
+.vscode/
+.kilo/
+
+# TEMPORARY FILES:
+tmp*
+/.tmp/
+
+# IDEs
+.vscode
+.idea
+.idea/
+
+# Personal shell/tool dotfiles that leak into the worktree (never commit):
+.bash_profile
+.bashrc
+.gitconfig
+.profile
+.ripgreprc
+.zprofile
+.zshrc
+
+# Sandbox/junk artifacts (character devices, broken symlinks):
+.gitmodules
+
+# SSH keys:
+id_rsa
+id_rsa.pub
+id_ed25519
+id_ed25519.pub
+
 # Local .terraform directories
 .terraform/
 
