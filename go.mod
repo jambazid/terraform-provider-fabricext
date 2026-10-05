@@ -3,7 +3,7 @@ module github.com/jambazid/terraform-provider-fabricext
 go 1.27.1
 
 require (
-	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.1
+	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.2
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.14.1
 	github.com/getkin/kin-openapi v0.149.0
 	github.com/hashicorp/terraform-plugin-framework v1.19.0
