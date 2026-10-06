@@ -21,6 +21,7 @@ import (
 	"github.com/jambazid/terraform-provider-fabricext/internal/testutil/fabricmock"
 )
 
+// testAccProtoV6ProviderFactories configures the protocol v6 provider factories for acceptance testing.
 var testAccProtoV6ProviderFactories = map[string]func() (tfprotov6.ProviderServer, error){
 	"fabricext": providerserver.NewProtocol6WithError(New("test")()),
 }
