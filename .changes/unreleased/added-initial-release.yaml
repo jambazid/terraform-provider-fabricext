@@ -1,8 +1,0 @@
----
-kind: added
-body: >-
-  Initial release of `terraform-provider-fabricext` (`fabricext`), providing
-  declarative Microsoft Fabric item-level permissions management for Warehouses
-  (`fabricext_warehouse_permission`), Lakehouses (`fabricext_lakehouse_permission`),
-  and SQL Databases (`fabricext_sql_database_permission`), item discovery
-  (`fabricext_item`), and a workspace permissions matrix module (`modules/permissions`).
