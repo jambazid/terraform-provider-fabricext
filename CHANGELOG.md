@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## v0.1.1 - October 07, 2026
+
+### 🪲 Fixed
+
+* Fix permissions inheritance in tag workflow when calling release reusable workflow by granting contents, id-token, and attestations write permissions.
+
 ## v0.1.0 - October 07, 2026
 
 ### ✨ Added

@@ -95,6 +95,10 @@ jobs:
     needs:
       - tag
     if: needs.tag.outputs.created == 'true' && needs.tag.outputs.tag != ''
+    permissions:
+      contents: write  # Inherited by release.yaml release job to publish assets
+      id-token: write  # Inherited by release.yaml release job for GitHub OIDC provenance
+      attestations: write  # Inherited by release.yaml release job to attest artifacts
     uses: $/.github/workflows/release.yaml
     with:
       tag: ${{ needs.tag.outputs.tag }}
