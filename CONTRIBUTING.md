@@ -79,6 +79,8 @@ Whenever another Microsoft Fabric item type requires item-level sharing or data-
    mise run changelog:new
    ```
 
+4. Ensure the pull request description strictly adheres to `.github/pull_request_template.md` (`## 🛠️ Overview`, `## 🎫 Issue`, `## 🪓 Manual Changes`, `## 👩‍💻 Code Changes`, `## 🧪 Test Evidence`, and the verbatim unchecked `## 📃 Checklist`).
+
 ---
 
 ## Release Engineering

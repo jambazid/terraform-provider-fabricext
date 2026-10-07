@@ -161,4 +161,11 @@ Respect [`DESIGN.md`](DESIGN.md), [`CONTRIBUTING.md`](CONTRIBUTING.md), [`ROADMA
 6. **Code Standards, Branches & Pull Requests**:
    - **Root-cause engineering**: Fix underlying architectural or state-model causes, never symptoms; prioritize HCL practitioner ergonomics.
    - **Branches**: Use descriptive prefix conventions (`feature/*`, `bugfix/*`, `docs/*`, `ci/*`); branch from `main` and open PRs back to `main`.
-   - **PR descriptions**: Include verification gate output tables, architectural trade-offs, and the active AI assistant attribution block; leave human review checklists unchecked for human sign-off.
+   - **Mandatory PR Template Conformance (`.github/pull_request_template.md`)**: Every pull request body MUST strictly adhere to the exact structure and sections defined in `.github/pull_request_template.md`. Inventing ad-hoc heading hierarchies or omitting template sections is strictly forbidden. Every PR body must contain:
+     1. `## 🛠️ Overview`: Plain-language explanation focusing on **why** the change was made.
+     2. `## 🎫 Issue`: Issue reference or link (`N/A` if none).
+     3. `## 🪓 Manual Changes`: Detail any manual steps or migration impact (use `> [!IMPORTANT]\n> **N/A**` when none).
+     4. `## 👩‍💻 Code Changes`: High-level bulleted summary and architectural trade-off table (with Cost, Impact, and Risk columns).
+     5. `## 🧪 Test Evidence`: Runnable verification evidence (`mise run check` summary table, test commands, `TF_ACC=1` acceptance test output).
+     6. `## 📃 Checklist`: The exact, verbatim `## 📃 Checklist` block from `.github/pull_request_template.md` (including HTML comments and callouts) with **every single checkbox left unchecked (`- [ ]`)** for manual human sign-off via the GitHub GUI. Pre-checking, removing, or modifying any checklist item is strictly prohibited.
+     7. **Attribution Trailer**: The active AI assistant attribution trailer (`Co-Authored-By: ...`) appended at the very end after the checklist block.
