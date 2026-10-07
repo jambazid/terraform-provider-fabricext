@@ -26,7 +26,7 @@ terraform {
   required_providers {
     fabricext = {
       source  = "jambazid/fabricext"
-      version = "~> 0.1.3"
+      version = "~> 0.1.4"
     }
   }
 }
@@ -100,7 +100,7 @@ mise run install-local # Install provider binary into ~/.terraform.d/plugins loc
 ## Documentation
 
 - [Architecture & Design Specification (`DESIGN.md`)](DESIGN.md)
-- [Official Provider Comparison & Migration Guide (`docs/guides/official_provider_comparison.md`)](docs/guides/official_provider_comparison.md)
+- [Official Provider Comparison & Migration Guide (`guides/official_provider_comparison.md`)](guides/official_provider_comparison.md)
 - [Product Roadmap & Official Provider Parity (`ROADMAP.md`)](ROADMAP.md)
 - [Contributing Guide (`CONTRIBUTING.md`)](CONTRIBUTING.md)
 - [Security Policy (`SECURITY.md`)](SECURITY.md)

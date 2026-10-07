@@ -62,7 +62,9 @@ func (r *LakehousePermissionResource) Metadata(_ context.Context, req resource.M
 // Schema defines the schema for fabricext_lakehouse_permission.
 func (r *LakehousePermissionResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "Manages a OneLake Data Access Role (`/dataAccessRoles`) on a Microsoft Fabric **Lakehouse** using a concurrency-safe per-Lakehouse mutex and `If-Match` ETag Read-Modify-Write cycle. Note: Fabric OneLake Data Access Roles require uniform member types per role resource; to assign mixed member types (e.g. users and service principals), use an Entra ID security `Group`.",
+		MarkdownDescription: "Manages a OneLake Data Access Role on a Microsoft Fabric **Lakehouse** to grant read access on specific tables and folders to Microsoft Entra users, groups, service principals, or managed identities.\n\n" +
+			"-> **Note:** Microsoft Fabric OneLake Data Access Roles require uniform member types per role resource. To assign mixed member types (e.g., both users and service principals) to the same role, assign access through an Entra ID security `Group`.\n\n" +
+			"-> **Note:** Role modifications automatically coordinate via a per-Lakehouse mutex and an `If-Match` ETag optimistic concurrency loop to safely support parallel applies.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:            true,

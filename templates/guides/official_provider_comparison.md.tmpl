@@ -38,20 +38,25 @@ Microsoft Fabric exposes item-level permission endpoints (`GET /permissions`, `P
      - Grants added permissions (`target \ current`).
      - Revokes removed permissions (`current \ target`).
 
-```mermaid
-sequenceDiagram
-    participant TF as Terraform (jambazid/fabricext)
-    participant API as Fabric REST API (/permissions)
-
-    Note over TF: State role_type = "write" (["Read", "Write"])<br/>Plan role_type = "reshare" (["Read", "Reshare"])<br/>toGrant = ["Reshare"] | toRevoke = ["Write"]
-    TF->>API: POST /v1/workspaces/{wsId}/warehouses/{whId}/grantPermissions (permissions: ["Reshare"])
-    API-->>TF: 200 OK
-    TF->>API: POST /v1/workspaces/{wsId}/warehouses/{whId}/revokePermissions (permissions: ["Write"])
-    API-->>TF: 200 OK
-    Note over TF: Next Read / Refresh verifies live state
-    TF->>API: GET /v1/workspaces/{wsId}/warehouses/{whId}/permissions
-    API-->>TF: 200 OK (verified: ["Read", "Reshare"])
+```text
+Terraform (jambazid/fabricext)                     Fabric REST API (/permissions)
+            │                                                      │
+  [Plan: reshare (Read, Reshare)]                                  │
+  [State: write (Read, Write)]                                     │
+  [Diff: grant Reshare, revoke Write]                              │
+            │                                                      │
+            ├─────── 1. POST /grantPermissions (["Reshare"]) ─────►│
+            │◄────── 200 OK ───────────────────────────────────────┤
+            │                                                      │
+            ├─────── 2. POST /revokePermissions (["Write"]) ──────►│
+            │◄────── 200 OK ───────────────────────────────────────┤
+            │                                                      │
+            ├─────── 3. GET /permissions (refresh & verify) ──────►│
+            │◄────── 200 OK (verified: ["Read", "Reshare"]) ───────┤
+            ▼                                                      ▼
 ```
+
+-> **Note:** An interactive graphical sequence diagram is rendered natively in the [GitHub Comparison Guide](https://github.com/jambazid/terraform-provider-fabricext/blob/main/guides/official_provider_comparison.md#additive-grant-vs-declarative-reconciliation).
 
 ### OneLake Roles Comparison
 
@@ -100,7 +105,7 @@ terraform {
     }
     fabricext = {
       source  = "jambazid/fabricext"
-      version = "~> 0.1.3"
+      version = "~> 0.1.4"
     }
   }
 }
@@ -139,19 +144,22 @@ resource "fabricext_warehouse_permission" "analysts" {
 
 ## Testing and Verification Comparison
 
-```mermaid
-flowchart LR
-    subgraph Official["microsoft/terraform-provider-fabric"]
-        A1["Unit Tests"] --> A2["fabcore/fake Go Struct Stubs<br/>(No wire/JSON validation)"]
-        A3["Acceptance Tests (TF_ACC=1)"] --> A4["Live Azure & Fabric Capacity Required"]
-    end
+```text
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│ microsoft/terraform-provider-fabric (Official)                                   │
+│   Unit Tests ──────────► fabcore/fake Go Struct Stubs (No HTTP/JSON validation)  │
+│   Acceptance Tests ────► Live Azure & Fabric Capacity Required                   │
+└──────────────────────────────────────────────────────────────────────────────────┘
 
-    subgraph Stopgap["jambazid/terraform-provider-fabricext"]
-        B1["Unit & TF_ACC=1 Tests"] --> B2["fabricmock (httptest.Server)"]
-        B2 --> B3["kin-openapi (openapi3filter)<br/>Request & Response Validation"]
-        B3 --> B4["Vendored specs/openapi/*.json<br/>+ SHA-256 lock.json"]
-    end
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│ jambazid/terraform-provider-fabricext (Community Extension)                      │
+│   Unit & Acceptance ───► fabricmock ──► kin-openapi (openapi3filter)             │
+│   (TF_ACC=1 Hermetic)   (In-Memory)     ├── Request & Response Schema Validation │
+│                                         └── Vendored specs/openapi/*.json        │
+└──────────────────────────────────────────────────────────────────────────────────┘
 ```
+
+-> **Note:** An interactive graphical flowchart is rendered natively in the [GitHub Comparison Guide](https://github.com/jambazid/terraform-provider-fabricext/blob/main/guides/official_provider_comparison.md#testing-and-verification-comparison).
 
 - **Why `kin-openapi` Contract Validation Matters**:
   - Go struct fakes (`fabcore/fake`) only test that the provider passes Go structs matching the current SDK version; they do not validate URL routing, query parameters, ETag headers (`ETag` / `If-Match`), or JSON wire serialization against the OpenAPI specification.
@@ -163,8 +171,7 @@ flowchart LR
 
 When `microsoft/fabric` promotes OneLake Data Access Security to GA and adds native Warehouse/SQL Database item-permission resources, practitioners can migrate state with **zero permission revocation or downtime** using Terraform 1.7+ `removed` and `import` blocks.
 
-> [!TIP]
-> **Retrieving Resolved Item UUIDs Before Migration**: Every `jambazid/fabricext` permission resource stores the resolved Fabric item UUID in state (`lakehouse_id`, `warehouse_id`, or `sql_database_id`). Before replacing a `fabricext_*` resource block, inspect state with `terraform state show` (or reference `data.fabricext_item`) to obtain the item UUID for your `import` block.
+-> **Tip:** **Retrieving Resolved Item UUIDs Before Migration**: Every `jambazid/fabricext` permission resource stores the resolved Fabric item UUID in state (`lakehouse_id`, `warehouse_id`, or `sql_database_id`). Before replacing a `fabricext_*` resource block, inspect state with `terraform state show` (or reference `data.fabricext_item`) to obtain the item UUID for your `import` block.
 
 ### Lakehouse Role Migration
 

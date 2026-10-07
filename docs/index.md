@@ -6,8 +6,7 @@ description: |-
 
 # Fabric Extensions Provider
 
-> [!WARNING]
-> **Pre-Alpha & Extensions Notice**: `registry.terraform.io/jambazid/fabricext` (`v0.x`) is a **pre-alpha, purpose-built provider** created to manage item-level sharing and OneLake Data Access Roles (`fabricext_warehouse_permission`, `fabricext_sql_database_permission`, `fabricext_lakehouse_permission`, and `fabricext_item`) until equivalent resources are released in Microsoft's official [`microsoft/fabric` Terraform provider](https://github.com/microsoft/terraform-provider-fabric). Breaking schema changes may occur between `0.x` minor versions, and individual `fabricext_*` resources will be deprecated with migration guides as official equivalents reach General Availability.
+~> **Warning:** **Pre-Alpha & Community Extension Notice**: `fabricext` (`v0.x`) is a purpose-built community provider for declaratively managing Microsoft Fabric item-level sharing and OneLake Data Access Roles (`fabricext_warehouse_permission`, `fabricext_sql_database_permission`, `fabricext_lakehouse_permission`, and `fabricext_item`) until equivalent resources land in Microsoft's official [`microsoft/fabric`](https://registry.terraform.io/providers/microsoft/fabric/latest) provider. Workspace provisioning and item lifecycles should be managed via `microsoft/fabric`.
 
 The **Fabric Extensions (fabricext)** provider (`registry.terraform.io/jambazid/fabricext`) is a purpose-built provider for declaratively managing Microsoft Fabric item-level sharing and data-access permissions (`fabricext_*`) across Warehouses, SQL Databases, and Lakehouses until equivalent resources are available in Microsoft's official `microsoft/fabric` provider.
 
@@ -21,7 +20,7 @@ terraform {
   required_providers {
     fabricext = {
       source  = "jambazid/fabricext"
-      version = "~> 0.1.3"
+      version = "~> 0.1.4"
     }
   }
 }
@@ -39,7 +38,7 @@ terraform {
   required_providers {
     fabricext = {
       source  = "jambazid/fabricext"
-      version = "~> 0.1.3"
+      version = "~> 0.1.4"
     }
   }
 }
@@ -62,7 +61,7 @@ terraform {
   required_providers {
     fabricext = {
       source  = "jambazid/fabricext"
-      version = "~> 0.1.3"
+      version = "~> 0.1.4"
     }
   }
 }
@@ -84,7 +83,7 @@ terraform {
   required_providers {
     fabricext = {
       source  = "jambazid/fabricext"
-      version = "~> 0.1.3"
+      version = "~> 0.1.4"
     }
   }
 }
@@ -123,7 +122,7 @@ terraform {
   required_providers {
     fabricext = {
       source  = "jambazid/fabricext"
-      version = "~> 0.1.3"
+      version = "~> 0.1.4"
     }
   }
 }
@@ -165,7 +164,7 @@ terraform {
   required_providers {
     fabricext = {
       source  = "jambazid/fabricext"
-      version = "~> 0.1.3"
+      version = "~> 0.1.4"
     }
   }
 }
@@ -201,7 +200,7 @@ terraform {
   required_providers {
     fabricext = {
       source  = "jambazid/fabricext"
-      version = "~> 0.1.3"
+      version = "~> 0.1.4"
     }
   }
 }
@@ -220,7 +219,7 @@ terraform {
   required_providers {
     fabricext = {
       source  = "jambazid/fabricext"
-      version = "~> 0.1.3"
+      version = "~> 0.1.4"
     }
   }
 }
@@ -245,7 +244,7 @@ terraform {
   required_providers {
     fabricext = {
       source  = "jambazid/fabricext"
-      version = "~> 0.1.3"
+      version = "~> 0.1.4"
     }
   }
 }
@@ -295,7 +294,7 @@ terraform {
     }
     fabricext = {
       source  = "jambazid/fabricext"
-      version = "~> 0.1.3"
+      version = "~> 0.1.4"
     }
   }
 }
@@ -339,7 +338,7 @@ terraform {
   required_providers {
     fabricext = {
       source  = "jambazid/fabricext"
-      version = "~> 0.1.3"
+      version = "~> 0.1.4"
     }
   }
 }
@@ -380,8 +379,7 @@ The provider implements **100% authentication parity** with Microsoft's official
 
 ## Declarative Matrix Composition
 
-> [!IMPORTANT]
-> **Workspace Role Prerequisites**: The executing identity (user, service principal, or managed identity) must have **Admin** or **Member** permissions on the target Microsoft Fabric workspace to manage item-level permissions and OneLake Data Access Roles. Principals with only **Contributor** or **Viewer** workspace roles cannot grant or revoke item permissions.
+~> **Important:** **Workspace Role Prerequisites**: The executing identity (user, service principal, or managed identity) must have **Admin** or **Member** permissions on the target Microsoft Fabric workspace to manage item-level permissions and OneLake Data Access Roles. Principals with only **Contributor** or **Viewer** workspace roles cannot grant or revoke item permissions.
 
 Following HashiCorp Provider Design Principles, each `fabricext_*` resource manages a single atomic permission binding or OneLake role. Keying `for_each` by `{item_name}/{principal_type}/{principal_id}` (omitting `role_type` from the map key) ensures role upgrades and downgrades execute in-place without recreate races. You can declaratively manage an entire workspace's permissions matrix either with **Zero-Module Native HCL (`for_each`)** or with the in-repo **`modules/permissions`** wrapper module:
 
@@ -416,7 +414,7 @@ You can also use the in-repo companion HCL module to flatten matrices across War
 
 ```hcl
 module "workspace_permissions" {
-  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=v0.1.3"
+  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=v0.1.4"
 
   fabric_permissions_matrix = {
     workspace_id = "00000000-0000-0000-0000-000000000001"
@@ -437,8 +435,7 @@ module "workspace_permissions" {
 
 *(Note: In local or monorepo development checkouts, you can also use `source = "./modules/permissions"`).*
 
-> [!NOTE]
-> **Lakehouse Member Type Uniformity**: Microsoft Fabric OneLake Data Access Roles require uniform `principal_type` per role resource. When assigning access to mixed principal types (e.g. both users and service principals) for the same role, assign them via an Entra ID security `Group`.
+-> **Note:** **Lakehouse Member Type Uniformity**: Microsoft Fabric OneLake Data Access Roles require uniform `principal_type` per role resource. When assigning access to mixed principal types (e.g. both users and service principals) for the same role, assign them via an Entra ID security `Group`.
 
 ## Migration & Official Provider Coexistence
 
@@ -473,4 +470,3 @@ For detailed architectural trade-offs, state migration instructions, and resourc
 - `use_dev_cli` (Boolean) Allow fallback to the Azure Developer CLI (`azd auth login`) session. Can also be sourced from `FABRIC_USE_DEV_CLI`.
 - `use_msi` (Boolean) Enable Azure Managed Identity authentication. Can also be sourced from `FABRIC_USE_MSI`, `AZURE_USE_MSI`, or `ARM_USE_MSI`.
 - `use_oidc` (Boolean) Enable Microsoft Entra Workload Identity (OIDC) authentication. Can also be sourced from `FABRIC_USE_OIDC`, `AZURE_USE_OIDC`, or `ARM_USE_OIDC`.
-
