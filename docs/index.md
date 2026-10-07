@@ -21,7 +21,7 @@ terraform {
   required_providers {
     fabricext = {
       source  = "jambazid/fabricext"
-      version = "~> 0.1.0"
+      version = "~> 0.1.1"
     }
   }
 }
@@ -39,7 +39,7 @@ terraform {
   required_providers {
     fabricext = {
       source  = "jambazid/fabricext"
-      version = "~> 0.1.0"
+      version = "~> 0.1.1"
     }
   }
 }
@@ -62,7 +62,7 @@ terraform {
   required_providers {
     fabricext = {
       source  = "jambazid/fabricext"
-      version = "~> 0.1.0"
+      version = "~> 0.1.1"
     }
   }
 }
@@ -84,7 +84,7 @@ terraform {
   required_providers {
     fabricext = {
       source  = "jambazid/fabricext"
-      version = "~> 0.1.0"
+      version = "~> 0.1.1"
     }
   }
 }
@@ -123,7 +123,7 @@ terraform {
   required_providers {
     fabricext = {
       source  = "jambazid/fabricext"
-      version = "~> 0.1.0"
+      version = "~> 0.1.1"
     }
   }
 }
@@ -165,7 +165,7 @@ terraform {
   required_providers {
     fabricext = {
       source  = "jambazid/fabricext"
-      version = "~> 0.1.0"
+      version = "~> 0.1.1"
     }
   }
 }
@@ -201,7 +201,7 @@ terraform {
   required_providers {
     fabricext = {
       source  = "jambazid/fabricext"
-      version = "~> 0.1.0"
+      version = "~> 0.1.1"
     }
   }
 }
@@ -220,7 +220,7 @@ terraform {
   required_providers {
     fabricext = {
       source  = "jambazid/fabricext"
-      version = "~> 0.1.0"
+      version = "~> 0.1.1"
     }
   }
 }
@@ -245,7 +245,7 @@ terraform {
   required_providers {
     fabricext = {
       source  = "jambazid/fabricext"
-      version = "~> 0.1.0"
+      version = "~> 0.1.1"
     }
   }
 }
@@ -295,7 +295,7 @@ terraform {
     }
     fabricext = {
       source  = "jambazid/fabricext"
-      version = "~> 0.1.0"
+      version = "~> 0.1.1"
     }
   }
 }
@@ -339,7 +339,7 @@ terraform {
   required_providers {
     fabricext = {
       source  = "jambazid/fabricext"
-      version = "~> 0.1.0"
+      version = "~> 0.1.1"
     }
   }
 }
@@ -416,7 +416,7 @@ You can also use the in-repo companion HCL module to flatten matrices across War
 
 ```hcl
 module "workspace_permissions" {
-  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=v0.1.0"
+  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=v0.1.1"
 
   fabric_permissions_matrix = {
     workspace_id = "00000000-0000-0000-0000-000000000001"
