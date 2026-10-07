@@ -495,3 +495,26 @@ func (p *FabricProvider) DataSources(_ context.Context) []func() datasource.Data
 		NewItemDataSource,
 	}
 }
+
+// reconcileItemIdentifiersPlan adjusts item name and item ID plan values when resources
+// are replaced. If an identifier changes, the unconfigured counterpart is set to unknown
+// so stale values preserved by UseStateForUnknown do not cause replacement failures.
+func reconcileItemIdentifiersPlan(
+	nameConfig, idConfig types.String,
+	nameState, idState types.String,
+	namePlan, idPlan *types.String,
+) {
+	// If name was configured and changed relative to state, clear unconfigured ID
+	if !nameConfig.IsNull() && !nameConfig.IsUnknown() {
+		if idConfig.IsNull() && !nameState.IsNull() && nameConfig.ValueString() != nameState.ValueString() {
+			*idPlan = types.StringUnknown()
+		}
+	}
+
+	// If ID was configured and changed relative to state, clear unconfigured Name
+	if !idConfig.IsNull() && !idConfig.IsUnknown() {
+		if nameConfig.IsNull() && !idState.IsNull() && idConfig.ValueString() != idState.ValueString() {
+			*namePlan = types.StringUnknown()
+		}
+	}
+}

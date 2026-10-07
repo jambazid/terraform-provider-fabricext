@@ -544,6 +544,20 @@ func (r *LakehousePermissionResource) ModifyPlan(ctx context.Context, req resour
 		plan.Kind = types.StringValue("Policy")
 	}
 
+	if !req.State.Raw.IsNull() && !req.Config.Raw.IsNull() {
+		var state LakehousePermissionResourceModel
+		var config LakehousePermissionResourceModel
+		resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+		resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
+		if !resp.Diagnostics.HasError() {
+			reconcileItemIdentifiersPlan(
+				config.LakehouseName, config.LakehouseID,
+				state.LakehouseName, state.LakehouseID,
+				&plan.LakehouseName, &plan.LakehouseID,
+			)
+		}
+	}
+
 	resp.Diagnostics.Append(resp.Plan.Set(ctx, &plan)...)
 }
 
@@ -773,29 +787,54 @@ func (r *LakehousePermissionResource) Create(ctx context.Context, req resource.C
 		return
 	}
 
+	var config LakehousePermissionResourceModel
+	if !req.Config.Raw.IsNull() {
+		resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+	}
+
 	wsID := plan.WorkspaceID.ValueString()
+	hasConfigID := !config.LakehouseID.IsNull() && !config.LakehouseID.IsUnknown() && config.LakehouseID.ValueString() != ""
+	hasConfigName := !config.LakehouseName.IsNull() && !config.LakehouseName.IsUnknown() && config.LakehouseName.ValueString() != ""
+	if !hasConfigID && !hasConfigName {
+		hasConfigID = !plan.LakehouseID.IsNull() && !plan.LakehouseID.IsUnknown() && plan.LakehouseID.ValueString() != ""
+		hasConfigName = !plan.LakehouseName.IsNull() && !plan.LakehouseName.IsUnknown() && plan.LakehouseName.ValueString() != ""
+	}
+
 	var lhID string
 	var lhName string
 
-	if !plan.LakehouseID.IsNull() && !plan.LakehouseID.IsUnknown() && plan.LakehouseID.ValueString() != "" {
-		lhID = plan.LakehouseID.ValueString()
+	switch {
+	case hasConfigID && hasConfigName:
+		lhID = config.LakehouseID.ValueString()
+		lhName = config.LakehouseName.ValueString()
 		item, err := r.client.GetItemByID(ctx, wsID, lhID, "Lakehouse")
 		if err != nil {
 			resp.Diagnostics.AddError("Unable to Resolve Lakehouse by ID", err.Error())
 			return
 		}
-		if !plan.LakehouseName.IsNull() && !plan.LakehouseName.IsUnknown() && plan.LakehouseName.ValueString() != "" {
-			if item.DisplayName != plan.LakehouseName.ValueString() {
-				resp.Diagnostics.AddError(
-					"Conflicting Lakehouse Identifiers",
-					fmt.Sprintf("Specified lakehouse_name %q does not match display name %q of lakehouse_id %q.", plan.LakehouseName.ValueString(), item.DisplayName, lhID),
-				)
-				return
-			}
+		if item.DisplayName != lhName {
+			resp.Diagnostics.AddError(
+				"Conflicting Lakehouse Identifiers",
+				fmt.Sprintf("Specified lakehouse_name %q does not match display name %q of lakehouse_id %q.", lhName, item.DisplayName, lhID),
+			)
+			return
+		}
+		plan.LakehouseID = types.StringValue(lhID)
+		plan.LakehouseName = types.StringValue(item.DisplayName)
+	case hasConfigID:
+		lhID = config.LakehouseID.ValueString()
+		item, err := r.client.GetItemByID(ctx, wsID, lhID, "Lakehouse")
+		if err != nil {
+			resp.Diagnostics.AddError("Unable to Resolve Lakehouse by ID", err.Error())
+			return
 		}
 		lhName = item.DisplayName
+		plan.LakehouseID = types.StringValue(lhID)
 		plan.LakehouseName = types.StringValue(lhName)
-	} else {
+	default:
 		lhName = plan.LakehouseName.ValueString()
 		var err error
 		lhID, err = r.client.GetItemIDByName(ctx, wsID, lhName, "Lakehouse")
@@ -804,6 +843,7 @@ func (r *LakehousePermissionResource) Create(ctx context.Context, req resource.C
 			return
 		}
 		plan.LakehouseID = types.StringValue(lhID)
+		plan.LakehouseName = types.StringValue(lhName)
 	}
 
 	rolePayload, diags := r.buildRolePayload(ctx, &plan)

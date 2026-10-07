@@ -222,12 +222,19 @@ func TestAccSQLDatabasePermissionResource_DirectIDReference(t *testing.T) {
 	srv := fabricmock.NewServer(t)
 	wsID := "11111111-1111-1111-1111-111111111111"
 	dbID := "44444444-4444-4444-4444-444444444444"
+	dbID2 := "55555555-5555-5555-5555-555555555555"
 	principalID := "33333333-3333-3333-3333-333333333333"
 
 	srv.UpsertItem(fabricmock.Item{
 		ID:          dbID,
 		WorkspaceID: wsID,
 		DisplayName: "direct_db",
+		Type:        "SQLDatabase",
+	})
+	srv.UpsertItem(fabricmock.Item{
+		ID:          dbID2,
+		WorkspaceID: wsID,
+		DisplayName: "direct_db_2",
 		Type:        "SQLDatabase",
 	})
 
@@ -255,6 +262,38 @@ resource "fabricext_sql_database_permission" "direct" {
 				ResourceName:      "fabricext_sql_database_permission.direct",
 				ImportState:       true,
 				ImportStateVerify: true,
+			},
+			// Step 3: Replace resource by switching to sql_database_name only (clears sql_database_id in plan)
+			{
+				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
+resource "fabricext_sql_database_permission" "direct" {
+  workspace_id      = %q
+  sql_database_name = "direct_db_2"
+  principal_id      = %q
+  role_type         = "read_data"
+}
+`, wsID, principalID),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("fabricext_sql_database_permission.direct", "id", wsID+"/"+dbID2+"/Group/"+principalID),
+					resource.TestCheckResourceAttr("fabricext_sql_database_permission.direct", "sql_database_id", dbID2),
+					resource.TestCheckResourceAttr("fabricext_sql_database_permission.direct", "sql_database_name", "direct_db_2"),
+				),
+			},
+			// Step 4: Replace resource by changing sql_database_name (ensures counterpart ID is re-resolved)
+			{
+				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
+resource "fabricext_sql_database_permission" "direct" {
+  workspace_id      = %q
+  sql_database_name = "direct_db"
+  principal_id      = %q
+  role_type         = "read_data"
+}
+`, wsID, principalID),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("fabricext_sql_database_permission.direct", "id", wsID+"/"+dbID+"/Group/"+principalID),
+					resource.TestCheckResourceAttr("fabricext_sql_database_permission.direct", "sql_database_id", dbID),
+					resource.TestCheckResourceAttr("fabricext_sql_database_permission.direct", "sql_database_name", "direct_db"),
+				),
 			},
 		},
 	})

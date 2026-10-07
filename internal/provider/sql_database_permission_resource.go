@@ -24,6 +24,7 @@ import (
 var (
 	_ resource.Resource                     = &SQLDatabasePermissionResource{}
 	_ resource.ResourceWithConfigure        = &SQLDatabasePermissionResource{}
+	_ resource.ResourceWithModifyPlan       = &SQLDatabasePermissionResource{}
 	_ resource.ResourceWithImportState      = &SQLDatabasePermissionResource{}
 	_ resource.ResourceWithConfigValidators = &SQLDatabasePermissionResource{}
 )
@@ -82,7 +83,6 @@ func (r *SQLDatabasePermissionResource) Schema(_ context.Context, _ resource.Sch
 				MarkdownDescription: "Display name of the target Microsoft Fabric SQL Database. At least one of `sql_database_name` or `sql_database_id` must be specified.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
-					stringplanmodifier.UseStateForUnknown(),
 				},
 				Validators: []validator.String{
 					stringvalidator.LengthAtLeast(1),
@@ -94,7 +94,6 @@ func (r *SQLDatabasePermissionResource) Schema(_ context.Context, _ resource.Sch
 				MarkdownDescription: "Resolved or explicitly specified UUID of the Microsoft Fabric SQL Database. At least one of `sql_database_name` or `sql_database_id` must be specified.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
-					stringplanmodifier.UseStateForUnknown(),
 				},
 				Validators: []validator.String{
 					uuidValidator(),
@@ -156,6 +155,33 @@ func (r *SQLDatabasePermissionResource) Configure(_ context.Context, req resourc
 	r.client = pd.Client
 }
 
+// ModifyPlan clears unconfigured counterpart identifiers on replacement so stale
+// values from UseStateForUnknown do not cause replacement failures.
+func (r *SQLDatabasePermissionResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
+	if req.Plan.Raw.IsNull() || req.State.Raw.IsNull() || req.Config.Raw.IsNull() {
+		return
+	}
+
+	var state SQLDatabasePermissionResourceModel
+	var config SQLDatabasePermissionResourceModel
+	var plan SQLDatabasePermissionResourceModel
+
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	reconcileItemIdentifiersPlan(
+		config.SQLDatabaseName, config.SQLDatabaseID,
+		state.SQLDatabaseName, state.SQLDatabaseID,
+		&plan.SQLDatabaseName, &plan.SQLDatabaseID,
+	)
+
+	resp.Diagnostics.Append(resp.Plan.Set(ctx, &plan)...)
+}
+
 // Create grants the requested SQL Database permissions and populates Terraform state.
 func (r *SQLDatabasePermissionResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var plan SQLDatabasePermissionResourceModel
@@ -164,32 +190,59 @@ func (r *SQLDatabasePermissionResource) Create(ctx context.Context, req resource
 		return
 	}
 
+	var config SQLDatabasePermissionResourceModel
+	if !req.Config.Raw.IsNull() {
+		resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+	}
+
 	wsID := plan.WorkspaceID.ValueString()
 	principal := client.Principal{
 		ID:   plan.PrincipalID.ValueString(),
 		Type: plan.PrincipalType.ValueString(),
 	}
 
+	hasConfigID := !config.SQLDatabaseID.IsNull() && !config.SQLDatabaseID.IsUnknown() && config.SQLDatabaseID.ValueString() != ""
+	hasConfigName := !config.SQLDatabaseName.IsNull() && !config.SQLDatabaseName.IsUnknown() && config.SQLDatabaseName.ValueString() != ""
+	if !hasConfigID && !hasConfigName {
+		hasConfigID = !plan.SQLDatabaseID.IsNull() && !plan.SQLDatabaseID.IsUnknown() && plan.SQLDatabaseID.ValueString() != ""
+		hasConfigName = !plan.SQLDatabaseName.IsNull() && !plan.SQLDatabaseName.IsUnknown() && plan.SQLDatabaseName.ValueString() != ""
+	}
+
 	var dbID string
-	if !plan.SQLDatabaseID.IsNull() && !plan.SQLDatabaseID.IsUnknown() && plan.SQLDatabaseID.ValueString() != "" {
-		dbID = plan.SQLDatabaseID.ValueString()
+	var dbName string
+	switch {
+	case hasConfigID && hasConfigName:
+		dbID = config.SQLDatabaseID.ValueString()
+		dbName = config.SQLDatabaseName.ValueString()
 		item, err := r.client.GetItemByID(ctx, wsID, dbID, "SQLDatabase")
 		if err != nil {
 			resp.Diagnostics.AddError("Unable to Resolve SQL Database by ID", err.Error())
 			return
 		}
-		if !plan.SQLDatabaseName.IsNull() && !plan.SQLDatabaseName.IsUnknown() && plan.SQLDatabaseName.ValueString() != "" {
-			if plan.SQLDatabaseName.ValueString() != item.DisplayName {
-				resp.Diagnostics.AddError(
-					"Conflicting SQL Database Identifiers",
-					fmt.Sprintf("Configured sql_database_name %q does not match display name %q of sql_database_id %q.", plan.SQLDatabaseName.ValueString(), item.DisplayName, dbID),
-				)
-				return
-			}
+		if item.DisplayName != dbName {
+			resp.Diagnostics.AddError(
+				"Conflicting SQL Database Identifiers",
+				fmt.Sprintf("Configured sql_database_name %q does not match display name %q of sql_database_id %q.", dbName, item.DisplayName, dbID),
+			)
+			return
 		}
+		plan.SQLDatabaseID = types.StringValue(dbID)
 		plan.SQLDatabaseName = types.StringValue(item.DisplayName)
-	} else {
-		dbName := plan.SQLDatabaseName.ValueString()
+	case hasConfigID:
+		dbID = config.SQLDatabaseID.ValueString()
+		item, err := r.client.GetItemByID(ctx, wsID, dbID, "SQLDatabase")
+		if err != nil {
+			resp.Diagnostics.AddError("Unable to Resolve SQL Database by ID", err.Error())
+			return
+		}
+		dbName = item.DisplayName
+		plan.SQLDatabaseID = types.StringValue(dbID)
+		plan.SQLDatabaseName = types.StringValue(dbName)
+	default:
+		dbName = plan.SQLDatabaseName.ValueString()
 		var err error
 		dbID, err = r.client.GetItemIDByName(ctx, wsID, dbName, "SQLDatabase")
 		if err != nil {
@@ -197,6 +250,7 @@ func (r *SQLDatabasePermissionResource) Create(ctx context.Context, req resource
 			return
 		}
 		plan.SQLDatabaseID = types.StringValue(dbID)
+		plan.SQLDatabaseName = types.StringValue(dbName)
 	}
 
 	perms, err := client.ExpandRolePermissions("SQLDatabase", plan.RoleType.ValueString())

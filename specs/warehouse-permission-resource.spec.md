@@ -26,7 +26,7 @@ resource "fabricext_warehouse_permission" "example" {
 
 - `workspace_id`, `warehouse_name`, `warehouse_id`, `principal_id`, and `principal_type` carry `RequiresReplace()` plan modifiers; `id` carries `UseStateForUnknown()`
   `[@test] ../internal/provider/warehouse_permission_resource_test.go::TestAccWarehousePermissionResource_CRUDDowngradeAndImport`
-- `warehouse_name` and `warehouse_id` are optional attributes where at least one must be specified; if `warehouse_id` is supplied, `warehouse_name` is resolved automatically via `GetItemByID`, and if `warehouse_name` is supplied, `warehouse_id` is resolved via `GetItemByName`; if both are supplied, `Create` validates that `warehouse_name` matches the fetched display name
+- `warehouse_name` and `warehouse_id` are optional attributes where at least one must be specified; if `warehouse_id` is supplied, `warehouse_name` is resolved automatically via `GetItemByID`, and if `warehouse_name` is supplied, `warehouse_id` is resolved via `GetItemByName`; if both are configured, `Create` validates that `warehouse_name` matches the fetched display name; on replacement, `ModifyPlan` clears the unconfigured counterpart so stale state values from `UseStateForUnknown` do not cause replacement failures
   `[@test] ../internal/provider/warehouse_permission_resource_test.go::TestAccWarehousePermissionResource_DirectIDReference`
 - `workspace_id`, `warehouse_id`, and `principal_id` validate UUID format at plan time; `role_type` validates `OneOf("read", "write", "reshare")`; `principal_type` defaults to `"Group"` and validates `OneOf("User", "Group", "ServicePrincipal", "ServicePrincipalProfile")`
   `[@test] ../internal/provider/warehouse_permission_resource_test.go::TestAccWarehousePermissionResource_ValidationErrors`

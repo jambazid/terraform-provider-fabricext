@@ -24,6 +24,7 @@ import (
 var (
 	_ resource.Resource                     = &WarehousePermissionResource{}
 	_ resource.ResourceWithConfigure        = &WarehousePermissionResource{}
+	_ resource.ResourceWithModifyPlan       = &WarehousePermissionResource{}
 	_ resource.ResourceWithImportState      = &WarehousePermissionResource{}
 	_ resource.ResourceWithConfigValidators = &WarehousePermissionResource{}
 )
@@ -82,7 +83,6 @@ func (r *WarehousePermissionResource) Schema(_ context.Context, _ resource.Schem
 				MarkdownDescription: "Display name of the target Microsoft Fabric Warehouse. At least one of `warehouse_name` or `warehouse_id` must be specified.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
-					stringplanmodifier.UseStateForUnknown(),
 				},
 				Validators: []validator.String{
 					stringvalidator.LengthAtLeast(1),
@@ -94,7 +94,6 @@ func (r *WarehousePermissionResource) Schema(_ context.Context, _ resource.Schem
 				MarkdownDescription: "Resolved or explicitly specified UUID of the Microsoft Fabric Warehouse. At least one of `warehouse_name` or `warehouse_id` must be specified.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
-					stringplanmodifier.UseStateForUnknown(),
 				},
 				Validators: []validator.String{
 					uuidValidator(),
@@ -156,6 +155,33 @@ func (r *WarehousePermissionResource) Configure(_ context.Context, req resource.
 	r.client = pd.Client
 }
 
+// ModifyPlan clears unconfigured counterpart identifiers on replacement so stale
+// values from UseStateForUnknown do not cause replacement failures.
+func (r *WarehousePermissionResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
+	if req.Plan.Raw.IsNull() || req.State.Raw.IsNull() || req.Config.Raw.IsNull() {
+		return
+	}
+
+	var state WarehousePermissionResourceModel
+	var config WarehousePermissionResourceModel
+	var plan WarehousePermissionResourceModel
+
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	reconcileItemIdentifiersPlan(
+		config.WarehouseName, config.WarehouseID,
+		state.WarehouseName, state.WarehouseID,
+		&plan.WarehouseName, &plan.WarehouseID,
+	)
+
+	resp.Diagnostics.Append(resp.Plan.Set(ctx, &plan)...)
+}
+
 // Create grants the requested Warehouse permissions and populates Terraform state.
 func (r *WarehousePermissionResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var plan WarehousePermissionResourceModel
@@ -164,32 +190,59 @@ func (r *WarehousePermissionResource) Create(ctx context.Context, req resource.C
 		return
 	}
 
+	var config WarehousePermissionResourceModel
+	if !req.Config.Raw.IsNull() {
+		resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+	}
+
 	wsID := plan.WorkspaceID.ValueString()
 	principal := client.Principal{
 		ID:   plan.PrincipalID.ValueString(),
 		Type: plan.PrincipalType.ValueString(),
 	}
 
+	hasConfigID := !config.WarehouseID.IsNull() && !config.WarehouseID.IsUnknown() && config.WarehouseID.ValueString() != ""
+	hasConfigName := !config.WarehouseName.IsNull() && !config.WarehouseName.IsUnknown() && config.WarehouseName.ValueString() != ""
+	if !hasConfigID && !hasConfigName {
+		hasConfigID = !plan.WarehouseID.IsNull() && !plan.WarehouseID.IsUnknown() && plan.WarehouseID.ValueString() != ""
+		hasConfigName = !plan.WarehouseName.IsNull() && !plan.WarehouseName.IsUnknown() && plan.WarehouseName.ValueString() != ""
+	}
+
 	var whID string
-	if !plan.WarehouseID.IsNull() && !plan.WarehouseID.IsUnknown() && plan.WarehouseID.ValueString() != "" {
-		whID = plan.WarehouseID.ValueString()
+	var whName string
+	switch {
+	case hasConfigID && hasConfigName:
+		whID = config.WarehouseID.ValueString()
+		whName = config.WarehouseName.ValueString()
 		item, err := r.client.GetItemByID(ctx, wsID, whID, "Warehouse")
 		if err != nil {
 			resp.Diagnostics.AddError("Unable to Resolve Warehouse by ID", err.Error())
 			return
 		}
-		if !plan.WarehouseName.IsNull() && !plan.WarehouseName.IsUnknown() && plan.WarehouseName.ValueString() != "" {
-			if plan.WarehouseName.ValueString() != item.DisplayName {
-				resp.Diagnostics.AddError(
-					"Conflicting Warehouse Identifiers",
-					fmt.Sprintf("Configured warehouse_name %q does not match display name %q of warehouse_id %q.", plan.WarehouseName.ValueString(), item.DisplayName, whID),
-				)
-				return
-			}
+		if item.DisplayName != whName {
+			resp.Diagnostics.AddError(
+				"Conflicting Warehouse Identifiers",
+				fmt.Sprintf("Configured warehouse_name %q does not match display name %q of warehouse_id %q.", whName, item.DisplayName, whID),
+			)
+			return
 		}
+		plan.WarehouseID = types.StringValue(whID)
 		plan.WarehouseName = types.StringValue(item.DisplayName)
-	} else {
-		whName := plan.WarehouseName.ValueString()
+	case hasConfigID:
+		whID = config.WarehouseID.ValueString()
+		item, err := r.client.GetItemByID(ctx, wsID, whID, "Warehouse")
+		if err != nil {
+			resp.Diagnostics.AddError("Unable to Resolve Warehouse by ID", err.Error())
+			return
+		}
+		whName = item.DisplayName
+		plan.WarehouseID = types.StringValue(whID)
+		plan.WarehouseName = types.StringValue(whName)
+	default:
+		whName = plan.WarehouseName.ValueString()
 		var err error
 		whID, err = r.client.GetItemIDByName(ctx, wsID, whName, "Warehouse")
 		if err != nil {
@@ -197,6 +250,7 @@ func (r *WarehousePermissionResource) Create(ctx context.Context, req resource.C
 			return
 		}
 		plan.WarehouseID = types.StringValue(whID)
+		plan.WarehouseName = types.StringValue(whName)
 	}
 
 	perms, err := client.ExpandRolePermissions("Warehouse", plan.RoleType.ValueString())

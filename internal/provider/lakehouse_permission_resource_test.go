@@ -598,3 +598,80 @@ resource "fabricext_lakehouse_permission" "mismatch" {
 		},
 	})
 }
+
+func TestAccLakehousePermissionResource_IdentifierReplacement(t *testing.T) {
+	t.Parallel()
+
+	srv := fabricmock.NewServer(t)
+	wsID := "11111111-1111-1111-1111-111111111111"
+	lhID1 := "22222222-2222-2222-2222-222222222222"
+	lhID2 := "33333333-3333-3333-3333-333333333333"
+	principalID := "77777777-7777-7777-7777-777777777771"
+
+	srv.UpsertItem(fabricmock.Item{
+		ID:          lhID1,
+		WorkspaceID: wsID,
+		DisplayName: "lakehouse_one",
+		Type:        "Lakehouse",
+	})
+	srv.UpsertItem(fabricmock.Item{
+		ID:          lhID2,
+		WorkspaceID: wsID,
+		DisplayName: "lakehouse_two",
+		Type:        "Lakehouse",
+	})
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			// Step 1: Create targeting lakehouse_id
+			{
+				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
+resource "fabricext_lakehouse_permission" "test" {
+  workspace_id  = %q
+  lakehouse_id  = %q
+  role_name     = "Role1"
+  paths         = ["/Tables/sales"]
+  principal_ids = [%q]
+}
+`, wsID, lhID1, principalID),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.test", "lakehouse_id", lhID1),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.test", "lakehouse_name", "lakehouse_one"),
+				),
+			},
+			// Step 2: Replace by switching to lakehouse_name only
+			{
+				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
+resource "fabricext_lakehouse_permission" "test" {
+  workspace_id   = %q
+  lakehouse_name = "lakehouse_two"
+  role_name      = "Role1"
+  paths          = ["/Tables/sales"]
+  principal_ids  = [%q]
+}
+`, wsID, principalID),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.test", "lakehouse_id", lhID2),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.test", "lakehouse_name", "lakehouse_two"),
+				),
+			},
+			// Step 3: Replace by changing lakehouse_name
+			{
+				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
+resource "fabricext_lakehouse_permission" "test" {
+  workspace_id   = %q
+  lakehouse_name = "lakehouse_one"
+  role_name      = "Role1"
+  paths          = ["/Tables/sales"]
+  principal_ids  = [%q]
+}
+`, wsID, principalID),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.test", "lakehouse_id", lhID1),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.test", "lakehouse_name", "lakehouse_one"),
+				),
+			},
+		},
+	})
+}
