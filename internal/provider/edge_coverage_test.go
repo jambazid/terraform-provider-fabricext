@@ -789,24 +789,30 @@ func TestResource_UpdateAndDeleteErrors(t *testing.T) {
 		actions, _ := types.SetValueFrom(ctx, types.StringType, []string{"Read"})
 
 		planModel := LakehousePermissionResourceModel{
-			WorkspaceID:   types.StringValue("11111111-1111-1111-1111-111111111111"),
-			LakehouseName: types.StringValue("lh"),
-			RoleName:      types.StringValue("custom"),
-			PrincipalIDs:  principalIDs,
-			PrincipalType: types.StringValue("User"),
-			Paths:         paths,
-			Actions:       actions,
+			WorkspaceID:      types.StringValue("11111111-1111-1111-1111-111111111111"),
+			LakehouseName:    types.StringValue("lh"),
+			RoleName:         types.StringValue("custom"),
+			PrincipalIDs:     principalIDs,
+			PrincipalType:    types.StringValue("User"),
+			Paths:            paths,
+			Actions:          actions,
+			DecisionRule:     types.ListNull(decisionRuleElemType),
+			EntraMember:      types.ListNull(entraMemberElemType),
+			FabricItemMember: types.ListNull(fabricItemMemberElemType),
 		}
 		stateModel := LakehousePermissionResourceModel{
-			ID:            types.StringValue("11111111-1111-1111-1111-111111111111/33333333-3333-3333-3333-333333333333/custom"),
-			WorkspaceID:   types.StringValue("11111111-1111-1111-1111-111111111111"),
-			LakehouseName: types.StringValue("lh"),
-			LakehouseID:   types.StringValue("33333333-3333-3333-3333-333333333333"),
-			RoleName:      types.StringValue("custom"),
-			PrincipalIDs:  principalIDs,
-			PrincipalType: types.StringValue("User"),
-			Paths:         paths,
-			Actions:       actions,
+			ID:               types.StringValue("11111111-1111-1111-1111-111111111111/33333333-3333-3333-3333-333333333333/custom"),
+			WorkspaceID:      types.StringValue("11111111-1111-1111-1111-111111111111"),
+			LakehouseName:    types.StringValue("lh"),
+			LakehouseID:      types.StringValue("33333333-3333-3333-3333-333333333333"),
+			RoleName:         types.StringValue("custom"),
+			PrincipalIDs:     principalIDs,
+			PrincipalType:    types.StringValue("User"),
+			Paths:            paths,
+			Actions:          actions,
+			DecisionRule:     types.ListNull(decisionRuleElemType),
+			EntraMember:      types.ListNull(entraMemberElemType),
+			FabricItemMember: types.ListNull(fabricItemMemberElemType),
 		}
 
 		plan := tfsdk.Plan{Schema: schemaResp.Schema}
@@ -909,13 +915,16 @@ func TestResource_UpdateAndDeleteErrors(t *testing.T) {
 		actions, _ := types.SetValueFrom(ctx, types.StringType, []string{"Read"})
 
 		lhPlanModel := LakehousePermissionResourceModel{
-			WorkspaceID:   types.StringValue("11111111-1111-1111-1111-111111111111"),
-			LakehouseName: types.StringValue("lh"),
-			RoleName:      types.StringValue("custom"),
-			PrincipalIDs:  principalIDs,
-			PrincipalType: types.StringValue("User"),
-			Paths:         paths,
-			Actions:       actions,
+			WorkspaceID:      types.StringValue("11111111-1111-1111-1111-111111111111"),
+			LakehouseName:    types.StringValue("lh"),
+			RoleName:         types.StringValue("custom"),
+			PrincipalIDs:     principalIDs,
+			PrincipalType:    types.StringValue("User"),
+			Paths:            paths,
+			Actions:          actions,
+			DecisionRule:     types.ListNull(decisionRuleElemType),
+			EntraMember:      types.ListNull(entraMemberElemType),
+			FabricItemMember: types.ListNull(fabricItemMemberElemType),
 		}
 		lhPlan := tfsdk.Plan{Schema: lhSchema.Schema}
 		_ = lhPlan.Set(ctx, &lhPlanModel)

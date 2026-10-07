@@ -281,8 +281,8 @@ See the embedded Terraform Registry guide [`docs/guides/official_provider_compar
 - **Attributes**:
   - `id` (`String`, `Computed`, `UseStateForUnknown`)
   - `workspace_id` (`String`, `Required`, `RequiresReplace`, UUID validator)
-  - `warehouse_name` (`String`, `Required`, `RequiresReplace`, non-empty validator)
-  - `warehouse_id` (`String`, `Computed`, `UseStateForUnknown`)
+  - `warehouse_name` (`String`, `Optional` + `Computed`, `RequiresReplace`, non-empty validator)
+  - `warehouse_id` (`String`, `Optional` + `Computed`, `RequiresReplace`, UUID validator; at least one of `warehouse_name` or `warehouse_id` must be provided)
   - `principal_id` (`String`, `Required`, `RequiresReplace`, UUID validator)
   - `principal_type` (`String`, `Optional` + `Computed`, default `"Group"`, `RequiresReplace`, `OneOf("User", "Group", "ServicePrincipal", "ServicePrincipalProfile")`)
   - `role_type` (`String`, `Required`, `OneOf("read", "write", "reshare")`)
@@ -293,8 +293,8 @@ See the embedded Terraform Registry guide [`docs/guides/official_provider_compar
 - **Attributes**:
   - `id` (`String`, `Computed`, `UseStateForUnknown`)
   - `workspace_id` (`String`, `Required`, `RequiresReplace`, UUID validator)
-  - `sql_database_name` (`String`, `Required`, `RequiresReplace`, non-empty validator)
-  - `sql_database_id` (`String`, `Computed`, `UseStateForUnknown`)
+  - `sql_database_name` (`String`, `Optional` + `Computed`, `RequiresReplace`, non-empty validator)
+  - `sql_database_id` (`String`, `Optional` + `Computed`, `RequiresReplace`, UUID validator; at least one of `sql_database_name` or `sql_database_id` must be provided)
   - `principal_id` (`String`, `Required`, `RequiresReplace`, UUID validator)
   - `principal_type` (`String`, `Optional` + `Computed`, default `"Group"`, `RequiresReplace`, `OneOf("User", "Group", "ServicePrincipal", "ServicePrincipalProfile")`)
   - `role_type` (`String`, `Required`, `OneOf("read", "read_data", "read_spark", "write", "reshare")`)
@@ -302,16 +302,28 @@ See the embedded Terraform Registry guide [`docs/guides/official_provider_compar
 ### 6.4 `fabricext_lakehouse_permission` Resource
 
 - **Composite ID & Import Format**: `{workspace_id}/{lakehouse_id}/{role_name}`
-- **Attributes**:
-  - `id` (`String`, `Computed`, `UseStateForUnknown`)
-  - `workspace_id` (`String`, `Required`, `RequiresReplace`, UUID validator)
-  - `lakehouse_name` (`String`, `Required`, `RequiresReplace`, non-empty validator)
-  - `lakehouse_id` (`String`, `Computed`, `UseStateForUnknown`)
-  - `role_name` (`String`, `Required`, `RequiresReplace`, `^[a-zA-Z][a-zA-Z0-9_]*$` validator)
-  - `paths` (`Set[String]`, `Required`, `SizeAtLeast(1)`)
-  - `actions` (`Set[String]`, `Optional` + `Computed`, default `["Read"]`, `OneOf("Read")`)
-  - `principal_ids` (`Set[String]`, `Required`, `SizeAtLeast(1)`, UUID element validator)
-  - `principal_type` (`String`, `Optional` + `Computed`, default `"Group"`, `OneOf("User", "Group", "ServicePrincipal", "ManagedIdentity")`)
+- **Dual-Mode Ergonomic Architecture**:
+  - **Core Identifiers**:
+    - `id` (`String`, `Computed`, `UseStateForUnknown`)
+    - `workspace_id` (`String`, `Required`, `RequiresReplace`, UUID validator)
+    - `lakehouse_name` (`String`, `Optional` + `Computed`, `RequiresReplace`, non-empty validator)
+    - `lakehouse_id` (`String`, `Optional` + `Computed`, `RequiresReplace`, UUID validator; at least one of `lakehouse_name` or `lakehouse_id` must be provided)
+    - `role_name` (`String`, `Required`, `RequiresReplace`, `^[a-zA-Z][a-zA-Z0-9_]*$` validator)
+    - `kind` (`String`, `Optional` + `Computed`, default `"Policy"`, `OneOf("Policy")`)
+  - **Simple Flat Mode (100% Backward Compatible)**:
+    - `paths` (`Set[String]`, `Optional` + `Computed`, `SizeAtLeast(1)`)
+    - `actions` (`Set[String]`, `Optional` + `Computed`, default `["Read"]`, `OneOf("Read")`)
+    - `principal_ids` (`Set[String]`, `Optional` + `Computed`, `SizeAtLeast(1)`, UUID element validator)
+    - `principal_type` (`String`, `Optional` + `Computed`, default `"Group"`, `OneOf("User", "Group", "ServicePrincipal", "ManagedIdentity")`)
+  - **Advanced Structured Mode (Feature Parity with Upstream OneLake Data Access Security)**:
+    - `decision_rule` (`List[Block]`, `Optional`): Repeatable decision rules containing:
+      - `paths` (`Set[String]`, `Required`)
+      - `actions` (`Set[String]`, `Optional` + `Computed`, default `["Read"]`)
+      - `effect` (`String`, `Optional` + `Computed`, default `"Permit"`, `OneOf("Permit")`)
+      - `row_constraint` (`List[Block]`, `Optional`): Row-Level Security (RLS) predicates with `table_path` (`String`, `Required`) and `predicate` (`String`, `Required`, T-SQL expression).
+      - `column_constraint` (`List[Block]`, `Optional`): Column-Level Security (CLS) masks with `table_path` (`String`, `Required`), `columns` (`Set[String]`, `Required`), `action` (`String`, `Optional`, default `"Read"`), and `effect` (`String`, `Optional`, default `"Permit"`).
+    - `entra_member` (`Set[Block]`, `Optional`): Heterogeneous Entra ID members with `object_id` (`String`, `Required`), `object_type` (`String`, `Required`, `OneOf("User", "Group", "ServicePrincipal", "ManagedIdentity")`), and `tenant_id` (`String`, `Optional`).
+    - `fabric_item_member` (`Set[Block]`, `Optional`): Cross-item shortcut members with `source_path` (`String`, `Required`, `{workspace_id}/{item_id}`) and `item_access` (`Set[String]`, `Optional`, default `["ReadAll"]`).
 
 ### 6.5 `fabricext_item` Data Source
 
@@ -359,6 +371,11 @@ resource "fabricext_warehouse_permission" "this" {
 ### 7.2 Option B: Bundled In-Repo Submodule (`modules/permissions/`)
 
 `modules/permissions/` accepts a unified `fabric_permissions_matrix` variable (`workspace_id`, `warehouses`, `sql_databases`, `lakehouses`), flattens the nested structures via `flatten([...])` keyed by `"${item_name}/${principal_type}/${principal_id}"` (so role upgrades/downgrades execute in place without recreate races), and provisions `fabricext_warehouse_permission`, `fabricext_sql_database_permission`, and `fabricext_lakehouse_permission` resources deterministically even when optional item maps are omitted.
+
+In the v0.2.0 uplift, `modules/permissions/` expands to:
+
+1. Support direct item UUIDs as map keys (in addition to item display names) across `warehouses`, `sql_databases`, and `lakehouses`.
+2. Support advanced Lakehouse OneLake Data Access Roles: repeatable `decision_rules` with Row-Level Security (`row_constraints`), Column-Level Security (`column_constraints`), heterogeneous `entra_members`, and `fabric_item_members` alongside the standard simple flat role configuration.
 
 ---
 

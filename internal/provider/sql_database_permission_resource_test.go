@@ -215,3 +215,47 @@ resource "fabricext_sql_database_permission" "invalid_uuid" {
 		},
 	})
 }
+
+func TestAccSQLDatabasePermissionResource_DirectIDReference(t *testing.T) {
+	t.Parallel()
+
+	srv := fabricmock.NewServer(t)
+	wsID := "11111111-1111-1111-1111-111111111111"
+	dbID := "44444444-4444-4444-4444-444444444444"
+	principalID := "33333333-3333-3333-3333-333333333333"
+
+	srv.UpsertItem(fabricmock.Item{
+		ID:          dbID,
+		WorkspaceID: wsID,
+		DisplayName: "direct_db",
+		Type:        "SQLDatabase",
+	})
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
+resource "fabricext_sql_database_permission" "direct" {
+  workspace_id      = %q
+  sql_database_id   = %q
+  principal_id      = %q
+  role_type         = "read_data"
+}
+`, wsID, dbID, principalID),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("fabricext_sql_database_permission.direct", "id", wsID+"/"+dbID+"/Group/"+principalID),
+					resource.TestCheckResourceAttr("fabricext_sql_database_permission.direct", "sql_database_id", dbID),
+					resource.TestCheckResourceAttr("fabricext_sql_database_permission.direct", "sql_database_name", "direct_db"),
+					resource.TestCheckResourceAttr("fabricext_sql_database_permission.direct", "principal_type", "Group"),
+					resource.TestCheckResourceAttr("fabricext_sql_database_permission.direct", "role_type", "read_data"),
+				),
+			},
+			{
+				ResourceName:      "fabricext_sql_database_permission.direct",
+				ImportState:       true,
+				ImportStateVerify: true,
+			},
+		},
+	})
+}

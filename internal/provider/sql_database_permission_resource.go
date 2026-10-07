@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/hashicorp/terraform-plugin-framework-validators/resourcevalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
@@ -20,9 +22,10 @@ import (
 )
 
 var (
-	_ resource.Resource                = &SQLDatabasePermissionResource{}
-	_ resource.ResourceWithConfigure   = &SQLDatabasePermissionResource{}
-	_ resource.ResourceWithImportState = &SQLDatabasePermissionResource{}
+	_ resource.Resource                     = &SQLDatabasePermissionResource{}
+	_ resource.ResourceWithConfigure        = &SQLDatabasePermissionResource{}
+	_ resource.ResourceWithImportState      = &SQLDatabasePermissionResource{}
+	_ resource.ResourceWithConfigValidators = &SQLDatabasePermissionResource{}
 )
 
 // SQLDatabasePermissionResource manages item-level permissions on a Microsoft Fabric SQL Database.
@@ -74,8 +77,9 @@ func (r *SQLDatabasePermissionResource) Schema(_ context.Context, _ resource.Sch
 				},
 			},
 			"sql_database_name": schema.StringAttribute{
-				Required:            true,
-				MarkdownDescription: "Display name of the target Microsoft Fabric SQL Database.",
+				Optional:            true,
+				Computed:            true,
+				MarkdownDescription: "Display name of the target Microsoft Fabric SQL Database. At least one of `sql_database_name` or `sql_database_id` must be specified.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
@@ -84,10 +88,14 @@ func (r *SQLDatabasePermissionResource) Schema(_ context.Context, _ resource.Sch
 				},
 			},
 			"sql_database_id": schema.StringAttribute{
+				Optional:            true,
 				Computed:            true,
-				MarkdownDescription: "Resolved UUID of the Microsoft Fabric SQL Database.",
+				MarkdownDescription: "Resolved or explicitly specified UUID of the Microsoft Fabric SQL Database. At least one of `sql_database_name` or `sql_database_id` must be specified.",
 				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.UseStateForUnknown(),
+					stringplanmodifier.RequiresReplace(),
+				},
+				Validators: []validator.String{
+					uuidValidator(),
 				},
 			},
 			"principal_id": schema.StringAttribute{
@@ -123,6 +131,16 @@ func (r *SQLDatabasePermissionResource) Schema(_ context.Context, _ resource.Sch
 	}
 }
 
+// ConfigValidators validates cross-attribute requirements on the resource configuration.
+func (r *SQLDatabasePermissionResource) ConfigValidators(_ context.Context) []resource.ConfigValidator {
+	return []resource.ConfigValidator{
+		resourcevalidator.AtLeastOneOf(
+			path.MatchRoot("sql_database_name"),
+			path.MatchRoot("sql_database_id"),
+		),
+	}
+}
+
 // Configure wires the provider's FabricClient into the resource.
 func (r *SQLDatabasePermissionResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
 	if req.ProviderData == nil {
@@ -145,16 +163,29 @@ func (r *SQLDatabasePermissionResource) Create(ctx context.Context, req resource
 	}
 
 	wsID := plan.WorkspaceID.ValueString()
-	dbName := plan.SQLDatabaseName.ValueString()
 	principal := client.Principal{
 		ID:   plan.PrincipalID.ValueString(),
 		Type: plan.PrincipalType.ValueString(),
 	}
 
-	dbID, err := r.client.GetItemIDByName(ctx, wsID, dbName, "SQLDatabase")
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to Resolve SQL Database by Name", err.Error())
-		return
+	var dbID string
+	if !plan.SQLDatabaseID.IsNull() && !plan.SQLDatabaseID.IsUnknown() && plan.SQLDatabaseID.ValueString() != "" {
+		dbID = plan.SQLDatabaseID.ValueString()
+		item, err := r.client.GetItemByID(ctx, wsID, dbID, "SQLDatabase")
+		if err != nil {
+			resp.Diagnostics.AddError("Unable to Resolve SQL Database by ID", err.Error())
+			return
+		}
+		plan.SQLDatabaseName = types.StringValue(item.DisplayName)
+	} else {
+		dbName := plan.SQLDatabaseName.ValueString()
+		var err error
+		dbID, err = r.client.GetItemIDByName(ctx, wsID, dbName, "SQLDatabase")
+		if err != nil {
+			resp.Diagnostics.AddError("Unable to Resolve SQL Database by Name", err.Error())
+			return
+		}
+		plan.SQLDatabaseID = types.StringValue(dbID)
 	}
 
 	perms, err := client.ExpandRolePermissions("SQLDatabase", plan.RoleType.ValueString())

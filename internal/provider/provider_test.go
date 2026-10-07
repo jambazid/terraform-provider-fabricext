@@ -440,3 +440,128 @@ func TestProvider_NormalizePrincipalType(t *testing.T) {
 		})
 	}
 }
+
+func TestAccPermissionsModule_MatrixWithRLSandCLS(t *testing.T) {
+	t.Parallel()
+
+	srv := fabricmock.NewServer(t)
+	wsID := "11111111-1111-1111-1111-111111111111"
+	whID := "22222222-2222-2222-2222-222222222222"
+	dbID := "33333333-3333-3333-3333-333333333333"
+	lhID := "44444444-4444-4444-4444-444444444444"
+
+	srv.UpsertItem(fabricmock.Item{
+		ID:          whID,
+		WorkspaceID: wsID,
+		DisplayName: "sales_analytics_wh",
+		Type:        "Warehouse",
+	})
+	srv.UpsertItem(fabricmock.Item{
+		ID:          dbID,
+		WorkspaceID: wsID,
+		DisplayName: "operational_orders_db",
+		Type:        "SQLDatabase",
+	})
+	srv.UpsertItem(fabricmock.Item{
+		ID:          lhID,
+		WorkspaceID: wsID,
+		DisplayName: "raw_bronze_lh",
+		Type:        "Lakehouse",
+	})
+
+	modulePath, err := filepath.Abs(filepath.Join("..", "..", "modules", "permissions"))
+	if err != nil {
+		t.Fatalf("resolve modules/permissions path: %v", err)
+	}
+
+	varsBytes, err := os.ReadFile(filepath.Join(modulePath, "variables.tf"))
+	if err != nil {
+		t.Fatalf("read variables.tf: %v", err)
+	}
+	mainBytes, err := os.ReadFile(filepath.Join(modulePath, "main.tf"))
+	if err != nil {
+		t.Fatalf("read main.tf: %v", err)
+	}
+	outputsBytes, err := os.ReadFile(filepath.Join(modulePath, "outputs.tf"))
+	if err != nil {
+		t.Fatalf("read outputs.tf: %v", err)
+	}
+
+	varsWithDefault := strings.TrimSuffix(strings.TrimSpace(string(varsBytes)), "}") + fmt.Sprintf(`
+  default = {
+    workspace_id = %q
+    warehouses = {
+      %q = {
+        read = [{ id = "55555555-5555-5555-5555-555555555551", type = "Group" }]
+      }
+    }
+    sql_databases = {
+      operational_orders_db = {
+        read_data = [{ id = "55555555-5555-5555-5555-555555555551", type = "Group" }]
+      }
+    }
+    lakehouses = {
+      %q = {
+        EmeaAnalysts = {
+          decision_rules = [
+            {
+              paths   = ["/Tables/customers"]
+              actions = ["Read"]
+              effect  = "Permit"
+              row_constraints = [
+                {
+                  table_path = "/Tables/customers"
+                  predicate  = "Region = 'EMEA'"
+                }
+              ]
+              column_constraints = [
+                {
+                  table_path = "/Tables/customers"
+                  columns    = ["customer_id", "email"]
+                  action     = "Read"
+                  effect     = "Permit"
+                }
+              ]
+            }
+          ]
+          entra_members = [
+            {
+              object_id   = "55555555-5555-5555-5555-555555555551"
+              object_type = "Group"
+            }
+          ]
+        }
+      }
+    }
+  }
+}
+`, wsID, whID, lhID)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: strings.Join([]string{
+					testAccProviderConfig(srv),
+					varsWithDefault,
+					string(mainBytes),
+					string(outputsBytes),
+				}, "\n"),
+				ConfigStateChecks: []statecheck.StateCheck{
+					statecheck.ExpectKnownOutputValue("warehouse_permission_ids", knownvalue.MapExact(map[string]knownvalue.Check{
+						whID + "/Group/55555555-5555-5555-5555-555555555551": knownvalue.StringExact(wsID + "/" + whID + "/Group/55555555-5555-5555-5555-555555555551"),
+					})),
+					statecheck.ExpectKnownOutputValue("sql_database_permission_ids", knownvalue.MapExact(map[string]knownvalue.Check{
+						"operational_orders_db/Group/55555555-5555-5555-5555-555555555551": knownvalue.StringExact(wsID + "/" + dbID + "/Group/55555555-5555-5555-5555-555555555551"),
+					})),
+					statecheck.ExpectKnownOutputValue("lakehouse_permission_ids", knownvalue.MapExact(map[string]knownvalue.Check{
+						lhID + "/EmeaAnalysts": knownvalue.StringExact(wsID + "/" + lhID + "/EmeaAnalysts"),
+					})),
+				},
+			},
+			{
+				Config: testAccProviderConfig(srv),
+			},
+		},
+	})
+}

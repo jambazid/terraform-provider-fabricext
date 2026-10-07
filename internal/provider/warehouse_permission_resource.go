@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/hashicorp/terraform-plugin-framework-validators/resourcevalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
@@ -20,9 +22,10 @@ import (
 )
 
 var (
-	_ resource.Resource                = &WarehousePermissionResource{}
-	_ resource.ResourceWithConfigure   = &WarehousePermissionResource{}
-	_ resource.ResourceWithImportState = &WarehousePermissionResource{}
+	_ resource.Resource                     = &WarehousePermissionResource{}
+	_ resource.ResourceWithConfigure        = &WarehousePermissionResource{}
+	_ resource.ResourceWithImportState      = &WarehousePermissionResource{}
+	_ resource.ResourceWithConfigValidators = &WarehousePermissionResource{}
 )
 
 // WarehousePermissionResource manages item-level permissions on a Microsoft Fabric Warehouse.
@@ -74,8 +77,9 @@ func (r *WarehousePermissionResource) Schema(_ context.Context, _ resource.Schem
 				},
 			},
 			"warehouse_name": schema.StringAttribute{
-				Required:            true,
-				MarkdownDescription: "Display name of the target Microsoft Fabric Warehouse.",
+				Optional:            true,
+				Computed:            true,
+				MarkdownDescription: "Display name of the target Microsoft Fabric Warehouse. At least one of `warehouse_name` or `warehouse_id` must be specified.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
@@ -84,10 +88,14 @@ func (r *WarehousePermissionResource) Schema(_ context.Context, _ resource.Schem
 				},
 			},
 			"warehouse_id": schema.StringAttribute{
+				Optional:            true,
 				Computed:            true,
-				MarkdownDescription: "Resolved UUID of the Microsoft Fabric Warehouse.",
+				MarkdownDescription: "Resolved or explicitly specified UUID of the Microsoft Fabric Warehouse. At least one of `warehouse_name` or `warehouse_id` must be specified.",
 				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.UseStateForUnknown(),
+					stringplanmodifier.RequiresReplace(),
+				},
+				Validators: []validator.String{
+					uuidValidator(),
 				},
 			},
 			"principal_id": schema.StringAttribute{
@@ -123,6 +131,16 @@ func (r *WarehousePermissionResource) Schema(_ context.Context, _ resource.Schem
 	}
 }
 
+// ConfigValidators validates cross-attribute requirements on the resource configuration.
+func (r *WarehousePermissionResource) ConfigValidators(_ context.Context) []resource.ConfigValidator {
+	return []resource.ConfigValidator{
+		resourcevalidator.AtLeastOneOf(
+			path.MatchRoot("warehouse_name"),
+			path.MatchRoot("warehouse_id"),
+		),
+	}
+}
+
 // Configure wires the provider's FabricClient into the resource.
 func (r *WarehousePermissionResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
 	if req.ProviderData == nil {
@@ -145,16 +163,29 @@ func (r *WarehousePermissionResource) Create(ctx context.Context, req resource.C
 	}
 
 	wsID := plan.WorkspaceID.ValueString()
-	whName := plan.WarehouseName.ValueString()
 	principal := client.Principal{
 		ID:   plan.PrincipalID.ValueString(),
 		Type: plan.PrincipalType.ValueString(),
 	}
 
-	whID, err := r.client.GetItemIDByName(ctx, wsID, whName, "Warehouse")
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to Resolve Warehouse by Name", err.Error())
-		return
+	var whID string
+	if !plan.WarehouseID.IsNull() && !plan.WarehouseID.IsUnknown() && plan.WarehouseID.ValueString() != "" {
+		whID = plan.WarehouseID.ValueString()
+		item, err := r.client.GetItemByID(ctx, wsID, whID, "Warehouse")
+		if err != nil {
+			resp.Diagnostics.AddError("Unable to Resolve Warehouse by ID", err.Error())
+			return
+		}
+		plan.WarehouseName = types.StringValue(item.DisplayName)
+	} else {
+		whName := plan.WarehouseName.ValueString()
+		var err error
+		whID, err = r.client.GetItemIDByName(ctx, wsID, whName, "Warehouse")
+		if err != nil {
+			resp.Diagnostics.AddError("Unable to Resolve Warehouse by Name", err.Error())
+			return
+		}
+		plan.WarehouseID = types.StringValue(whID)
 	}
 
 	perms, err := client.ExpandRolePermissions("Warehouse", plan.RoleType.ValueString())

@@ -49,5 +49,7 @@ module "fabric_permissions" {
 
 - Flattens `warehouses`, `sql_databases`, and `lakehouses` sub-maps via `flatten([...])` into deterministic composite `for_each` keys (`{item_name}/{principal_type}/{principal_id}` for Warehouses and SQL Databases so role updates occur in-place, and `{lakehouse_name}/{role_name}` for Lakehouses) over `fabricext_warehouse_permission`, `fabricext_sql_database_permission`, and `fabricext_lakehouse_permission`, handling omitted or empty sub-maps cleanly without error
   `[@test] ../internal/provider/provider_test.go::TestAccPermissionsModule_MatrixFlattening`
+- Supports direct item UUID keys as well as display names across `warehouses`, `sql_databases`, and `lakehouses`, and maps advanced Lakehouse `decision_rules` (with `row_constraints` and `column_constraints`), `entra_members`, and `fabric_item_members` cleanly to underlying resources
+  `[@test] ../internal/provider/provider_test.go::TestAccPermissionsModule_MatrixWithRLSandCLS`
 - Exports `warehouse_permission_ids`, `sql_database_permission_ids`, and `lakehouse_permission_ids` outputs
   `[@test] ../internal/provider/provider_test.go::TestAccPermissionsModule_MatrixFlattening`

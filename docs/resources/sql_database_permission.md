@@ -13,12 +13,22 @@ Manages item-level sharing and permissions on a Microsoft Fabric **SQL Database*
 ## Example Usage
 
 ```terraform
+# Referencing SQL Database by display name
 resource "fabricext_sql_database_permission" "orders_readers" {
   workspace_id      = "00000000-0000-0000-0000-000000000001"
   sql_database_name = "operational_orders_db"
   principal_id      = "11111111-1111-1111-1111-111111111111"
   principal_type    = "Group"
   role_type         = "read_data"
+}
+
+# Referencing SQL Database by direct UUID (ideal for upstream resource chaining)
+resource "fabricext_sql_database_permission" "direct_id_readers" {
+  workspace_id    = "00000000-0000-0000-0000-000000000001"
+  sql_database_id = "33333333-3333-3333-3333-333333333333"
+  principal_id    = "11111111-1111-1111-1111-111111111111"
+  principal_type  = "Group"
+  role_type       = "read_spark"
 }
 ```
 
@@ -29,17 +39,17 @@ resource "fabricext_sql_database_permission" "orders_readers" {
 
 - `principal_id` (String) Microsoft Entra Object ID (UUID) of the principal receiving access.
 - `role_type` (String) Permission role to grant on the SQL Database. Valid values: `read` (`Read`), `read_data` (`Read`, `ReadData`), `read_spark` (`Read`, `ReadAll`, `SubscribeOneLakeEvents`), `write` (`Read`, `Write`), `reshare` (`Read`, `Reshare`). When reading existing permissions from Fabric, multi-permission assignments are collapsed according to precedence: `write` > `read_spark` > `read_data` > `reshare` > `read`.
-- `sql_database_name` (String) Display name of the target Microsoft Fabric SQL Database.
 - `workspace_id` (String) UUID of the Microsoft Fabric workspace containing the SQL Database.
 
 ### Optional
 
 - `principal_type` (String) Microsoft Entra principal type. Valid values: `User`, `Group`, `ServicePrincipal`, `ServicePrincipalProfile`. Defaults to `Group`. Normalized to TitleCase upon import or read.
+- `sql_database_id` (String) Resolved or explicitly specified UUID of the Microsoft Fabric SQL Database. At least one of `sql_database_name` or `sql_database_id` must be specified.
+- `sql_database_name` (String) Display name of the target Microsoft Fabric SQL Database. At least one of `sql_database_name` or `sql_database_id` must be specified.
 
 ### Read-Only
 
 - `id` (String) Composite resource identifier in the format `{workspace_id}/{sql_database_id}/{principal_type}/{principal_id}`.
-- `sql_database_id` (String) Resolved UUID of the Microsoft Fabric SQL Database.
 
 ## Import
 
