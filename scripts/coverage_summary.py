@@ -20,7 +20,9 @@ import sys
 
 def parse_coverage_profile(filepath: Path) -> tuple[dict[str, dict[str, int]], int, int]:
     """Parse Go coverage profile into per-package statement counts."""
-    packages: dict[str, dict[str, int]] = defaultdict(lambda: {"total": 0, "covered": 0})
+    # When testing with -coverpkg across multiple packages, blocks appear multiple times
+    # (once for each tested package). We must union the execution counts per unique block location.
+    blocks: dict[str, tuple[str, int, int]] = {}  # loc -> (pkg_name, num_stmts, max_count)
 
     if not filepath.exists():
         raise FileNotFoundError(f"Coverage profile not found at {filepath}")
@@ -51,9 +53,17 @@ def parse_coverage_profile(filepath: Path) -> tuple[dict[str, dict[str, int]], i
             if not pkg_name:
                 pkg_name = "(root)"
 
-            packages[pkg_name]["total"] += num_stmts
-            if count > 0:
-                packages[pkg_name]["covered"] += num_stmts
+            if loc in blocks:
+                _, existing_stmts, existing_count = blocks[loc]
+                blocks[loc] = (pkg_name, existing_stmts, max(existing_count, count))
+            else:
+                blocks[loc] = (pkg_name, num_stmts, count)
+
+    packages: dict[str, dict[str, int]] = defaultdict(lambda: {"total": 0, "covered": 0})
+    for pkg_name, num_stmts, count in blocks.values():
+        packages[pkg_name]["total"] += num_stmts
+        if count > 0:
+            packages[pkg_name]["covered"] += num_stmts
 
     total_stmts = sum(p["total"] for p in packages.values())
     total_covered = sum(p["covered"] for p in packages.values())
@@ -74,15 +84,16 @@ def render_markdown_summary(
     total_covered: int,
     total_stmts: int,
     threshold: float | None = None,
+    title: str = "🧪 Go Test Coverage Summary",
 ) -> str:
     """Render a GitHub Flavored Markdown summary table."""
     total_pct = (total_covered / total_stmts * 100.0) if total_stmts > 0 else 0.0
 
     lines = [
-        "## 🧪 Go Test Coverage Summary",
+        f"## {title}",
         "",
         "<!-- test-coverage-summary -->",
-        f"**Overall Project Statement Coverage**: `{total_pct:.1f}%` ({total_covered:,} / {total_stmts:,} statements) {status_badge(total_pct)}",
+        f"**Statement Coverage**: `{total_pct:.1f}%` ({total_covered:,} / {total_stmts:,} statements) {status_badge(total_pct)}",
         "",
         "| Package | Covered | Total | Coverage | Status |",
         "| :--- | :---: | :---: | :---: | :---: |",
@@ -111,6 +122,7 @@ def render_markdown_summary(
 def main() -> int:
     parser = argparse.ArgumentParser(description="Parse Go test coverage profiles and generate summary reports.")
     parser.add_argument("profile", nargs="?", default="coverage.out", help="Path to Go coverage profile (default: coverage.out)")
+    parser.add_argument("--title", default="🧪 Go Test Coverage Summary", help="Markdown section title")
     parser.add_argument("--html", metavar="HTML_PATH", help="Export interactive HTML report via go tool cover")
     parser.add_argument("--output", "-o", metavar="MD_PATH", help="Write Markdown table to file")
     parser.add_argument("--threshold", type=float, help="Minimum required total coverage percentage (exits with code 1 if unmet)")
@@ -124,7 +136,7 @@ def main() -> int:
         print(f"Error: {err}", file=sys.stderr)
         return 1
 
-    md_report = render_markdown_summary(packages, total_covered, total_stmts, args.threshold)
+    md_report = render_markdown_summary(packages, total_covered, total_stmts, args.threshold, args.title)
     print(md_report)
 
     if args.output:

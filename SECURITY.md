@@ -16,8 +16,8 @@ We aim to acknowledge reports within 48 hours and publish a patched release once
 
 ## 2. Provider Authentication & Secret Handling Guarantees
 
-1. **Native Microsoft Identity SDK (`azidentity`) — Zero Shell Injection**:
-   - Credential resolution uses Microsoft's official Go SDK (`github.com/Azure/azure-sdk-for-go/sdk/azidentity` and `sdk/azcore`) rather than invoking shell commands, eliminating command-injection vectors and temporary token files.
+1. **Native Microsoft Identity SDK (`azidentity`) — Zero Subprocesses & Shell Injection**:
+   - Credential resolution uses Microsoft's official Go SDK (`github.com/Azure/azure-sdk-for-go/sdk/azidentity` and `sdk/azcore`) exclusively. All authentication flows (including Azure CLI session token resolution via `azidentity.NewAzureCLICredential`) operate without spawning `os/exec` subprocesses, shells, or writing temporary token files to disk.
 2. **Redaction in Logs, Errors & Formatting**:
    - Schema attributes `access_token` and `client_secret` are marked `Sensitive: true` in the Terraform Plugin Framework schema so Terraform masks them in CLI output.
    - `credentials.Credentials` implements `String()` and `GoString()` to unconditionally mask `AccessToken` as `"[REDACTED]"`. Raw bearer tokens and client secrets are never logged via `tflog` or included in `resp.Diagnostics`.

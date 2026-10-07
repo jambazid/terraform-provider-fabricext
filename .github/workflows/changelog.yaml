@@ -23,8 +23,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      contents: read
-      pull-requests: write
+      contents: read  # Read repository changelog fragments
+      pull-requests: write  # Publish changelog preview comments on pull requests
     steps:
       - name: runner | harden
         uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1  # v2.21.1
