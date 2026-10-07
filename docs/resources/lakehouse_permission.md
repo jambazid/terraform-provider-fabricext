@@ -4,8 +4,6 @@ page_title: "fabricext_lakehouse_permission Resource - Fabric Extensions (fabric
 subcategory: ""
 description: |-
   Manages a OneLake Data Access Role on a Microsoft Fabric Lakehouse to grant read access on specific tables and folders to Microsoft Entra users, groups, service principals, or managed identities.
-  -> Note: Microsoft Fabric OneLake Data Access Roles require uniform member types per role resource. To assign mixed member types (e.g., both users and service principals) to the same role, assign access through an Entra ID security Group.
-  -> Note: Role modifications automatically coordinate via a per-Lakehouse mutex and an If-Match ETag optimistic concurrency loop to safely support parallel applies.
 ---
 
 # fabricext_lakehouse_permission (Resource)
@@ -17,7 +15,6 @@ Manages a OneLake Data Access Role on a Microsoft Fabric **Lakehouse** to grant 
 -> **Note:** Role modifications automatically coordinate via a per-Lakehouse mutex and an `If-Match` ETag optimistic concurrency loop to safely support parallel applies.
 
 ## Example Usage
-
 ```terraform
 resource "fabricext_lakehouse_permission" "bronze_readers" {
   workspace_id   = "00000000-0000-0000-0000-000000000001"
@@ -50,15 +47,12 @@ resource "fabricext_lakehouse_permission" "bronze_readers" {
 
 - `id` (String) Composite resource identifier in the format `{workspace_id}/{lakehouse_id}/{role_name}`.
 - `lakehouse_id` (String) Resolved UUID of the Microsoft Fabric Lakehouse.
-
 ## Import
 
 Import is supported using the following syntax:
-
 The [`terraform import` command](https://developer.hashicorp.com/terraform/cli/commands/import) can be used, for example:
 
 ```shell
-#!/usr/bin/env bash
 # Import an existing Lakehouse OneLake Data Access Role using {workspace_id}/{lakehouse_id}/{role_name}
 terraform import fabricext_lakehouse_permission.bronze_readers "00000000-0000-0000-0000-000000000001/44444444-4444-4444-4444-444444444444/BronzeReaders"
 ```
