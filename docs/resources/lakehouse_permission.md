@@ -75,10 +75,10 @@ resource "fabricext_lakehouse_permission" "emea_analysts" {
 
 ### Optional
 
-- `actions` (Set of String) Set of OneLake actions permitted on `paths` in simple mode. Valid values: `Read`. Defaults to `["Read"]` in simple mode.
+- `actions` (Set of String) Set of OneLake actions permitted on `paths` in simple mode. Valid values: `Read`, `Write`, `ReadWrite`. Defaults to `["Read"]` in simple mode.
 - `decision_rule` (Block List) Advanced decision rules defining fine-grained path permissions, row-level security (RLS), and column-level security (CLS). (see [below for nested schema](#nestedblock--decision_rule))
-- `entra_member` (Block List) Explicit Microsoft Entra ID members (users, groups, service principals, managed identities) assigned to this role in advanced mode. (see [below for nested schema](#nestedblock--entra_member))
-- `fabric_item_member` (Block List) Workspace item members granted access through Fabric item inheritance or shortcuts in advanced mode. (see [below for nested schema](#nestedblock--fabric_item_member))
+- `entra_member` (Block Set) Explicit Microsoft Entra ID members (users, groups, service principals, managed identities) assigned to this role in advanced mode. (see [below for nested schema](#nestedblock--entra_member))
+- `fabric_item_member` (Block Set) Workspace item members granted access through Fabric item inheritance or shortcuts in advanced mode. (see [below for nested schema](#nestedblock--fabric_item_member))
 - `kind` (String) Kind of the OneLake Data Access Role. The only supported value is `Policy`. Defaults to `Policy`.
 - `lakehouse_id` (String) Resolved or explicitly specified UUID of the Microsoft Fabric Lakehouse. At least one of `lakehouse_name` or `lakehouse_id` must be specified.
 - `lakehouse_name` (String) Display name of the target Microsoft Fabric Lakehouse. At least one of `lakehouse_name` or `lakehouse_id` must be specified.
@@ -99,7 +99,7 @@ Required:
 
 Optional:
 
-- `actions` (Set of String) Set of OneLake actions permitted on `paths`. Valid values: `Read`. Defaults to `["Read"]`.
+- `actions` (Set of String) Set of OneLake actions permitted on `paths`. Valid values: `Read`, `Write`, `ReadWrite`. Defaults to `["Read"]`.
 - `column_constraint` (Block List) Column-Level Security (CLS) constraints applied to tables. (see [below for nested schema](#nestedblock--decision_rule--column_constraint))
 - `effect` (String) Effect of the rule. The only supported value is `Permit`. Defaults to `Permit`.
 - `row_constraint` (Block List) Row-Level Security (RLS) predicates applied to tables. (see [below for nested schema](#nestedblock--decision_rule--row_constraint))

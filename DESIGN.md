@@ -312,18 +312,19 @@ See the embedded Terraform Registry guide [`docs/guides/official_provider_compar
     - `kind` (`String`, `Optional` + `Computed`, default `"Policy"`, `OneOf("Policy")`)
   - **Simple Flat Mode (100% Backward Compatible)**:
     - `paths` (`Set[String]`, `Optional` + `Computed`, `SizeAtLeast(1)`)
-    - `actions` (`Set[String]`, `Optional` + `Computed`, default `["Read"]`, `OneOf("Read")`)
+    - `actions` (`Set[String]`, `Optional` + `Computed`, default `["Read"]`, `OneOf("Read", "Write", "ReadWrite")`)
     - `principal_ids` (`Set[String]`, `Optional` + `Computed`, `SizeAtLeast(1)`, UUID element validator)
     - `principal_type` (`String`, `Optional` + `Computed`, default `"Group"`, `OneOf("User", "Group", "ServicePrincipal", "ManagedIdentity")`)
   - **Advanced Structured Mode (Feature Parity with Upstream OneLake Data Access Security)**:
     - `decision_rule` (`List[Block]`, `Optional`): Repeatable decision rules containing:
       - `paths` (`Set[String]`, `Required`)
-      - `actions` (`Set[String]`, `Optional` + `Computed`, default `["Read"]`)
+      - `actions` (`Set[String]`, `Optional` + `Computed`, default `["Read"]`, `OneOf("Read", "Write", "ReadWrite")`)
       - `effect` (`String`, `Optional` + `Computed`, default `"Permit"`, `OneOf("Permit")`)
       - `row_constraint` (`List[Block]`, `Optional`): Row-Level Security (RLS) predicates with `table_path` (`String`, `Required`) and `predicate` (`String`, `Required`, T-SQL expression).
       - `column_constraint` (`List[Block]`, `Optional`): Column-Level Security (CLS) masks with `table_path` (`String`, `Required`), `columns` (`Set[String]`, `Required`), `action` (`String`, `Optional`, default `"Read"`), and `effect` (`String`, `Optional`, default `"Permit"`).
-    - `entra_member` (`Set[Block]`, `Optional`): Heterogeneous Entra ID members with `object_id` (`String`, `Required`), `object_type` (`String`, `Required`, `OneOf("User", "Group", "ServicePrincipal", "ManagedIdentity")`), and `tenant_id` (`String`, `Optional`).
-    - `fabric_item_member` (`Set[Block]`, `Optional`): Cross-item shortcut members with `source_path` (`String`, `Required`, `{workspace_id}/{item_id}`) and `item_access` (`Set[String]`, `Optional`, default `["ReadAll"]`).
+    - `entra_member` (`Set[Block]`, `Optional`): Heterogeneous Entra ID members with `object_id` (`String`, `Required`), `object_type` (`String`, `Required`, `OneOf("User", "Group", "ServicePrincipal", "ManagedIdentity")`), and `tenant_id` (`String`, `Optional`). State refresh correlates existing state by `object_id`/`tenant_id` to preserve configured `object_type` when Fabric API omits `objectType` on GET.
+    - `fabric_item_member` (`Set[Block]`, `Optional`): Cross-item shortcut members with `source_path` (`String`, `Required`, `{workspace_id}/{item_id}` UUID pair format) and `item_access` (`Set[String]`, `Optional`, default `["ReadAll"]`).
+  - **Identifier Consistency Law**: In `Create` across `warehouse`, `sql_database`, and `lakehouse`, if both the item name and item ID are supplied, the provider verifies that the fetched display name matches the configured name, returning a diagnostic error on conflict before setting state.
 
 ### 6.5 `fabricext_item` Data Source
 

@@ -33,12 +33,17 @@ const (
 var (
 	_ provider.Provider = &FabricProvider{}
 
-	uuidRegex     = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
-	roleNameRegex = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_]*$`)
+	uuidRegex       = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+	roleNameRegex   = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_]*$`)
+	sourcePathRegex = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 )
 
 func uuidValidator() validator.String {
 	return stringvalidator.RegexMatches(uuidRegex, "must be a valid UUID (e.g. 00000000-0000-0000-0000-000000000000)")
+}
+
+func sourcePathValidator() validator.String {
+	return stringvalidator.RegexMatches(sourcePathRegex, "must be in the format {workspace_id}/{item_id} where both are valid UUIDs")
 }
 
 func normalizePrincipalType(itemType, pt string) (string, error) {

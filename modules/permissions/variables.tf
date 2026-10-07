@@ -94,12 +94,17 @@ variable "fabric_permissions_matrix" {
               spec.paths != null && length(spec.paths) > 0 &&
               spec.principal_ids != null && length(spec.principal_ids) > 0 &&
               contains(["User", "Group", "ServicePrincipal", "ManagedIdentity"], coalesce(spec.principal_type, "Group")) &&
-              alltrue([for a in coalesce(spec.actions, ["Read"]) : contains(["Read"], a)])
+              alltrue([for a in coalesce(spec.actions, ["Read"]) : contains(["Read", "Write", "ReadWrite"], a)])
             ) ||
             # Advanced mode: at least one decision_rule and at least one entra_member or fabric_item_member
             (
               length(coalesce(spec.decision_rules, [])) > 0 &&
-              (length(coalesce(spec.entra_members, [])) > 0 || length(coalesce(spec.fabric_item_members, [])) > 0)
+              (length(coalesce(spec.entra_members, [])) > 0 || length(coalesce(spec.fabric_item_members, [])) > 0) &&
+              alltrue(flatten([
+                for r in coalesce(spec.decision_rules, []) : [
+                  for a in coalesce(r.actions, ["Read"]) : contains(["Read", "Write", "ReadWrite"], a)
+                ]
+              ]))
             )
           )
         )

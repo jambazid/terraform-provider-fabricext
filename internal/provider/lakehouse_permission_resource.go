@@ -129,8 +129,8 @@ type LakehousePermissionResourceModel struct {
 
 	// Advanced structured mode blocks
 	DecisionRule     types.List `tfsdk:"decision_rule"`
-	EntraMember      types.List `tfsdk:"entra_member"`
-	FabricItemMember types.List `tfsdk:"fabric_item_member"`
+	EntraMember      types.Set  `tfsdk:"entra_member"`
+	FabricItemMember types.Set  `tfsdk:"fabric_item_member"`
 }
 
 // NewLakehousePermissionResource constructs a new fabricext_lakehouse_permission resource.
@@ -175,6 +175,7 @@ func (r *LakehousePermissionResource) Schema(_ context.Context, _ resource.Schem
 				MarkdownDescription: "Display name of the target Microsoft Fabric Lakehouse. At least one of `lakehouse_name` or `lakehouse_id` must be specified.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
+					stringplanmodifier.UseStateForUnknown(),
 				},
 				Validators: []validator.String{
 					stringvalidator.LengthAtLeast(1),
@@ -186,6 +187,7 @@ func (r *LakehousePermissionResource) Schema(_ context.Context, _ resource.Schem
 				MarkdownDescription: "Resolved or explicitly specified UUID of the Microsoft Fabric Lakehouse. At least one of `lakehouse_name` or `lakehouse_id` must be specified.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
+					stringplanmodifier.UseStateForUnknown(),
 				},
 				Validators: []validator.String{
 					uuidValidator(),
@@ -223,10 +225,10 @@ func (r *LakehousePermissionResource) Schema(_ context.Context, _ resource.Schem
 				Optional:            true,
 				Computed:            true,
 				ElementType:         types.StringType,
-				MarkdownDescription: "Set of OneLake actions permitted on `paths` in simple mode. Valid values: `Read`. Defaults to `[\"Read\"]` in simple mode.",
+				MarkdownDescription: "Set of OneLake actions permitted on `paths` in simple mode. Valid values: `Read`, `Write`, `ReadWrite`. Defaults to `[\"Read\"]` in simple mode.",
 				Validators: []validator.Set{
 					setvalidator.SizeAtLeast(1),
-					setvalidator.ValueStringsAre(stringvalidator.OneOf("Read")),
+					setvalidator.ValueStringsAre(stringvalidator.OneOf("Read", "Write", "ReadWrite")),
 				},
 			},
 			"principal_ids": schema.SetAttribute{
@@ -266,10 +268,10 @@ func (r *LakehousePermissionResource) Schema(_ context.Context, _ resource.Schem
 							Computed:            true,
 							ElementType:         types.StringType,
 							Default:             setdefault.StaticValue(types.SetValueMust(types.StringType, []attr.Value{types.StringValue("Read")})),
-							MarkdownDescription: "Set of OneLake actions permitted on `paths`. Valid values: `Read`. Defaults to `[\"Read\"]`.",
+							MarkdownDescription: "Set of OneLake actions permitted on `paths`. Valid values: `Read`, `Write`, `ReadWrite`. Defaults to `[\"Read\"]`.",
 							Validators: []validator.Set{
 								setvalidator.SizeAtLeast(1),
-								setvalidator.ValueStringsAre(stringvalidator.OneOf("Read")),
+								setvalidator.ValueStringsAre(stringvalidator.OneOf("Read", "Write", "ReadWrite")),
 							},
 						},
 						"effect": schema.StringAttribute{
@@ -347,7 +349,7 @@ func (r *LakehousePermissionResource) Schema(_ context.Context, _ resource.Schem
 					},
 				},
 			},
-			"entra_member": schema.ListNestedBlock{
+			"entra_member": schema.SetNestedBlock{
 				MarkdownDescription: "Explicit Microsoft Entra ID members (users, groups, service principals, managed identities) assigned to this role in advanced mode.",
 				NestedObject: schema.NestedBlockObject{
 					Attributes: map[string]schema.Attribute{
@@ -369,7 +371,6 @@ func (r *LakehousePermissionResource) Schema(_ context.Context, _ resource.Schem
 						},
 						"tenant_id": schema.StringAttribute{
 							Optional:            true,
-							Computed:            true,
 							MarkdownDescription: "Microsoft Entra Tenant ID (UUID). If omitted, defaults to the provider tenant ID.",
 							Validators: []validator.String{
 								uuidValidator(),
@@ -378,7 +379,7 @@ func (r *LakehousePermissionResource) Schema(_ context.Context, _ resource.Schem
 					},
 				},
 			},
-			"fabric_item_member": schema.ListNestedBlock{
+			"fabric_item_member": schema.SetNestedBlock{
 				MarkdownDescription: "Workspace item members granted access through Fabric item inheritance or shortcuts in advanced mode.",
 				NestedObject: schema.NestedBlockObject{
 					Attributes: map[string]schema.Attribute{
@@ -386,7 +387,7 @@ func (r *LakehousePermissionResource) Schema(_ context.Context, _ resource.Schem
 							Required:            true,
 							MarkdownDescription: "Workspace item source path in the format `{workspace_id}/{item_id}`.",
 							Validators: []validator.String{
-								stringvalidator.LengthAtLeast(1),
+								sourcePathValidator(),
 							},
 						},
 						"item_access": schema.SetAttribute{
@@ -414,6 +415,13 @@ func isListConfigured(l types.List) bool {
 	return len(l.Elements()) > 0
 }
 
+func isSetConfigured(s types.Set) bool {
+	if s.IsNull() || s.IsUnknown() {
+		return false
+	}
+	return len(s.Elements()) > 0
+}
+
 // ValidateConfig validates cross-attribute requirements, mutually exclusive modes, and required identifiers.
 func (r *LakehousePermissionResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
 	var config LakehousePermissionResourceModel
@@ -436,24 +444,27 @@ func (r *LakehousePermissionResource) ValidateConfig(ctx context.Context, req re
 	// If any mode-determining attribute or block is unknown during ValidateConfig,
 	// defer cross-validation until planning / apply when expressions are resolved.
 	if config.Paths.IsUnknown() || config.PrincipalIDs.IsUnknown() ||
+		config.Actions.IsUnknown() || config.PrincipalType.IsUnknown() ||
 		config.DecisionRule.IsUnknown() || config.EntraMember.IsUnknown() || config.FabricItemMember.IsUnknown() {
 		return
 	}
 
 	hasSimplePaths := !config.Paths.IsNull() && len(config.Paths.Elements()) > 0
 	hasSimplePrincipals := !config.PrincipalIDs.IsNull() && len(config.PrincipalIDs.Elements()) > 0
-	hasSimple := hasSimplePaths || hasSimplePrincipals
+	hasSimpleActions := !config.Actions.IsNull() && len(config.Actions.Elements()) > 0
+	hasSimplePrincipalType := !config.PrincipalType.IsNull() && config.PrincipalType.ValueString() != ""
+	hasSimple := hasSimplePaths || hasSimplePrincipals || hasSimpleActions || hasSimplePrincipalType
 
 	hasRules := isListConfigured(config.DecisionRule)
-	hasEntra := isListConfigured(config.EntraMember)
-	hasFabric := isListConfigured(config.FabricItemMember)
+	hasEntra := isSetConfigured(config.EntraMember)
+	hasFabric := isSetConfigured(config.FabricItemMember)
 	hasAdvanced := hasRules || hasEntra || hasFabric
 
 	// 2. Mutual exclusivity between simple mode and advanced mode
 	if hasSimple && hasAdvanced {
 		resp.Diagnostics.AddError(
 			"Conflicting Role Definition",
-			"Cannot configure both simple mode attributes (paths, principal_ids) and advanced mode blocks (decision_rule, entra_member, fabric_item_member). Use either simple mode or advanced mode.",
+			"Cannot configure both simple mode attributes (paths, actions, principal_ids, principal_type) and advanced mode blocks (decision_rule, entra_member, fabric_item_member). Use either simple mode or advanced mode.",
 		)
 		return
 	}
@@ -518,8 +529,8 @@ func (r *LakehousePermissionResource) ModifyPlan(ctx context.Context, req resour
 		plan.PrincipalType = types.StringNull()
 	} else {
 		plan.DecisionRule = types.ListNull(decisionRuleElemType)
-		plan.EntraMember = types.ListNull(entraMemberElemType)
-		plan.FabricItemMember = types.ListNull(fabricItemMemberElemType)
+		plan.EntraMember = types.SetNull(entraMemberElemType)
+		plan.FabricItemMember = types.SetNull(fabricItemMemberElemType)
 
 		if plan.Actions.IsUnknown() || plan.Actions.IsNull() {
 			plan.Actions = types.SetValueMust(types.StringType, []attr.Value{types.StringValue("Read")})
@@ -551,7 +562,7 @@ func (r *LakehousePermissionResource) Configure(_ context.Context, req resource.
 }
 
 func (r *LakehousePermissionResource) isAdvancedMode(m *LakehousePermissionResourceModel) bool {
-	return isListConfigured(m.DecisionRule) || isListConfigured(m.EntraMember) || isListConfigured(m.FabricItemMember)
+	return isListConfigured(m.DecisionRule) || isSetConfigured(m.EntraMember) || isSetConfigured(m.FabricItemMember)
 }
 
 func (r *LakehousePermissionResource) buildRolePayload(ctx context.Context, m *LakehousePermissionResourceModel) (client.DataAccessRole, diag.Diagnostics) {
@@ -647,7 +658,7 @@ func (r *LakehousePermissionResource) buildRolePayload(ctx context.Context, m *L
 
 		var entraMembers []client.MicrosoftEntraMember
 		var entraModels []EntraMemberModel
-		if isListConfigured(m.EntraMember) && !m.EntraMember.IsUnknown() {
+		if isSetConfigured(m.EntraMember) && !m.EntraMember.IsUnknown() {
 			diags.Append(m.EntraMember.ElementsAs(ctx, &entraModels, false)...)
 			for _, em := range entraModels {
 				tID := r.tenantID
@@ -668,7 +679,7 @@ func (r *LakehousePermissionResource) buildRolePayload(ctx context.Context, m *L
 
 		var fabricMembers []client.FabricItemMember
 		var fabricModels []FabricItemMemberModel
-		if isListConfigured(m.FabricItemMember) && !m.FabricItemMember.IsUnknown() {
+		if isSetConfigured(m.FabricItemMember) && !m.FabricItemMember.IsUnknown() {
 			diags.Append(m.FabricItemMember.ElementsAs(ctx, &fabricModels, false)...)
 			for _, fm := range fabricModels {
 				var access []string
@@ -772,6 +783,15 @@ func (r *LakehousePermissionResource) Create(ctx context.Context, req resource.C
 		if err != nil {
 			resp.Diagnostics.AddError("Unable to Resolve Lakehouse by ID", err.Error())
 			return
+		}
+		if !plan.LakehouseName.IsNull() && !plan.LakehouseName.IsUnknown() && plan.LakehouseName.ValueString() != "" {
+			if item.DisplayName != plan.LakehouseName.ValueString() {
+				resp.Diagnostics.AddError(
+					"Conflicting Lakehouse Identifiers",
+					fmt.Sprintf("Specified lakehouse_name %q does not match display name %q of lakehouse_id %q.", plan.LakehouseName.ValueString(), item.DisplayName, lhID),
+				)
+				return
+			}
 		}
 		lhName = item.DisplayName
 		plan.LakehouseName = types.StringValue(lhName)
@@ -989,33 +1009,69 @@ func (r *LakehousePermissionResource) populateLakehouseStateFromRole(ctx context
 			state.DecisionRule = types.ListNull(decisionRuleElemType)
 		}
 
+		priorMemberTypes := make(map[string]string)
+		priorMemberTenants := make(map[string]types.String)
+		if isSetConfigured(state.EntraMember) {
+			var priorEntra []EntraMemberModel
+			if d := state.EntraMember.ElementsAs(ctx, &priorEntra, false); !d.HasError() {
+				for _, pem := range priorEntra {
+					if !pem.ObjectID.IsNull() {
+						objID := pem.ObjectID.ValueString()
+						if !pem.ObjectType.IsNull() {
+							priorMemberTypes[objID] = pem.ObjectType.ValueString()
+							if !pem.TenantID.IsNull() && pem.TenantID.ValueString() != "" {
+								key := pem.TenantID.ValueString() + "/" + objID
+								priorMemberTypes[key] = pem.ObjectType.ValueString()
+							}
+						}
+						priorMemberTenants[objID] = pem.TenantID
+					}
+				}
+			}
+		}
+
 		var entraModels []EntraMemberModel
 		if role.Members != nil {
 			for _, m := range role.Members.MicrosoftEntraMembers {
-				objType := m.ObjectType
-				if objType == "" {
-					objType = "Group"
-				} else if norm, err := normalizePrincipalType("Lakehouse", objType); err == nil {
-					objType = norm
-				}
 				tenantIDVal := m.TenantID
 				if tenantIDVal == "" {
 					tenantIDVal = r.tenantID
 				}
+				objType := m.ObjectType
+				if objType == "" {
+					key := tenantIDVal + "/" + m.ObjectID
+					if pt, ok := priorMemberTypes[key]; ok {
+						objType = pt
+					} else if pt, ok := priorMemberTypes[m.ObjectID]; ok {
+						objType = pt
+					} else {
+						objType = "Group"
+					}
+				} else if norm, err := normalizePrincipalType("Lakehouse", objType); err == nil {
+					objType = norm
+				}
+
+				tenantVal := types.StringNull()
+				if priorTID, ok := priorMemberTenants[m.ObjectID]; ok {
+					tenantVal = priorTID
+				} else if m.TenantID != "" && m.TenantID != r.tenantID {
+					tenantVal = types.StringValue(m.TenantID)
+				}
+
 				entraModels = append(entraModels, EntraMemberModel{
 					ObjectID:   types.StringValue(m.ObjectID),
 					ObjectType: types.StringValue(objType),
-					TenantID:   types.StringValue(tenantIDVal),
+					TenantID:   tenantVal,
 				})
 			}
 		}
 
 		if len(entraModels) > 0 {
 			var d diag.Diagnostics
-			state.EntraMember, d = types.ListValueFrom(ctx, entraMemberElemType, entraModels)
+			state.EntraMember, d = types.SetValueFrom(ctx, entraMemberElemType, entraModels)
 			diags.Append(d...)
 		} else {
-			state.EntraMember = types.ListNull(entraMemberElemType)
+			state.EntraMember = types.SetNull(entraMemberElemType)
 		}
 
 		var fabricModels []FabricItemMemberModel
@@ -1037,10 +1093,10 @@ func (r *LakehousePermissionResource) populateLakehouseStateFromRole(ctx context
 
 		if len(fabricModels) > 0 {
 			var d diag.Diagnostics
-			state.FabricItemMember, d = types.ListValueFrom(ctx, fabricItemMemberElemType, fabricModels)
+			state.FabricItemMember, d = types.SetValueFrom(ctx, fabricItemMemberElemType, fabricModels)
 			diags.Append(d...)
 		} else {
-			state.FabricItemMember = types.ListNull(fabricItemMemberElemType)
+			state.FabricItemMember = types.SetNull(fabricItemMemberElemType)
 		}
 
 		return diags
@@ -1048,8 +1104,8 @@ func (r *LakehousePermissionResource) populateLakehouseStateFromRole(ctx context
 
 	// Simple flat mode
 	state.DecisionRule = types.ListNull(decisionRuleElemType)
-	state.EntraMember = types.ListNull(entraMemberElemType)
-	state.FabricItemMember = types.ListNull(fabricItemMemberElemType)
+	state.EntraMember = types.SetNull(entraMemberElemType)
+	state.FabricItemMember = types.SetNull(fabricItemMemberElemType)
 
 	paths := []string{}
 	actions := []string{}

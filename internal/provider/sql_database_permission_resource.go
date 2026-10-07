@@ -82,6 +82,7 @@ func (r *SQLDatabasePermissionResource) Schema(_ context.Context, _ resource.Sch
 				MarkdownDescription: "Display name of the target Microsoft Fabric SQL Database. At least one of `sql_database_name` or `sql_database_id` must be specified.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
+					stringplanmodifier.UseStateForUnknown(),
 				},
 				Validators: []validator.String{
 					stringvalidator.LengthAtLeast(1),
@@ -93,6 +94,7 @@ func (r *SQLDatabasePermissionResource) Schema(_ context.Context, _ resource.Sch
 				MarkdownDescription: "Resolved or explicitly specified UUID of the Microsoft Fabric SQL Database. At least one of `sql_database_name` or `sql_database_id` must be specified.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
+					stringplanmodifier.UseStateForUnknown(),
 				},
 				Validators: []validator.String{
 					uuidValidator(),
@@ -175,6 +177,15 @@ func (r *SQLDatabasePermissionResource) Create(ctx context.Context, req resource
 		if err != nil {
 			resp.Diagnostics.AddError("Unable to Resolve SQL Database by ID", err.Error())
 			return
+		}
+		if !plan.SQLDatabaseName.IsNull() && !plan.SQLDatabaseName.IsUnknown() && plan.SQLDatabaseName.ValueString() != "" {
+			if plan.SQLDatabaseName.ValueString() != item.DisplayName {
+				resp.Diagnostics.AddError(
+					"Conflicting SQL Database Identifiers",
+					fmt.Sprintf("Configured sql_database_name %q does not match display name %q of sql_database_id %q.", plan.SQLDatabaseName.ValueString(), item.DisplayName, dbID),
+				)
+				return
+			}
 		}
 		plan.SQLDatabaseName = types.StringValue(item.DisplayName)
 	} else {

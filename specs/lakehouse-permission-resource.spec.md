@@ -66,13 +66,13 @@ resource "fabricext_lakehouse_permission" "advanced" {
 
 - `workspace_id`, `lakehouse_name`, `lakehouse_id`, and `role_name` carry `RequiresReplace()` plan modifiers; `id` carries `UseStateForUnknown()`
   `[@test] ../internal/provider/lakehouse_permission_resource_test.go::TestAccLakehousePermissionResource_CRUDAndImport`
-- `lakehouse_name` and `lakehouse_id` are optional attributes where at least one must be specified; if `lakehouse_id` is supplied, `lakehouse_name` is resolved automatically via `GetItemByID`, and if `lakehouse_name` is supplied, `lakehouse_id` is resolved via `GetItemByName`
+- `lakehouse_name` and `lakehouse_id` are optional attributes where at least one must be specified; if `lakehouse_id` is supplied, `lakehouse_name` is resolved automatically via `GetItemByID`, and if `lakehouse_name` is supplied, `lakehouse_id` is resolved via `GetItemByName`; if both are supplied, `Create` validates that `lakehouse_name` matches the fetched display name
   `[@test] ../internal/provider/lakehouse_permission_resource_test.go::TestAccLakehousePermissionResource_CRUDAndImport`
-- `fabricext_lakehouse_permission` provides a dual-mode schema: simple flat mode (`paths`, `actions`, `principal_ids`, `principal_type`) for uniform path access, and advanced structured mode (`decision_rule` with optional `row_constraint` and `column_constraint`, `entra_member`, and `fabric_item_member`) for fine-grained OneLake Data Access Security
+- `fabricext_lakehouse_permission` provides a dual-mode schema: simple flat mode (`paths`, `actions`, `principal_ids`, `principal_type`) for uniform path access, and advanced structured mode (`decision_rule` with optional `row_constraint` and `column_constraint`, `entra_member` set, and `fabric_item_member` set) for fine-grained OneLake Data Access Security; `actions` validates `OneOf("Read", "Write", "ReadWrite")`
   `[@test] ../internal/provider/lakehouse_permission_resource_test.go::TestAccLakehousePermissionResource_SimpleAndAdvancedParity`
-- Heterogeneous Entra ID principals (`User`, `Group`, `ServicePrincipal`, `ManagedIdentity`) with optional `tenant_id` and cross-item shortcut inheritance (`fabric_item_member`) can be declared within the same OneLake Data Access Role
+- Heterogeneous Entra ID principals (`User`, `Group`, `ServicePrincipal`, `ManagedIdentity`) with optional `tenant_id` and cross-item shortcut inheritance (`fabric_item_member` with `{workspace_id}/{item_id}` UUID pair `source_path`) can be declared within the same OneLake Data Access Role; state refresh correlates prior member types to preserve configured object types when Fabric API omits `objectType`
   `[@test] ../internal/provider/lakehouse_permission_resource_test.go::TestAccLakehousePermissionResource_MixedMembersAndShortcuts`
-- Validation enforces that either simple mode attributes or advanced mode blocks are provided, rejecting configurations missing both or declaring empty rules
+- Validation enforces that either simple mode attributes or advanced mode blocks are provided, rejecting configurations declaring both simple mode attributes (`paths`, `actions`, `principal_ids`, `principal_type`) and advanced mode blocks, missing both, or declaring empty rules
   `[@test] ../internal/provider/lakehouse_permission_resource_test.go::TestAccLakehousePermissionResource_ValidationErrors`
 
 ## Concurrency-Safe CRUD Lifecycle, Disappears & ImportState

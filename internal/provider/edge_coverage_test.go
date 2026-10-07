@@ -797,8 +797,8 @@ func TestResource_UpdateAndDeleteErrors(t *testing.T) {
 			Paths:            paths,
 			Actions:          actions,
 			DecisionRule:     types.ListNull(decisionRuleElemType),
-			EntraMember:      types.ListNull(entraMemberElemType),
-			FabricItemMember: types.ListNull(fabricItemMemberElemType),
+			EntraMember:      types.SetNull(entraMemberElemType),
+			FabricItemMember: types.SetNull(fabricItemMemberElemType),
 		}
 		stateModel := LakehousePermissionResourceModel{
 			ID:               types.StringValue("11111111-1111-1111-1111-111111111111/33333333-3333-3333-3333-333333333333/custom"),
@@ -811,8 +811,8 @@ func TestResource_UpdateAndDeleteErrors(t *testing.T) {
 			Paths:            paths,
 			Actions:          actions,
 			DecisionRule:     types.ListNull(decisionRuleElemType),
-			EntraMember:      types.ListNull(entraMemberElemType),
-			FabricItemMember: types.ListNull(fabricItemMemberElemType),
+			EntraMember:      types.SetNull(entraMemberElemType),
+			FabricItemMember: types.SetNull(fabricItemMemberElemType),
 		}
 
 		plan := tfsdk.Plan{Schema: schemaResp.Schema}
@@ -923,8 +923,8 @@ func TestResource_UpdateAndDeleteErrors(t *testing.T) {
 			Paths:            paths,
 			Actions:          actions,
 			DecisionRule:     types.ListNull(decisionRuleElemType),
-			EntraMember:      types.ListNull(entraMemberElemType),
-			FabricItemMember: types.ListNull(fabricItemMemberElemType),
+			EntraMember:      types.SetNull(entraMemberElemType),
+			FabricItemMember: types.SetNull(fabricItemMemberElemType),
 		}
 		lhPlan := tfsdk.Plan{Schema: lhSchema.Schema}
 		_ = lhPlan.Set(ctx, &lhPlanModel)
@@ -1112,6 +1112,42 @@ func TestLakehouse_PopulateLakehouseState_EdgeCases(t *testing.T) {
 
 	if state.Kind.ValueString() != "Policy" {
 		t.Fatalf("expected kind Policy, got %s", state.Kind.ValueString())
+	}
+
+	// Verify defaults were set when API returned empty strings
+	var entraMembers []EntraMemberModel
+	if d := state.EntraMember.ElementsAs(ctx, &entraMembers, false); d.HasError() {
+		t.Fatalf("failed to decode entra_member elements: %v", d)
+	}
+	if len(entraMembers) != 1 || entraMembers[0].ObjectType.ValueString() != "Group" || !entraMembers[0].TenantID.IsNull() {
+		t.Fatalf("unexpected defaulted entra_member: %+v", entraMembers)
+	}
+
+	// Verify prior member type preservation when Fabric API returns empty objectType
+	priorSet, d := types.SetValueFrom(ctx, entraMemberElemType, []EntraMemberModel{
+		{
+			ObjectID:   types.StringValue("11111111-1111-1111-1111-111111111111"),
+			ObjectType: types.StringValue("User"),
+			TenantID:   types.StringValue("custom-tenant-id"),
+		},
+	})
+	if d.HasError() {
+		t.Fatalf("failed to create prior entra set: %v", d)
+	}
+
+	priorState := LakehousePermissionResourceModel{
+		EntraMember: priorSet,
+	}
+	diags = r.populateLakehouseStateFromRole(ctx, role, &priorState)
+	if diags.HasError() {
+		t.Fatalf("unexpected errors populating prior state: %v", diags)
+	}
+	var preservedMembers []EntraMemberModel
+	if d := priorState.EntraMember.ElementsAs(ctx, &preservedMembers, false); d.HasError() {
+		t.Fatalf("failed to decode preserved entra members: %v", d)
+	}
+	if len(preservedMembers) != 1 || preservedMembers[0].ObjectType.ValueString() != "User" || preservedMembers[0].TenantID.ValueString() != "custom-tenant-id" {
+		t.Fatalf("expected preserved ObjectType 'User' and 'custom-tenant-id', got %+v", preservedMembers)
 	}
 }
 

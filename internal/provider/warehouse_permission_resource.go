@@ -82,6 +82,7 @@ func (r *WarehousePermissionResource) Schema(_ context.Context, _ resource.Schem
 				MarkdownDescription: "Display name of the target Microsoft Fabric Warehouse. At least one of `warehouse_name` or `warehouse_id` must be specified.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
+					stringplanmodifier.UseStateForUnknown(),
 				},
 				Validators: []validator.String{
 					stringvalidator.LengthAtLeast(1),
@@ -93,6 +94,7 @@ func (r *WarehousePermissionResource) Schema(_ context.Context, _ resource.Schem
 				MarkdownDescription: "Resolved or explicitly specified UUID of the Microsoft Fabric Warehouse. At least one of `warehouse_name` or `warehouse_id` must be specified.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
+					stringplanmodifier.UseStateForUnknown(),
 				},
 				Validators: []validator.String{
 					uuidValidator(),
@@ -175,6 +177,15 @@ func (r *WarehousePermissionResource) Create(ctx context.Context, req resource.C
 		if err != nil {
 			resp.Diagnostics.AddError("Unable to Resolve Warehouse by ID", err.Error())
 			return
+		}
+		if !plan.WarehouseName.IsNull() && !plan.WarehouseName.IsUnknown() && plan.WarehouseName.ValueString() != "" {
+			if plan.WarehouseName.ValueString() != item.DisplayName {
+				resp.Diagnostics.AddError(
+					"Conflicting Warehouse Identifiers",
+					fmt.Sprintf("Configured warehouse_name %q does not match display name %q of warehouse_id %q.", plan.WarehouseName.ValueString(), item.DisplayName, whID),
+				)
+				return
+			}
 		}
 		plan.WarehouseName = types.StringValue(item.DisplayName)
 	} else {
