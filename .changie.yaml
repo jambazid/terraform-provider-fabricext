@@ -83,3 +83,15 @@ replacements:
   - path: ./examples/modules/permissions/versions.tf
     find: ' version = ".*"'
     replace: ' version = "~> {{.VersionNoPrefix}}"'
+  - path: ./README.md
+    find: ' version = ".*"'
+    replace: ' version = "~> {{.VersionNoPrefix}}"'
+  - path: ./modules/permissions/README.md
+    find: '(\?ref=)[^"]*'
+    replace: '${1}{{.Version}}'
+  - path: ./templates/index.md.tmpl
+    find: '(\?ref=)[^"]*'
+    replace: '${1}{{.Version}}'
+  - path: ./templates/guides/official_provider_comparison.md.tmpl
+    find: '(?s)(fabricext\s*=\s*\{[^}]*version\s*=\s*")[^"]*(")'
+    replace: '${1}~> {{.VersionNoPrefix}}${2}'
