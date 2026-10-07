@@ -1,4 +1,4 @@
-# Roadmap & Deprecation Lifecycle: `terraform-provider-fabricext`
+# Roadmap
 
 > **Stopgap Mission Statement:** This provider (`registry.terraform.io/jambazid/fabricext`) exists strictly as an **interim stopgap** to unblock declarative Terraform management of Microsoft Fabric item-level sharing (`fabricext_*`) until Microsoft's official [`microsoft/fabric` Terraform provider](https://github.com/microsoft/terraform-provider-fabric) ships equivalent native resources.
 >
@@ -6,7 +6,7 @@
 
 ---
 
-## 1. Current Scope (`v0.1.x`)
+## Current Scope
 
 | Artifact | Type | Fabric Item Type | Underlying Fabric API Surface | Status |
 | :--- | :--- | :--- | :--- | :--- |
@@ -18,7 +18,7 @@
 
 ---
 
-## 2. Candidate Future Stopgap Resources (`v0.2.x+`)
+## Candidate Future Resources
 
 If upstream parity in `microsoft/fabric` has not yet landed for the following item types, contributors may add them by following the playbook in [`CONTRIBUTING.md`](CONTRIBUTING.md):
 
@@ -33,7 +33,7 @@ If upstream parity in `microsoft/fabric` has not yet landed for the following it
 
 ---
 
-## 3. Deprecation & Official Provider Migration Policy
+## Deprecation and Migration Policy
 
 Each `fabricext_*` resource is tracked against upstream support in [`microsoft/terraform-provider-fabric`](https://github.com/microsoft/terraform-provider-fabric):
 

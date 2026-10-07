@@ -1,10 +1,10 @@
-# Contributing to `terraform-provider-fabricext`
+# Contributing
 
 > **Stopgap Provider Context:** `terraform-provider-fabricext` is an interim, pre-alpha (`v0.x`) stopgap provider for Microsoft Fabric item-level sharing (`fabricext_*`) while we await equivalent native resources in Microsoft's official [`microsoft/fabric` Terraform provider](https://github.com/microsoft/terraform-provider-fabric). Before proposing a new resource, first verify that the capability does not already exist in the latest release of `microsoft/fabric`.
 
 ---
 
-## 1. Local Development Prerequisites
+## Development Prerequisites
 
 All tools, linters, scanners, and task runners are managed hermetically via [mise](https://mise.jdx.dev/). Do not rely on globally installed binaries.
 
@@ -21,7 +21,7 @@ mise run check
 
 ---
 
-## 2. Step-by-Step Playbook: Adding a New `fabricext_*` Resource
+## Adding a Resource
 
 Whenever another Microsoft Fabric item type requires item-level sharing or data-access permission support (for example, `SemanticModel`, `Eventhouse`, `KQLDatabase`, or `MirroredDatabase`), follow this exact six-step workflow:
 
@@ -81,7 +81,7 @@ Whenever another Microsoft Fabric item type requires item-level sharing or data-
 
 ---
 
-## 3. Release Engineering & Tag Automation Runbook
+## Release Engineering
 
 Releases are tracked centrally via [Changie](https://changie.dev/) and published to the Terraform Registry through GitHub Actions.
 

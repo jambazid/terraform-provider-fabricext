@@ -11,7 +11,7 @@ Comparative architecture analysis between Microsoft's official Terraform provide
 
 ---
 
-## 1. Executive Summary
+## Executive Summary
 
 | Dimension | `microsoft/fabric` (Official) | `jambazid/fabricext` (Stopgap) | Cost | Impact | Risk |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -22,9 +22,9 @@ Comparative architecture analysis between Microsoft's official Terraform provide
 
 ---
 
-## 2. Upstream Gap Analysis
+## Upstream Gap Analysis
 
-### 2.1 Item Permissions Gap
+### Item Permissions Gap
 
 Microsoft Fabric exposes item-level permission endpoints (`GET /permissions`, `POST /grantPermissions`, `POST /revokePermissions`) for Warehouses and SQL Databases, tracked upstream in [`microsoft/terraform-provider-fabric#425`](https://github.com/microsoft/terraform-provider-fabric/issues/425).
 
@@ -53,7 +53,7 @@ sequenceDiagram
     API-->>TF: 200 OK (verified: ["Read", "Reshare"])
 ```
 
-### 2.2 OneLake Roles Comparison
+### OneLake Roles Comparison
 
 | Aspect | `microsoft/fabric` (`fabric_onelake_data_access_security`) | `jambazid/fabricext` (`fabricext_lakehouse_permission`) |
 | :--- | :--- | :--- |
@@ -65,11 +65,11 @@ sequenceDiagram
 
 ---
 
-## 3. Authentication & Dual-Provider Coexistence
+## Authentication and Dual-Provider Coexistence
 
 Practitioners frequently run `microsoft/fabric` (to provision workspaces and items) and `jambazid/fabricext` (to manage item permissions) side by side in the same root module.
 
-### 3.1 Credential & Environment Parity
+### Credential and Environment Parity
 
 `jambazid/fabricext` supports both standard Azure SDK (`AZURE_*`, `ARM_*`) and official Fabric provider (`FABRIC_*`) environment variables in `internal/credentials/chain.go` and `internal/provider/provider.go`, allowing a single set of CI/CD environment variables to authenticate both providers simultaneously:
 
@@ -86,7 +86,7 @@ Practitioners frequently run `microsoft/fabric` (to provision workspaces and ite
 | `request_timeout` | `FABRIC_TIMEOUT` | `FABRIC_REQUEST_TIMEOUT` | Per-request HTTP timeout (Go duration string, defaults to `"60s"`). |
 | `skip_credentials_validation` | *(Not supported)* | `FABRIC_SKIP_CREDENTIALS_VALIDATION` | Skips eager token validation in `Configure()` when set to `true`. |
 
-### 3.2 Dual-Provider HCL Pattern
+### Dual-Provider HCL Pattern
 
 Because `jambazid/fabricext` resources accept human-readable item names (`warehouse_name`, `sql_database_name`, `lakehouse_name`) and resolve them via a paginated, type-isolated `(workspaceID, itemType, displayName)` cache, referencing `display_name` from a `microsoft/fabric` resource automatically establishes the Terraform dependency graph edge:
 
@@ -100,7 +100,7 @@ terraform {
     }
     fabricext = {
       source  = "jambazid/fabricext"
-      version = "~> 0.1.2"
+      version = "~> 0.1.3"
     }
   }
 }
@@ -125,7 +125,7 @@ resource "fabricext_warehouse_permission" "analysts" {
 
 ---
 
-## 4. Schema & Implementation Idioms
+## Schema and Implementation Idioms
 
 | Pattern | `microsoft/fabric` Convention | `jambazid/fabricext` Convention | Trade-Off & Rationale |
 | :--- | :--- | :--- | :--- |
@@ -137,7 +137,7 @@ resource "fabricext_warehouse_permission" "analysts" {
 
 ---
 
-## 5. Testing & Verification Comparison
+## Testing and Verification Comparison
 
 ```mermaid
 flowchart LR
@@ -159,14 +159,14 @@ flowchart LR
 
 ---
 
-## 6. State Migration Playbook
+## State Migration Playbook
 
 When `microsoft/fabric` promotes OneLake Data Access Security to GA and adds native Warehouse/SQL Database item-permission resources, practitioners can migrate state with **zero permission revocation or downtime** using Terraform 1.7+ `removed` and `import` blocks.
 
 > [!TIP]
 > **Retrieving Resolved Item UUIDs Before Migration**: Every `jambazid/fabricext` permission resource stores the resolved Fabric item UUID in state (`lakehouse_id`, `warehouse_id`, or `sql_database_id`). Before replacing a `fabricext_*` resource block, inspect state with `terraform state show` (or reference `data.fabricext_item`) to obtain the item UUID for your `import` block.
 
-### 6.1 Lakehouse Role Migration
+### Lakehouse Role Migration
 
 Because `fabricext_lakehouse_permission` and `fabric_onelake_data_access_security` share the exact `{workspace_id}/{lakehouse_id}/{role_name}` composite import ID:
 
@@ -194,7 +194,7 @@ import {
 }
 ```
 
-### 6.2 Warehouse Permission Migration
+### Warehouse Permission Migration
 
 `fabricext_warehouse_permission` maps `role_type` (`read`, `write`, `reshare`) to Fabric item permissions (`["Read"]`, `["Read", "Write"]`, `["Read", "Reshare"]`). When `microsoft/fabric` ships native Warehouse item permission resources ([Issue #425](https://github.com/microsoft/terraform-provider-fabric/issues/425)):
 
@@ -222,7 +222,7 @@ import {
 }
 ```
 
-### 6.3 SQL Database Permission Migration
+### SQL Database Permission Migration
 
 `fabricext_sql_database_permission` supports five granular SQL Database permission presets across the TDS SQL endpoint, Spark/OneLake mirror, and event subscriptions:
 
