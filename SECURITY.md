@@ -1,6 +1,6 @@
-# Security Policy: `terraform-provider-fabricext`
+# Security Policy
 
-## 1. Reporting a Vulnerability
+## Reporting a Vulnerability
 
 Please **do not** report security vulnerabilities through public GitHub issues, discussions, or pull requests.
 
@@ -14,7 +14,7 @@ We aim to acknowledge reports within 48 hours and publish a patched release once
 
 ---
 
-## 2. Provider Authentication & Secret Handling Guarantees
+## Authentication and Secrets
 
 1. **Native Microsoft Identity SDK (`azidentity`) — Zero Subprocesses & Shell Injection**:
    - Credential resolution uses Microsoft's official Go SDK (`github.com/Azure/azure-sdk-for-go/sdk/azidentity` and `sdk/azcore`) exclusively. All authentication flows (including Azure CLI session token resolution via `azidentity.NewAzureCLICredential`) operate without spawning `os/exec` subprocesses, shells, or writing temporary token files to disk.
@@ -26,7 +26,7 @@ We aim to acknowledge reports within 48 hours and publish a patched release once
 
 ---
 
-## 3. CI/CD & Supply-Chain Security Controls
+## Supply Chain and CI/CD Security
 
 This repository enforces defense-in-depth against CI/CD and dependency supply-chain attacks (such as `s1ngularity`, `hackerbot-claw`, and `TeamPCP`):
 

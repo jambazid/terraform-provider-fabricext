@@ -4,7 +4,7 @@ description: |-
   The Fabric Extensions provider (registry.terraform.io/jambazid/fabricext) is a purpose-built provider for declaratively managing Microsoft Fabric item-level sharing and data-access permissions (fabricext_*).
 ---
 
-# Fabric Extensions Provider (`fabricext`)
+# Fabric Extensions Provider
 
 > [!WARNING]
 > **Pre-Alpha & Extensions Notice**: `registry.terraform.io/jambazid/fabricext` (`v0.x`) is a **pre-alpha, purpose-built provider** created to manage item-level sharing and OneLake Data Access Roles (`fabricext_warehouse_permission`, `fabricext_sql_database_permission`, `fabricext_lakehouse_permission`, and `fabricext_item`) until equivalent resources are released in Microsoft's official [`microsoft/fabric` Terraform provider](https://github.com/microsoft/terraform-provider-fabric). Breaking schema changes may occur between `0.x` minor versions, and individual `fabricext_*` resources will be deprecated with migration guides as official equivalents reach General Availability.
@@ -57,7 +57,7 @@ description: |-
 
 {{ tffile "examples/provider/sovereign_cloud.tf" }}
 
-## Authentication & Credential Chain
+## Authentication and Credential Chain
 
 The provider implements **100% authentication parity** with Microsoft's official `microsoft/fabric` provider, utilizing Microsoft's official Go authentication SDK (`github.com/Azure/azure-sdk-for-go/sdk/azidentity`). Credentials are evaluated in the following deterministic order:
 
@@ -118,7 +118,7 @@ You can also use the in-repo companion HCL module to flatten matrices across War
 
 ```hcl
 module "workspace_permissions" {
-  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=v0.1.2"
+  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=v0.1.3"
 
   fabric_permissions_matrix = {
     workspace_id = "00000000-0000-0000-0000-000000000001"

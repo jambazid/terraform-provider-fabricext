@@ -1,4 +1,4 @@
-# Microsoft Fabric Permissions Matrix Module (`modules/permissions`)
+# Microsoft Fabric Permissions Matrix Module
 
 This module flattens and declaratively provisions workspace-wide item permissions across Microsoft Fabric Warehouses, SQL Databases, and Lakehouse OneLake Data Access Roles using a single structured matrix definition.
 
@@ -20,7 +20,7 @@ This module flattens and declaratively provisions workspace-wide item permission
 
 ```hcl
 module "workspace_permissions" {
-  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=v0.1.2"
+  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=v0.1.3"
 
   fabric_permissions_matrix = {
     workspace_id = "00000000-0000-0000-0000-000000000001"

@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## v0.1.3 - October 07, 2026
+
+### 🪲 Fixed
+
+* Inherit environment secrets in `tag.yaml` reusable workflow call to unblock GPG import and release publishing.
+
+### 📚 Documentation
+
+* Simplify documentation headings across README, SECURITY, CONTRIBUTING, and ROADMAP, and add vector brand assets.
+
 ## v0.1.2 - October 07, 2026
 
 ### 🪲 Fixed

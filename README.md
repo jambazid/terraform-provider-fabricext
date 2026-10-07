@@ -1,4 +1,7 @@
-# Terraform Provider for Microsoft Fabric Item Sharing (`jambazid/fabricext`)
+# Terraform Provider for Fabric (Community Extensions)
+
+| <img src="assets/terraform-logo.svg" width="260" alt="Terraform Logo"> | <img src="assets/fabric-logo.svg" width="56" alt="Microsoft Fabric Logo"> |
+| :---: | :---: |
 
 > [!WARNING]
 > **Pre-Alpha & Stopgap Provider Notice**: `registry.terraform.io/jambazid/fabricext` (`v0.x`) is a **pre-alpha, purpose-built stopgap provider** created to fill the item-level sharing and OneLake Data Access Role gap (`fabricext_warehouse_permission`, `fabricext_sql_database_permission`, `fabricext_lakehouse_permission`, and `fabricext_item`) until equivalent resources are released in Microsoft's official [`microsoft/fabric` Terraform provider](https://github.com/microsoft/terraform-provider-fabric). Breaking schema changes may occur between `0.x` minor versions, and individual `fabricext_*` resources will be deprecated with migration guides as official equivalents reach General Availability.
@@ -23,7 +26,7 @@ terraform {
   required_providers {
     fabricext = {
       source  = "jambazid/fabricext"
-      version = "~> 0.1.2"
+      version = "~> 0.1.3"
     }
   }
 }
@@ -79,11 +82,11 @@ The provider supports Microsoft Entra ID authentication with parameter parity to
 
 See the [Provider Documentation](docs/index.md) for full authentication examples.
 
-## Reusable Permissions Module
+## Permissions Module
 
 An in-repo reusable HCL module (`modules/permissions`) is provided to declaratively manage workspace permission matrices across Warehouses, Lakehouses, and SQL Databases in a single invocation. See [modules/permissions/README.md](modules/permissions/README.md) for documentation and examples.
 
-## Local Development & Verification (`mise`)
+## Development and Verification
 
 All tools and tasks are managed through [mise](https://mise.jdx.dev/):
 
@@ -94,7 +97,7 @@ mise run check        # Run lint, scan, specs:check, test:unit, test:acc, docs:c
 mise run install-local # Install provider binary into ~/.terraform.d/plugins local mirror
 ```
 
-## Documentation & Governance
+## Documentation
 
 - [Architecture & Design Specification (`DESIGN.md`)](DESIGN.md)
 - [Official Provider Comparison & Migration Guide (`docs/guides/official_provider_comparison.md`)](docs/guides/official_provider_comparison.md)

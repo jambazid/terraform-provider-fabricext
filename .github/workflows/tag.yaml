@@ -102,3 +102,4 @@ jobs:
     uses: $/.github/workflows/release.yaml
     with:
       tag: ${{ needs.tag.outputs.tag }}
+    secrets: inherit  # zizmor: ignore[secrets-inherit] internal release workflow call
