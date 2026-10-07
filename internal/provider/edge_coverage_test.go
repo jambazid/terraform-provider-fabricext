@@ -935,3 +935,203 @@ func TestResource_UpdateAndDeleteErrors(t *testing.T) {
 		}
 	})
 }
+
+func TestLakehouse_IsRoleAdvanced(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name     string
+		role     *client.DataAccessRole
+		expected bool
+	}{
+		{
+			name: "zero decision rules",
+			role: &client.DataAccessRole{
+				DecisionRules: []client.DecisionRule{},
+			},
+			expected: true,
+		},
+		{
+			name: "multiple decision rules",
+			role: &client.DataAccessRole{
+				DecisionRules: []client.DecisionRule{
+					{Effect: "Permit"},
+					{Effect: "Permit"},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "row constraints present",
+			role: &client.DataAccessRole{
+				DecisionRules: []client.DecisionRule{
+					{
+						Effect: "Permit",
+						Constraints: &client.Constraints{
+							Rows: []client.RowConstraint{{TablePath: "/table", Value: "id = 1"}},
+						},
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "column constraints present",
+			role: &client.DataAccessRole{
+				DecisionRules: []client.DecisionRule{
+					{
+						Effect: "Permit",
+						Constraints: &client.Constraints{
+							Columns: []client.ColumnConstraint{{TablePath: "/table", ColumnNames: []string{"col1"}}},
+						},
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "fabric item members present",
+			role: &client.DataAccessRole{
+				DecisionRules: []client.DecisionRule{{Effect: "Permit"}},
+				Members: &client.Members{
+					FabricItemMembers: []client.FabricItemMember{{SourcePath: "/path"}},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "mixed entra member object types",
+			role: &client.DataAccessRole{
+				DecisionRules: []client.DecisionRule{{Effect: "Permit"}},
+				Members: &client.Members{
+					MicrosoftEntraMembers: []client.MicrosoftEntraMember{
+						{ObjectID: "id1", ObjectType: "User"},
+						{ObjectID: "id2", ObjectType: "Group"},
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "uniform entra member object types",
+			role: &client.DataAccessRole{
+				DecisionRules: []client.DecisionRule{{Effect: "Permit"}},
+				Members: &client.Members{
+					MicrosoftEntraMembers: []client.MicrosoftEntraMember{
+						{ObjectID: "id1", ObjectType: "User"},
+						{ObjectID: "id2", ObjectType: "User"},
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "single entra member",
+			role: &client.DataAccessRole{
+				DecisionRules: []client.DecisionRule{{Effect: "Permit"}},
+				Members: &client.Members{
+					MicrosoftEntraMembers: []client.MicrosoftEntraMember{
+						{ObjectID: "id1", ObjectType: "User"},
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "nil members",
+			role: &client.DataAccessRole{
+				DecisionRules: []client.DecisionRule{{Effect: "Permit"}},
+				Members:       nil,
+			},
+			expected: false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := isRoleAdvanced(tc.role)
+			if got != tc.expected {
+				t.Fatalf("expected isRoleAdvanced=%v, got %v", tc.expected, got)
+			}
+		})
+	}
+}
+
+func TestLakehouse_PopulateLakehouseState_EdgeCases(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	r := &LakehousePermissionResource{tenantID: "default-tenant-id"}
+
+	role := &client.DataAccessRole{
+		Kind: "", // should default to "Policy"
+		DecisionRules: []client.DecisionRule{
+			{
+				Effect: "", // should default to "Permit"
+				Permission: []client.PermissionScope{
+					{AttributeName: "Path", AttributeValueIncludedIn: []string{"/Tables/t"}},
+					// No Action attribute -> should default ruleActions to ["Read"]
+				},
+				Constraints: &client.Constraints{
+					Rows: []client.RowConstraint{
+						{TablePath: "/Tables/t", Value: "1 = 1"},
+					},
+					Columns: []client.ColumnConstraint{
+						{
+							TablePath:    "/Tables/t",
+							ColumnNames:  []string{"c1"},
+							ColumnAction: []string{}, // should default to "Read"
+							ColumnEffect: "",         // should default to "Permit"
+						},
+					},
+				},
+			},
+		},
+		Members: &client.Members{
+			MicrosoftEntraMembers: []client.MicrosoftEntraMember{
+				{
+					ObjectID:   "11111111-1111-1111-1111-111111111111",
+					ObjectType: "", // should default to "Group"
+					TenantID:   "", // should default to r.tenantID
+				},
+			},
+			FabricItemMembers: []client.FabricItemMember{
+				{
+					SourcePath: "/Tables/t",
+					ItemAccess: []string{}, // should default to ["ReadAll"]
+				},
+			},
+		},
+	}
+
+	var state LakehousePermissionResourceModel
+	diags := r.populateLakehouseStateFromRole(ctx, role, &state)
+	if diags.HasError() {
+		t.Fatalf("unexpected errors populating state: %v", diags)
+	}
+
+	if state.Kind.ValueString() != "Policy" {
+		t.Fatalf("expected kind Policy, got %s", state.Kind.ValueString())
+	}
+}
+
+func TestLakehouse_ModifyPlan_EdgeCases(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	r := &LakehousePermissionResource{}
+	var schemaResp tfsdkresource.SchemaResponse
+	r.Schema(ctx, tfsdkresource.SchemaRequest{}, &schemaResp)
+
+	t.Run("null plan returns cleanly", func(t *testing.T) {
+		t.Parallel()
+		plan := tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    tftypes.NewValue(schemaResp.Schema.Type().TerraformType(ctx), nil),
+		}
+		var modResp tfsdkresource.ModifyPlanResponse
+		r.ModifyPlan(ctx, tfsdkresource.ModifyPlanRequest{Plan: plan}, &modResp)
+		if modResp.Diagnostics.HasError() {
+			t.Fatalf("unexpected error on null plan: %v", modResp.Diagnostics)
+		}
+	})
+}

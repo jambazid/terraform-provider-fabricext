@@ -287,6 +287,57 @@ resource "fabricext_lakehouse_permission" "conflicting_definition" {
 `,
 				ExpectError: regexp.MustCompile(`Conflicting Role Definition`),
 			},
+			{
+				Config: testAccProviderConfig(srv) + `
+resource "fabricext_lakehouse_permission" "missing_identifier" {
+  workspace_id  = "11111111-1111-1111-1111-111111111111"
+  role_name     = "BronzeReaders"
+  paths         = ["/Tables/customers"]
+  principal_ids = ["77777777-7777-7777-7777-777777777771"]
+}
+`,
+				ExpectError: regexp.MustCompile(`Missing Lakehouse Identifier`),
+			},
+			{
+				Config: testAccProviderConfig(srv) + `
+resource "fabricext_lakehouse_permission" "missing_principals" {
+  workspace_id   = "11111111-1111-1111-1111-111111111111"
+  lakehouse_name = "raw_bronze_lh"
+  role_name      = "BronzeReaders"
+  paths          = ["/Tables/customers"]
+}
+`,
+				ExpectError: regexp.MustCompile(`Missing Required Attribute in Simple Mode`),
+			},
+			{
+				Config: testAccProviderConfig(srv) + `
+resource "fabricext_lakehouse_permission" "advanced_missing_rules" {
+  workspace_id   = "11111111-1111-1111-1111-111111111111"
+  lakehouse_name = "raw_bronze_lh"
+  role_name      = "BronzeReaders"
+
+  entra_member {
+    object_id   = "77777777-7777-7777-7777-777777777771"
+    object_type = "User"
+  }
+}
+`,
+				ExpectError: regexp.MustCompile(`Missing Required Block in Advanced Mode`),
+			},
+			{
+				Config: testAccProviderConfig(srv) + `
+resource "fabricext_lakehouse_permission" "advanced_missing_members" {
+  workspace_id   = "11111111-1111-1111-1111-111111111111"
+  lakehouse_name = "raw_bronze_lh"
+  role_name      = "BronzeReaders"
+
+  decision_rule {
+    paths = ["/Tables/customers"]
+  }
+}
+`,
+				ExpectError: regexp.MustCompile(`Missing Required Members in Advanced Mode`),
+			},
 		},
 	})
 }
