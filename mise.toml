@@ -81,16 +81,20 @@ description = "Sync vendored Microsoft Fabric OpenAPI specs from upstream micros
 run = "python3 scripts/check_openapi_specs.py --sync"
 
 [tasks."test:unit"]
-description = "Run Go unit tests with race detector and coverage"
-run = "go test -v -race -shuffle=on -coverprofile=coverage.out ./internal/credentials/... ./internal/client/... ./internal/testutil/... ./internal/provider/..."
+description = "Run Go unit tests with race detector and coverage profile (coverage_unit.out)"
+run = "go test -v -race -shuffle=on -coverprofile=coverage_unit.out ./internal/credentials/... ./internal/client/... ./internal/testutil/... ./internal/provider/..."
 
 [tasks."test:acc"]
-description = "Run hermetic Terraform acceptance tests (TF_ACC=1) against OpenAPI-validated fabricmock"
-run = "TF_ACC=1 go test -v -race -shuffle=on ./internal/provider/... -timeout 15m"
+description = "Run hermetic Terraform acceptance tests (TF_ACC=1) against fabricmock with coverage (coverage_acc.out)"
+run = "TF_ACC=1 go test -v -race -shuffle=on -coverprofile=coverage_acc.out ./internal/provider/... -timeout 15m"
+
+[tasks."test:coverage"]
+description = "Run full unit and acceptance test suite with race detector and combined coverage profile (coverage.out)"
+run = "TF_ACC=1 go test -v -race -shuffle=on -coverprofile=coverage.out -coverpkg=./internal/... ./internal/credentials/... ./internal/client/... ./internal/testutil/... ./internal/provider/... -timeout 15m"
 
 [tasks.test]
-description = "Run all unit and acceptance tests"
-depends = ["test:unit", "test:acc"]
+description = "Run all unit, acceptance, and combined coverage tests"
+depends = ["test:unit", "test:acc", "test:coverage"]
 
 [tasks."coverage:html"]
 description = "Export interactive HTML coverage report from coverage.out"
@@ -98,7 +102,15 @@ run = "go tool cover -html=coverage.out -o coverage.html"
 
 [tasks."coverage:summary"]
 description = "Generate Markdown coverage summary table from coverage.out"
-run = "python3 scripts/coverage_summary.py coverage.out"
+run = "python3 scripts/coverage_summary.py coverage.out --title \"Combined Project Test Coverage\" --threshold 90.0"
+
+[tasks."coverage:unit"]
+description = "Generate Markdown coverage summary table from coverage_unit.out"
+run = "python3 scripts/coverage_summary.py coverage_unit.out --title \"Unit Test Coverage\""
+
+[tasks."coverage:acc"]
+description = "Generate Markdown coverage summary table from coverage_acc.out"
+run = "python3 scripts/coverage_summary.py coverage_acc.out --title \"Acceptance Test Coverage\""
 
 [tasks.docs]
 description = "Generate and validate Terraform Registry documentation via tfplugindocs"

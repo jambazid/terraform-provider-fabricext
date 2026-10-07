@@ -19,9 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      contents: read
-      pull-requests: write
-      checks: write
+      contents: read  # Read repository contents and lockfiles
     steps:
       - name: runner | harden
         uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1  # v2.21.1
@@ -39,4 +37,4 @@ jobs:
           vulnerability-check: true
           license-check: true
           show-openssf-scorecard: true
-          comment-summary-in-pr: on-failure
+          comment-summary-in-pr: false

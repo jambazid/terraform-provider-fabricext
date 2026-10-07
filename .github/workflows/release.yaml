@@ -117,9 +117,9 @@ jobs:
     timeout-minutes: 25
     environment: release
     permissions:
-      contents: write
-      id-token: write
-      attestations: write
+      contents: write  # Upload release assets and changelogs
+      id-token: write  # Sign release provenance via GitHub OIDC
+      attestations: write  # Attest artifact build provenance
     steps:
       - name: runner | harden
         uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1  # v2.21.1

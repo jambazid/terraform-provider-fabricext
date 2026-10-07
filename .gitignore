@@ -16,6 +16,8 @@ Cargo.lock
 /dist/
 terraform-provider-*
 coverage.out
+coverage*.out
+coverage.html
 *.coverprofile
 *.test
 
