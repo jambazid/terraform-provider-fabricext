@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## v0.1.4 - October 07, 2026
+
+### 📚 Documentation
+
+* Tailor Terraform Registry documentation with native callout sigils and accessible ASCII architecture diagrams while preserving canonical GitHub guide with interactive Mermaid diagrams.
+
 ## v0.1.3 - October 07, 2026
 
 ### 🪲 Fixed

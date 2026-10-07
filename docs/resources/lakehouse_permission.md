@@ -3,12 +3,18 @@
 page_title: "fabricext_lakehouse_permission Resource - Fabric Extensions (fabricext)"
 subcategory: ""
 description: |-
-  Manages a OneLake Data Access Role (/dataAccessRoles) on a Microsoft Fabric Lakehouse using a concurrency-safe per-Lakehouse mutex and If-Match ETag Read-Modify-Write cycle. Note: Fabric OneLake Data Access Roles require uniform member types per role resource; to assign mixed member types (e.g. users and service principals), use an Entra ID security Group.
+  Manages a OneLake Data Access Role on a Microsoft Fabric Lakehouse to grant read access on specific tables and folders to Microsoft Entra users, groups, service principals, or managed identities.
+  -> Note: Microsoft Fabric OneLake Data Access Roles require uniform member types per role resource. To assign mixed member types (e.g., both users and service principals) to the same role, assign access through an Entra ID security Group.
+  -> Note: Role modifications automatically coordinate via a per-Lakehouse mutex and an If-Match ETag optimistic concurrency loop to safely support parallel applies.
 ---
 
 # fabricext_lakehouse_permission (Resource)
 
-Manages a OneLake Data Access Role (`/dataAccessRoles`) on a Microsoft Fabric **Lakehouse** using a concurrency-safe per-Lakehouse mutex and `If-Match` ETag Read-Modify-Write cycle. Note: Fabric OneLake Data Access Roles require uniform member types per role resource; to assign mixed member types (e.g. users and service principals), use an Entra ID security `Group`.
+Manages a OneLake Data Access Role on a Microsoft Fabric **Lakehouse** to grant read access on specific tables and folders to Microsoft Entra users, groups, service principals, or managed identities.
+
+-> **Note:** Microsoft Fabric OneLake Data Access Roles require uniform member types per role resource. To assign mixed member types (e.g., both users and service principals) to the same role, assign access through an Entra ID security `Group`.
+
+-> **Note:** Role modifications automatically coordinate via a per-Lakehouse mutex and an `If-Match` ETag optimistic concurrency loop to safely support parallel applies.
 
 ## Example Usage
 

@@ -95,3 +95,6 @@ replacements:
   - path: ./templates/guides/official_provider_comparison.md.tmpl
     find: '(?s)(fabricext\s*=\s*\{[^}]*version\s*=\s*")[^"]*(")'
     replace: '${1}~> {{.VersionNoPrefix}}${2}'
+  - path: ./guides/official_provider_comparison.md
+    find: '(?s)(fabricext\s*=\s*\{[^}]*version\s*=\s*")[^"]*(")'
+    replace: '${1}~> {{.VersionNoPrefix}}${2}'
