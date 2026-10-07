@@ -20,7 +20,7 @@ terraform {
   required_providers {
     fabricext = {
       source  = "jambazid/fabricext"
-      version = "~> 0.1.4"
+      version = "~> 0.1.5"
     }
   }
 }
@@ -38,7 +38,7 @@ terraform {
   required_providers {
     fabricext = {
       source  = "jambazid/fabricext"
-      version = "~> 0.1.4"
+      version = "~> 0.1.5"
     }
   }
 }
@@ -61,7 +61,7 @@ terraform {
   required_providers {
     fabricext = {
       source  = "jambazid/fabricext"
-      version = "~> 0.1.4"
+      version = "~> 0.1.5"
     }
   }
 }
@@ -83,7 +83,7 @@ terraform {
   required_providers {
     fabricext = {
       source  = "jambazid/fabricext"
-      version = "~> 0.1.4"
+      version = "~> 0.1.5"
     }
   }
 }
@@ -122,7 +122,7 @@ terraform {
   required_providers {
     fabricext = {
       source  = "jambazid/fabricext"
-      version = "~> 0.1.4"
+      version = "~> 0.1.5"
     }
   }
 }
@@ -164,7 +164,7 @@ terraform {
   required_providers {
     fabricext = {
       source  = "jambazid/fabricext"
-      version = "~> 0.1.4"
+      version = "~> 0.1.5"
     }
   }
 }
@@ -200,7 +200,7 @@ terraform {
   required_providers {
     fabricext = {
       source  = "jambazid/fabricext"
-      version = "~> 0.1.4"
+      version = "~> 0.1.5"
     }
   }
 }
@@ -219,7 +219,7 @@ terraform {
   required_providers {
     fabricext = {
       source  = "jambazid/fabricext"
-      version = "~> 0.1.4"
+      version = "~> 0.1.5"
     }
   }
 }
@@ -244,7 +244,7 @@ terraform {
   required_providers {
     fabricext = {
       source  = "jambazid/fabricext"
-      version = "~> 0.1.4"
+      version = "~> 0.1.5"
     }
   }
 }
@@ -294,7 +294,7 @@ terraform {
     }
     fabricext = {
       source  = "jambazid/fabricext"
-      version = "~> 0.1.4"
+      version = "~> 0.1.5"
     }
   }
 }
@@ -338,7 +338,7 @@ terraform {
   required_providers {
     fabricext = {
       source  = "jambazid/fabricext"
-      version = "~> 0.1.4"
+      version = "~> 0.1.5"
     }
   }
 }
@@ -361,11 +361,11 @@ The provider implements **100% authentication parity** with Microsoft's official
 | Priority | Credential Source | Configuration Attributes / Environment Variables | Guide |
 | :--- | :--- | :--- | :--- |
 | **1** | **Static Access Token** | `access_token` attribute or `FABRIC_ACCESS_TOKEN` | *Testing / Pre-minted* |
-| **2** | **Client Certificate** | `client_certificate`, `client_certificate_file_path`, `client_certificate_password` or `FABRIC_CLIENT_CERTIFICATE_*` | [Guide](guides/auth_spn_cert.md) |
-| **3** | **Client Secret** | `client_id`, `client_secret`, `tenant_id` (plus `*_file_path` variants) or `FABRIC_*` / `AZURE_*` / `ARM_*` | [Guide](guides/auth_spn_secret.md) |
-| **4** | **Azure DevOps OIDC** | `azure_devops_service_connection_id`, `oidc_request_token` or `SYSTEM_ACCESSTOKEN` | [Guide](guides/auth_azure_devops.md) |
-| **5** | **Workload Identity (OIDC)** | `use_oidc = true`, `oidc_token`, `oidc_token_file_path` or `AZURE_FEDERATED_TOKEN_FILE` | [Guide](guides/auth_spn_oidc.md) |
-| **6** | **Managed Identity (MSI)** | `use_msi = true`, optional `client_id` for User-Assigned MSI or `FABRIC_USE_MSI` | [Guide](guides/auth_msi.md) |
+| **2** | **Client Certificate** | `client_certificate`, `client_certificate_file_path`, `client_certificate_password` or `FABRIC_CLIENT_CERTIFICATE_*` | [Guide](https://registry.terraform.io/providers/jambazid/fabricext/latest/docs/guides/auth_spn_cert) |
+| **3** | **Client Secret** | `client_id`, `client_secret`, `tenant_id` (plus `*_file_path` variants) or `FABRIC_*` / `AZURE_*` / `ARM_*` | [Guide](https://registry.terraform.io/providers/jambazid/fabricext/latest/docs/guides/auth_spn_secret) |
+| **4** | **Azure DevOps OIDC** | `azure_devops_service_connection_id`, `oidc_request_token` or `SYSTEM_ACCESSTOKEN` | [Guide](https://registry.terraform.io/providers/jambazid/fabricext/latest/docs/guides/auth_azure_devops) |
+| **5** | **Workload Identity (OIDC)** | `use_oidc = true`, `oidc_token`, `oidc_token_file_path` or `AZURE_FEDERATED_TOKEN_FILE` | [Guide](https://registry.terraform.io/providers/jambazid/fabricext/latest/docs/guides/auth_spn_oidc) |
+| **6** | **Managed Identity (MSI)** | `use_msi = true`, optional `client_id` for User-Assigned MSI or `FABRIC_USE_MSI` | [Guide](https://registry.terraform.io/providers/jambazid/fabricext/latest/docs/guides/auth_msi) |
 | **7** | **Azure Developer CLI** | `use_dev_cli = true` or `FABRIC_USE_DEV_CLI=true` | *Local `azd`* |
 | **8** | **Azure CLI (`az login`)** | `use_cli = true` (default) or `FABRIC_USE_CLI` | *Interactive `az`* |
 
@@ -414,7 +414,7 @@ You can also use the in-repo companion HCL module to flatten matrices across War
 
 ```hcl
 module "workspace_permissions" {
-  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=v0.1.4"
+  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=v0.1.5"
 
   fabric_permissions_matrix = {
     workspace_id = "00000000-0000-0000-0000-000000000001"
@@ -439,7 +439,7 @@ module "workspace_permissions" {
 
 ## Migration & Official Provider Coexistence
 
-For detailed architectural trade-offs, state migration instructions, and resource mapping between `fabricext` and `microsoft/fabric`, see the [Official Provider Comparison & Migration Guide](guides/official_provider_comparison.md).
+For detailed architectural trade-offs, state migration instructions, and resource mapping between `fabricext` and `microsoft/fabric`, see the [Official Provider Comparison & Migration Guide](https://registry.terraform.io/providers/jambazid/fabricext/latest/docs/guides/official_provider_comparison).
 
 <!-- schema generated by tfplugindocs -->
 ## Schema

@@ -18,7 +18,7 @@ Comparative architecture analysis between Microsoft's official Terraform provide
 | **Primary Scope** | Workspace & item lifecycle provisioning (`fabric_workspace`, `fabric_warehouse`, `fabric_lakehouse`, `fabric_sql_database`, `fabric_workspace_role_assignment`). | Declarative item-level sharing (`fabricext_warehouse_permission`, `fabricext_sql_database_permission`, `fabricext_lakehouse_permission`). | Low | High — fills upstream item-sharing gap ([Issue #425](https://github.com/microsoft/terraform-provider-fabric/issues/425)). | Low — zero resource-name collision (`fabricext_*` prefix). |
 | **SDK & API Layer** | 100% bound to generated `microsoft/fabric-sdk-go` service clients. Cannot call REST endpoints absent from `microsoft/fabric-rest-api-specs`. | Uses `microsoft/fabric-sdk-go` models + `azidentity` with a targeted REST/RPC client (`internal/client/fabric_client.go`) for item permission and OneLake ETag RMW operations. | Low | High — unblocks `/permissions`, `/grantPermissions`, and `/revokePermissions` before upstream SDK generation lands. | Low — validated against vendored OpenAPI specs + overlay (`specs/openapi/`). |
 | **OneLake Data Access Roles** | `fabric_onelake_data_access_security` (Preview-only, requires `preview = true`; affected by `object_type` drift in [Issue #1044](https://github.com/microsoft/terraform-provider-fabric/issues/1044)). | `fabricext_lakehouse_permission` (GA `GET`/`PUT /dataAccessRoles` with per-Lakehouse mutex, `If-Match` ETag RMW, and `objectType` omission resilience). | Low | High — safe under parallel `for_each` without preview-mode gating. | Low — shares identical `{workspace_id}/{lakehouse_id}/{role_name}` import ID for zero-destroy migration. |
-| **Contract & Acceptance Testing** | Unit tests use compile-time `fabcore/fake` Go struct stubs; acceptance tests require live Azure/Fabric capacities. | Every unit and `TF_ACC=1` acceptance test validates HTTP payloads at runtime through `kin-openapi` (`openapi3filter`) against `specs/openapi/`. | Low | High — catches wire-level schema regressions offline in < 10s. | Low — `mise run specs:sync` detects upstream Swagger drift. |
+| **Contract & Acceptance Testing** | Unit tests use compile-time `fabcore/fake` Go struct stubs; acceptance tests require live Azure/Fabric capacities. | All API client tests and `TF_ACC=1` acceptance tests communicating with Fabric endpoints validate wire payloads at runtime through `kin-openapi` (`openapi3filter`) against `specs/openapi/`. | Low | High — catches wire-level schema regressions offline in < 10s. | Low — `mise run specs:sync` detects upstream Swagger drift. |
 
 ---
 
@@ -26,7 +26,7 @@ Comparative architecture analysis between Microsoft's official Terraform provide
 
 ### Item Permissions Gap
 
-Microsoft Fabric exposes item-level permission endpoints (`GET /permissions`, `POST /grantPermissions`, `POST /revokePermissions`) for Warehouses and SQL Databases, tracked upstream in [`microsoft/terraform-provider-fabric#425`](https://github.com/microsoft/terraform-provider-fabric/issues/425).
+Microsoft Fabric exposes item-level permission endpoints (`GET /permissions`, `POST /grantPermissions`, `POST /revokePermissions`) for Warehouses and SQL Databases, reflecting the item-level access management gap highlighted upstream in [`microsoft/terraform-provider-fabric#425`](https://github.com/microsoft/terraform-provider-fabric/issues/425) (community feature request for granular Fabric item permission assignment).
 
 1. **Swagger & SDK Generation Bottleneck**:
    - `microsoft/terraform-provider-fabric` delegates all HTTP calls to `github.com/microsoft/fabric-sdk-go`.
@@ -35,18 +35,18 @@ Microsoft Fabric exposes item-level permission endpoints (`GET /permissions`, `P
 2. **Additive Grant vs. Declarative Reconciliation**:
    - Fabric's `POST /grantPermissions` endpoint is **additive**: calling `grantPermissions` with `["Read"]` on a principal that currently holds `["Read", "Write", "Reshare"]` leaves `"Write"` and `"Reshare"` intact.
    - `jambazid/fabricext` bridges this gap via a formal OpenAPI overlay (`specs/openapi/overlays/item-permissions.json`) and set-difference reconciliation in `FabricClient.UpdateItemPermissions`:
-     - Grants added permissions (`target \ current`).
-     - Revokes removed permissions (`current \ target`).
+     - Revokes removed permissions first (`current \ target`) under the Downgrade Revocation Law so downgrades never leave excess privileges.
+     - Grants target permissions (`target`) to establish the complete desired state.
 
 ```mermaid
 sequenceDiagram
     participant TF as Terraform (jambazid/fabricext)
     participant API as Fabric REST API (/permissions)
 
-    Note over TF: State role_type = "write" (["Read", "Write"])<br/>Plan role_type = "reshare" (["Read", "Reshare"])<br/>toGrant = ["Reshare"] | toRevoke = ["Write"]
-    TF->>API: POST /v1/workspaces/{wsId}/warehouses/{whId}/grantPermissions (permissions: ["Reshare"])
-    API-->>TF: 200 OK
+    Note over TF: State role_type = "write" (["Read", "Write"])<br/>Plan role_type = "reshare" (["Read", "Reshare"])<br/>toRevoke = ["Write"] | target = ["Read", "Reshare"]
     TF->>API: POST /v1/workspaces/{wsId}/warehouses/{whId}/revokePermissions (permissions: ["Write"])
+    API-->>TF: 200 OK
+    TF->>API: POST /v1/workspaces/{wsId}/warehouses/{whId}/grantPermissions (permissions: ["Read", "Reshare"])
     API-->>TF: 200 OK
     Note over TF: Next Read / Refresh verifies live state
     TF->>API: GET /v1/workspaces/{wsId}/warehouses/{whId}/permissions
@@ -100,7 +100,7 @@ terraform {
     }
     fabricext = {
       source  = "jambazid/fabricext"
-      version = "~> 0.1.4"
+      version = "~> 0.1.5"
     }
   }
 }
@@ -132,7 +132,7 @@ resource "fabricext_warehouse_permission" "analysts" {
 | **Principal Modeling** | Single nested attribute: `principal = { id = "...", type = "Group" }`. | Flat attributes: `principal_id = "..."` and `principal_type = "Group"` (default `"Group"`). | **Cost**: None. **Impact**: Flat attributes simplify `for_each` matrix mapping (`modules/permissions`) and default to Entra Security Groups (`"Group"`). **Risk**: Documented in migration playbook below. |
 | **Item Identification** | Requires `item_id` / `warehouse_id` UUID on every resource. | Accepts `warehouse_name` / `sql_database_name` / `lakehouse_name` (`Required`) and populates `*_id` (`Computed`, `UseStateForUnknown`). | **Cost**: 1 cached `GET /items?type={type}` call per workspace/type. **Impact**: Eliminates extra data-source boilerplate when sharing existing items by name. **Risk**: Item renames outside Terraform are detected on `Read` and trigger resource replacement (`RequiresReplace`). |
 | **UUID Validation** | Custom Framework type `customtypes.UUID` (`google/uuid`). | `stringvalidator.RegexMatches` canonical UUID regex (`^[0-9a-fA-F]{8}-...$`). | **Cost**: Low. **Impact**: Equivalent plan-time validation with zero third-party custom-type coupling. **Risk**: Case-insensitive comparison handled via `strings.EqualFold` in `FabricClient`. |
-| **404 Drift Recovery** | Calls `resp.State.RemoveResource(ctx)` when `Read` returns HTTP `404`. | Calls `resp.State.RemoveResource(ctx)` when `Read` returns `client.ErrNotFound` (`404`). | **100% Aligned** — both providers cleanly plan recreation when an item or role is deleted outside Terraform. |
+| **404 Drift Recovery** | Calls `resp.State.RemoveResource(ctx)` when `Read` returns HTTP `404`. | Calls `resp.State.RemoveResource(ctx)` when `Read` returns HTTP 404 (`client.IsNotFound(err)`). | **100% Aligned** — both providers cleanly plan recreation when an item or role is deleted outside Terraform. |
 | **Import State IDs** | Slash-delimited composite UUIDs (`workspace_id/item_id/...`). | Slash-delimited composite IDs (`{workspace_id}/{item_id}/{principal_type}/{principal_id}` and `{workspace_id}/{lakehouse_id}/{role_name}`). | **100% Aligned** — both `ImportState` and `Read` call `GetItemByID` to resolve and refresh the human-readable `*_name` attribute from the Fabric item's `displayName`. |
 
 ---
@@ -155,7 +155,7 @@ flowchart LR
 
 - **Why `kin-openapi` Contract Validation Matters**:
   - Go struct fakes (`fabcore/fake`) only test that the provider passes Go structs matching the current SDK version; they do not validate URL routing, query parameters, ETag headers (`ETag` / `If-Match`), or JSON wire serialization against the OpenAPI specification.
-  - `internal/testutil/fabricmock/server.go` converts the vendored Swagger 2.0 specs (`specs/openapi/`) into OpenAPI v3 via `kin-openapi/openapi2conv` and validates every incoming HTTP request and outgoing HTTP response in both `mise run test:unit` and `mise run test:acc` (`TF_ACC=1`).
+  - `internal/testutil/fabricmock/server.go` converts the vendored Swagger 2.0 specs (`specs/openapi/`) into OpenAPI v3 via `kin-openapi/openapi2conv` and validates every incoming HTTP request and outgoing HTTP response across `fabricmock`-backed unit tests and acceptance tests (`mise run test:acc` with `TF_ACC=1`).
 
 ---
 
@@ -196,7 +196,10 @@ import {
 
 ### Warehouse Permission Migration
 
-`fabricext_warehouse_permission` maps `role_type` (`read`, `write`, `reshare`) to Fabric item permissions (`["Read"]`, `["Read", "Write"]`, `["Read", "Reshare"]`). When `microsoft/fabric` ships native Warehouse item permission resources ([Issue #425](https://github.com/microsoft/terraform-provider-fabric/issues/425)):
+`fabricext_warehouse_permission` maps `role_type` (`read`, `write`, `reshare`) to Fabric item permissions (`["Read"]`, `["Read", "Write"]`, `["Read", "Reshare"]`). When `microsoft/fabric` ships native Warehouse item permission resources:
+
+> [!NOTE]
+> **Illustrative Migration Pseudocode**: The `fabric_item_permission` resource block below is conceptual pseudocode illustrating the Terraform 1.7+ migration pattern. Upstream resource names, schemas, and import ID conventions have not yet been defined by Microsoft.
 
 ```hcl
 # 1. Detach from jambazid/fabricext state without revoking the Warehouse permission in Fabric
@@ -208,14 +211,14 @@ removed {
   }
 }
 
-# 2. Declare the target official microsoft/fabric item permission resource
+# 2. Declare the target official microsoft/fabric item permission resource (hypothetical schema)
 resource "fabric_item_permission" "analysts_warehouse" {
   workspace_id = var.workspace_id
   item_id      = var.warehouse_id
   # ... configure principal and permissions matching ["Read"] ...
 }
 
-# 3. Import into the official microsoft/fabric item permission resource
+# 3. Import into the official microsoft/fabric resource (syntax subject to upstream specification)
 import {
   to = fabric_item_permission.analysts_warehouse
   id = "${var.workspace_id}/${var.warehouse_id}/${var.analysts_group_oid}"
@@ -234,7 +237,10 @@ import {
 | `write` | `["Read", "Write"]` | Read and modify SQL Database schema and data. |
 | `reshare` | `["Read", "Reshare"]` | Read and re-share the SQL Database with additional principals. |
 
-When `microsoft/fabric` ships native SQL Database item permission resources ([Issue #425](https://github.com/microsoft/terraform-provider-fabric/issues/425)), detach the stopgap resource with `destroy = false` and import the existing SQL Database grant:
+When `microsoft/fabric` ships native SQL Database item permission resources, detach the stopgap resource with `destroy = false` and import the existing SQL Database grant:
+
+> [!NOTE]
+> **Illustrative Migration Pseudocode**: The `fabric_item_permission` resource block below is conceptual pseudocode illustrating the Terraform 1.7+ migration pattern. Upstream resource names, schemas, and import ID conventions have not yet been defined by Microsoft.
 
 ```hcl
 # 1. Detach from jambazid/fabricext state without revoking the SQL Database permission in Fabric
@@ -246,14 +252,14 @@ removed {
   }
 }
 
-# 2. Declare the target official microsoft/fabric item permission resource
+# 2. Declare the target official microsoft/fabric item permission resource (hypothetical schema)
 resource "fabric_item_permission" "orders_tds_readers" {
   workspace_id = var.workspace_id
   item_id      = var.sql_database_id
   # ... configure principal and permissions matching ["Read", "ReadData"] ...
 }
 
-# 3. Import into the official microsoft/fabric item permission resource
+# 3. Import into the official microsoft/fabric resource (syntax subject to upstream specification)
 import {
   to = fabric_item_permission.orders_tds_readers
   id = "${var.workspace_id}/${var.sql_database_id}/${var.analysts_group_oid}"
