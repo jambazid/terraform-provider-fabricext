@@ -23,8 +23,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
-      contents: read
-      pull-requests: read
+      contents: read  # Read repository contents for path filtering
+      pull-requests: read  # Inspect pull request changed files
     outputs:
       code: ${{ steps.filter.outputs.code }}
     steps:
@@ -115,8 +115,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
-      contents: read
-      pull-requests: write
+      contents: read  # Read repository source code for test execution
+      pull-requests: write  # Post test coverage comment on internal pull requests
     steps:
       - name: runner | harden
         uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1  # v2.21.1
@@ -137,8 +137,18 @@ jobs:
       - name: test | acc
         run: mise run test:acc
 
+      - name: test | coverage
+        run: mise run test:coverage
+
       - name: coverage | summary
-        run: python3 scripts/coverage_summary.py coverage.out --html coverage.html -o coverage-summary.md >> $GITHUB_STEP_SUMMARY
+        run: |
+          mise run coverage:unit >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          mise run coverage:acc >> "$GITHUB_STEP_SUMMARY"
+          python3 scripts/coverage_summary.py coverage.out \
+            --title "🎯 Combined Project Test Coverage" \
+            --threshold 90.0 --html coverage.html \
+            -o coverage-summary.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: coverage | archive
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
@@ -146,6 +156,8 @@ jobs:
           name: test-coverage-report
           path: |
             coverage.out
+            coverage_unit.out
+            coverage_acc.out
             coverage.html
             coverage-summary.md
           retention-days: 14

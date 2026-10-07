@@ -155,6 +155,7 @@ type Config struct {
 	Environment                    string // "public", "usgovernment", "china"
 	AuxiliaryTenantIDs             []string
 	Getenv                         func(string) string
+	Transport                      policy.Transporter
 }
 
 // String masks sensitive secrets in the configuration.
@@ -506,9 +507,11 @@ func (p *clientCertificateProvider) Resolve(ctx context.Context) (Credentials, b
 	cred, err := azidentity.NewClientCertificateCredential(tenantID, clientID, certs, key, &azidentity.ClientCertificateCredentialOptions{
 		AdditionallyAllowedTenants: p.cfg.resolveAuxiliaryTenants(),
 		ClientOptions: azcore.ClientOptions{
-			Cloud: ResolveCloudConfiguration(p.cfg.resolveEnvironment()),
+			Cloud:     ResolveCloudConfiguration(p.cfg.resolveEnvironment()),
+			Transport: p.cfg.Transport,
 		},
 	})
+
 	if err != nil {
 		return Credentials{}, false, fmt.Errorf("creating azidentity ClientCertificateCredential: %w", err)
 	}
@@ -573,9 +576,11 @@ func (p *clientSecretProvider) Resolve(ctx context.Context) (Credentials, bool, 
 	cred, err := azidentity.NewClientSecretCredential(tenantID, clientID, clientSecret, &azidentity.ClientSecretCredentialOptions{
 		AdditionallyAllowedTenants: p.cfg.resolveAuxiliaryTenants(),
 		ClientOptions: azcore.ClientOptions{
-			Cloud: ResolveCloudConfiguration(p.cfg.resolveEnvironment()),
+			Cloud:     ResolveCloudConfiguration(p.cfg.resolveEnvironment()),
+			Transport: p.cfg.Transport,
 		},
 	})
+
 	if err != nil {
 		return Credentials{}, false, fmt.Errorf("creating azidentity ClientSecretCredential: %w", err)
 	}
@@ -643,9 +648,11 @@ func (p *azureDevOpsOIDCProvider) Resolve(ctx context.Context) (Credentials, boo
 	cred, err := azidentity.NewAzurePipelinesCredential(tenantID, clientID, connID, sysToken, &azidentity.AzurePipelinesCredentialOptions{
 		AdditionallyAllowedTenants: p.cfg.resolveAuxiliaryTenants(),
 		ClientOptions: azcore.ClientOptions{
-			Cloud: ResolveCloudConfiguration(p.cfg.resolveEnvironment()),
+			Cloud:     ResolveCloudConfiguration(p.cfg.resolveEnvironment()),
+			Transport: p.cfg.Transport,
 		},
 	})
+
 	if err != nil {
 		return Credentials{}, false, fmt.Errorf("creating azidentity AzurePipelinesCredential: %w", err)
 	}
@@ -757,7 +764,8 @@ func (p *workloadIdentityProvider) Resolve(ctx context.Context) (Credentials, bo
 		cred, err := azidentity.NewClientAssertionCredential(tenantID, clientID, assertionFunc, &azidentity.ClientAssertionCredentialOptions{
 			AdditionallyAllowedTenants: p.cfg.resolveAuxiliaryTenants(),
 			ClientOptions: azcore.ClientOptions{
-				Cloud: cloudCfg,
+				Cloud:     cloudCfg,
+				Transport: p.cfg.Transport,
 			},
 		})
 		if err != nil {
@@ -781,9 +789,11 @@ func (p *workloadIdentityProvider) Resolve(ctx context.Context) (Credentials, bo
 		TokenFilePath:              tokenFile,
 		AdditionallyAllowedTenants: p.cfg.resolveAuxiliaryTenants(),
 		ClientOptions: azcore.ClientOptions{
-			Cloud: cloudCfg,
+			Cloud:     cloudCfg,
+			Transport: p.cfg.Transport,
 		},
 	})
+
 	if err != nil {
 		return Credentials{}, false, fmt.Errorf("creating azidentity WorkloadIdentityCredential: %w", err)
 	}
@@ -884,9 +894,11 @@ func (p *managedIdentityProvider) Resolve(ctx context.Context) (Credentials, boo
 
 	opts := &azidentity.ManagedIdentityCredentialOptions{
 		ClientOptions: azcore.ClientOptions{
-			Cloud: ResolveCloudConfiguration(p.cfg.resolveEnvironment()),
+			Cloud:     ResolveCloudConfiguration(p.cfg.resolveEnvironment()),
+			Transport: p.cfg.Transport,
 		},
 	}
+
 	if clientID != "" {
 		opts.ID = azidentity.ClientID(clientID)
 	}

@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      contents: write
+      contents: write  # Create release git tags on main
     outputs:
       tag: ${{ steps.extract.outputs.tag }}
       created: ${{ steps.create_tag.outputs.created }}

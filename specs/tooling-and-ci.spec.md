@@ -30,7 +30,7 @@ lockfile = true
 minimum_release_age = "7d"
 ```
 
-- `Taskfile.yaml` and `.taskfiles/` are retired; `mise.toml` is the single source of truth for all developer tools and tasks (`build`, `install-local`, `specs:check`, `specs:sync`, `test:unit`, `test:acc`, `test`, `coverage:html`, `coverage:summary`, `docs`, `docs:check`, `scan`, `lint`, `format`, `bump`, `spec:verify`, `check`)
+- `Taskfile.yaml` and `.taskfiles/` are retired; `mise.toml` is the single source of truth for all developer tools and tasks (`build`, `install-local`, `specs:check`, `specs:sync`, `test:unit`, `test:acc`, `test:coverage`, `test`, `coverage:html`, `coverage:summary`, `coverage:unit`, `coverage:acc`, `docs`, `docs:check`, `scan`, `lint`, `format`, `bump`, `spec:verify`, `check`)
   `[@test] ../internal/provider/provider_test.go::TestToolingAndCI_Invariants`
 - `mise.toml` enforces `lockfile = true` and `minimum_release_age = "7d"` to mitigate supply-chain compromises on newly published tool versions
   `[@test] ../internal/provider/provider_test.go::TestToolingAndCI_Invariants`

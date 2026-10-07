@@ -32,7 +32,7 @@ repos:
         entry: mise exec -- rumdl check --config .rumdl.toml
         language: system
         types: [markdown]
-        exclude: ^(docs/|specs/inputs/)
+        exclude: ^(docs/|specs/inputs/|\.changes/|CHANGELOG\.md)
         stages: [pre-commit]
 
       - id: zizmor
