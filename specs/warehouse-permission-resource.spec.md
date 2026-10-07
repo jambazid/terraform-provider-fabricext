@@ -35,7 +35,7 @@ resource "fabricext_warehouse_permission" "example" {
 
 - `Create` resolves `warehouse_name` to `warehouse_id` (or verifies `warehouse_id`), grants the mapped permissions (`"read"` $\rightarrow$ `["Read"]`, `"write"` $\rightarrow$ `["Read", "Write"]`, `"reshare"` $\rightarrow$ `["Read", "Reshare"]`), and sets composite `id = "{workspace_id}/{warehouse_id}/{principal_type}/{principal_id}"`
   `[@test] ../internal/provider/warehouse_permission_resource_test.go::TestAccWarehousePermissionResource_CRUDDowngradeAndImport`
-- `Update` supports both upgrades (`"read"` $\rightarrow$ `"write"`) and downgrades (`"write"` $\rightarrow$ `"read"`), granting target permissions before revoking removed permissions to prevent downtime
+- `Update` supports both upgrades (`"read"` $\rightarrow$ `"write"`) and downgrades (`"write"` $\rightarrow$ `"read"`), revoking removed permissions before granting target permissions so downgrades never leave excess privileges
   `[@test] ../internal/provider/warehouse_permission_resource_test.go::TestAccWarehousePermissionResource_CRUDDowngradeAndImport`
 - `Read` removes the resource from Terraform state (`resp.State.RemoveResource(ctx)`) if the Warehouse or principal permission has been deleted out-of-band
   `[@test] ../internal/provider/warehouse_permission_resource_test.go::TestAccWarehousePermissionResource_Disappears`

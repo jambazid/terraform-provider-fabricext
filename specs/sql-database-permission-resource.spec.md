@@ -35,7 +35,7 @@ resource "fabricext_sql_database_permission" "example" {
 
 - `Create` resolves `sql_database_name` to `sql_database_id` (or verifies `sql_database_id`), grants the mapped permissions, and sets composite `id = "{workspace_id}/{sql_database_id}/{principal_type}/{principal_id}"`
   `[@test] ../internal/provider/sql_database_permission_resource_test.go::TestAccSQLDatabasePermissionResource_CRUDDowngradeAndImport`
-- `Update` grants target permissions before revoking removed permissions on role changes (e.g. `"read_spark"` $\rightarrow$ `"read"` or `"write"` $\rightarrow$ `"read_data"`) to prevent downtime
+- `Update` revokes removed permissions before granting target permissions on role changes (e.g. `"read_spark"` $\rightarrow$ `"read"` or `"write"` $\rightarrow$ `"read_data"`) so downgrades never leave excess privileges
   `[@test] ../internal/provider/sql_database_permission_resource_test.go::TestAccSQLDatabasePermissionResource_CRUDDowngradeAndImport`
 - `Read` calls `resp.State.RemoveResource(ctx)` if the SQL Database or principal permission is deleted out-of-band
   `[@test] ../internal/provider/sql_database_permission_resource_test.go::TestAccSQLDatabasePermissionResource_Disappears`
