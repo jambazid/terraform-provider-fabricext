@@ -100,7 +100,7 @@ terraform {
     }
     fabricext = {
       source  = "jambazid/fabricext"
-      version = "~> 0.1.1"
+      version = "~> 0.1.2"
     }
   }
 }
