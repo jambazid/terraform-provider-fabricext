@@ -18,7 +18,7 @@ This module flattens and declaratively provisions workspace-wide item permission
 
 ```hcl
 module "workspace_permissions" {
-  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=v0.2.0"
+  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=v0.2.1"
 
   fabric_permissions_matrix = {
     workspace_id = "00000000-0000-0000-0000-000000000001"

@@ -1,9 +1,0 @@
-kind: documentation
-body: >-
-  Add comprehensive enterprise access control and security guides
-  under the "Use Cases" documentation category covering the 6-tier
-  perimeter stack, Warehouse schema isolation via role_type = "read",
-  Entra ID Object ID binding in T-SQL, OneLake Data Access Roles,
-  Power BI Direct Lake vs. DirectQuery identity propagation, and
-  declarative Atlas schema-as-code integration.
-time: 2026-10-08T12:15:09+01:00

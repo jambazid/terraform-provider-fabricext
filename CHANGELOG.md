@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## v0.2.1 - October 08, 2026
+
+### 📚 Documentation
+
+* Add comprehensive enterprise access control and security guides under the "Use Cases" documentation category covering the 6-tier perimeter stack, Warehouse schema isolation via role_type = "read", Entra ID Object ID binding in T-SQL, OneLake Data Access Roles, Power BI Direct Lake vs. DirectQuery identity propagation, and declarative Atlas schema-as-code integration.
+
 ## v0.2.0 - October 08, 2026
 
 ### ✨ Added
