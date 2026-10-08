@@ -795,6 +795,11 @@ func (r *LakehousePermissionResource) Create(ctx context.Context, req resource.C
 		}
 	}
 
+	if r.client == nil {
+		resp.Diagnostics.AddError("Unconfigured Fabric Client", "The provider was not properly configured before resource operation.")
+		return
+	}
+
 	wsID := plan.WorkspaceID.ValueString()
 	hasConfigID := !config.LakehouseID.IsNull() && !config.LakehouseID.IsUnknown() && config.LakehouseID.ValueString() != ""
 	hasConfigName := !config.LakehouseName.IsNull() && !config.LakehouseName.IsUnknown() && config.LakehouseName.ValueString() != ""
@@ -883,6 +888,11 @@ func (r *LakehousePermissionResource) Read(ctx context.Context, req resource.Rea
 		return
 	}
 
+	if r.client == nil {
+		resp.Diagnostics.AddError("Unconfigured Fabric Client", "The provider was not properly configured before resource operation.")
+		return
+	}
+
 	wsID := state.WorkspaceID.ValueString()
 	lhID := state.LakehouseID.ValueString()
 	roleName := state.RoleName.ValueString()
@@ -918,6 +928,9 @@ func (r *LakehousePermissionResource) Read(ctx context.Context, req resource.Rea
 }
 
 func isRoleAdvanced(role *client.DataAccessRole) bool {
+	if role == nil {
+		return false
+	}
 	if len(role.DecisionRules) != 1 {
 		return true
 	}
@@ -931,7 +944,7 @@ func isRoleAdvanced(role *client.DataAccessRole) bool {
 	if role.Members != nil && len(role.Members.MicrosoftEntraMembers) > 1 {
 		firstType := role.Members.MicrosoftEntraMembers[0].ObjectType
 		for _, m := range role.Members.MicrosoftEntraMembers[1:] {
-			if m.ObjectType != firstType {
+			if !strings.EqualFold(m.ObjectType, firstType) {
 				return true
 			}
 		}
@@ -961,10 +974,9 @@ func (r *LakehousePermissionResource) populateLakehouseStateFromRole(ctx context
 			var rulePaths []string
 			var ruleActions []string
 			for _, scope := range rule.Permission {
-				switch scope.AttributeName {
-				case "Path":
+				if strings.EqualFold(scope.AttributeName, "path") {
 					rulePaths = append(rulePaths, scope.AttributeValueIncludedIn...)
-				case "Action":
+				} else if strings.EqualFold(scope.AttributeName, "action") {
 					ruleActions = append(ruleActions, scope.AttributeValueIncludedIn...)
 				}
 			}
@@ -1053,20 +1065,23 @@ func (r *LakehousePermissionResource) populateLakehouseStateFromRole(ctx context
 
 		priorMemberTypes := make(map[string]string)
 		priorMemberTenants := make(map[string]types.String)
+		priorMemberIDs := make(map[string]string)
 		if isSetConfigured(state.EntraMember) {
 			var priorEntra []EntraMemberModel
 			if d := state.EntraMember.ElementsAs(ctx, &priorEntra, false); !d.HasError() {
 				for _, pem := range priorEntra {
 					if !pem.ObjectID.IsNull() {
-						objID := pem.ObjectID.ValueString()
+						origID := pem.ObjectID.ValueString()
+						lowerID := strings.ToLower(origID)
+						priorMemberIDs[lowerID] = origID
 						if !pem.ObjectType.IsNull() {
-							priorMemberTypes[objID] = pem.ObjectType.ValueString()
+							priorMemberTypes[lowerID] = pem.ObjectType.ValueString()
 							if !pem.TenantID.IsNull() && pem.TenantID.ValueString() != "" {
-								key := pem.TenantID.ValueString() + "/" + objID
+								key := strings.ToLower(pem.TenantID.ValueString()) + "/" + lowerID
 								priorMemberTypes[key] = pem.ObjectType.ValueString()
 							}
 						}
-						priorMemberTenants[objID] = pem.TenantID
+						priorMemberTenants[lowerID] = pem.TenantID
 					}
 				}
 			}
@@ -1079,12 +1094,13 @@ func (r *LakehousePermissionResource) populateLakehouseStateFromRole(ctx context
 				if tenantIDVal == "" {
 					tenantIDVal = r.tenantID
 				}
+				lowerObjID := strings.ToLower(m.ObjectID)
 				objType := m.ObjectType
 				if objType == "" {
-					key := tenantIDVal + "/" + m.ObjectID
+					key := strings.ToLower(tenantIDVal) + "/" + lowerObjID
 					if pt, ok := priorMemberTypes[key]; ok {
 						objType = pt
-					} else if pt, ok := priorMemberTypes[m.ObjectID]; ok {
+					} else if pt, ok := priorMemberTypes[lowerObjID]; ok {
 						objType = pt
 					} else {
 						objType = "Group"
@@ -1094,14 +1110,19 @@ func (r *LakehousePermissionResource) populateLakehouseStateFromRole(ctx context
 				}
 
 				tenantVal := types.StringNull()
-				if priorTID, ok := priorMemberTenants[m.ObjectID]; ok {
+				if priorTID, ok := priorMemberTenants[lowerObjID]; ok {
 					tenantVal = priorTID
 				} else if m.TenantID != "" && m.TenantID != r.tenantID {
 					tenantVal = types.StringValue(m.TenantID)
 				}
 
+				resolvedObjID := m.ObjectID
+				if orig, ok := priorMemberIDs[lowerObjID]; ok {
+					resolvedObjID = orig
+				}
+
 				entraModels = append(entraModels, EntraMemberModel{
-					ObjectID:   types.StringValue(m.ObjectID),
+					ObjectID:   types.StringValue(resolvedObjID),
 					ObjectType: types.StringValue(objType),
 					TenantID:   tenantVal,
 				})
@@ -1149,14 +1170,23 @@ func (r *LakehousePermissionResource) populateLakehouseStateFromRole(ctx context
 	state.EntraMember = types.SetNull(entraMemberElemType)
 	state.FabricItemMember = types.SetNull(fabricItemMemberElemType)
 
+	priorIDs := make(map[string]string)
+	if isSetConfigured(state.PrincipalIDs) {
+		var pids []string
+		if d := state.PrincipalIDs.ElementsAs(ctx, &pids, false); !d.HasError() {
+			for _, pid := range pids {
+				priorIDs[strings.ToLower(pid)] = pid
+			}
+		}
+	}
+
 	paths := []string{}
 	actions := []string{}
 	for _, rule := range role.DecisionRules {
 		for _, scope := range rule.Permission {
-			switch scope.AttributeName {
-			case "Path":
+			if strings.EqualFold(scope.AttributeName, "path") {
 				paths = append(paths, scope.AttributeValueIncludedIn...)
-			case "Action":
+			} else if strings.EqualFold(scope.AttributeName, "action") {
 				actions = append(actions, scope.AttributeValueIncludedIn...)
 			}
 		}
@@ -1169,7 +1199,11 @@ func (r *LakehousePermissionResource) populateLakehouseStateFromRole(ctx context
 	}
 	if role.Members != nil {
 		for _, m := range role.Members.MicrosoftEntraMembers {
-			principalIDs = append(principalIDs, m.ObjectID)
+			pid := m.ObjectID
+			if orig, ok := priorIDs[strings.ToLower(m.ObjectID)]; ok {
+				pid = orig
+			}
+			principalIDs = append(principalIDs, pid)
 			if m.ObjectType != "" {
 				if norm, err := normalizePrincipalType("Lakehouse", m.ObjectType); err == nil {
 					principalType = norm
@@ -1208,6 +1242,11 @@ func (r *LakehousePermissionResource) Update(ctx context.Context, req resource.U
 		return
 	}
 
+	if r.client == nil {
+		resp.Diagnostics.AddError("Unconfigured Fabric Client", "The provider was not properly configured before resource operation.")
+		return
+	}
+
 	rolePayload, diags := r.buildRolePayload(ctx, &plan)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
@@ -1243,6 +1282,11 @@ func (r *LakehousePermissionResource) Delete(ctx context.Context, req resource.D
 		return
 	}
 
+	if r.client == nil {
+		resp.Diagnostics.AddError("Unconfigured Fabric Client", "The provider was not properly configured before resource operation.")
+		return
+	}
+
 	if err := r.client.DeleteDataAccessRole(ctx, state.WorkspaceID.ValueString(), state.LakehouseID.ValueString(), state.RoleName.ValueString()); err != nil {
 		resp.Diagnostics.AddError("Unable to Delete Lakehouse Data Access Role", err.Error())
 		return
@@ -1251,6 +1295,11 @@ func (r *LakehousePermissionResource) Delete(ctx context.Context, req resource.D
 
 // ImportState imports an existing OneLake Data Access Role by {workspace_id}/{lakehouse_id}/{role_name}.
 func (r *LakehousePermissionResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	if r.client == nil {
+		resp.Diagnostics.AddError("Unconfigured Fabric Client", "The provider was not properly configured before resource operation.")
+		return
+	}
+
 	parts := strings.Split(req.ID, "/")
 	if len(parts) != 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
 		resp.Diagnostics.AddError(

@@ -11,7 +11,7 @@ updates:
     schedule:
       interval: weekly
     commit-message:
-      prefix: dependencies(gomod)
+      prefix: build(deps)
     cooldown:
       default-days: 7
     groups:
@@ -29,7 +29,7 @@ updates:
     schedule:
       interval: weekly
     commit-message:
-      prefix: dependencies(gha)
+      prefix: ci(deps)
     cooldown:
       default-days: 7
     groups:
@@ -47,6 +47,6 @@ updates:
     schedule:
       interval: weekly
     commit-message:
-      prefix: dependencies(tf)
+      prefix: build(deps)
     cooldown:
       default-days: 7

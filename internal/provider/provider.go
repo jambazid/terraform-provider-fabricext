@@ -504,16 +504,22 @@ func reconcileItemIdentifiersPlan(
 	nameState, idState types.String,
 	namePlan, idPlan *types.String,
 ) {
-	// If name was configured and changed relative to state, clear unconfigured ID
-	if !nameConfig.IsNull() && !nameConfig.IsUnknown() {
-		if idConfig.IsNull() && !nameState.IsNull() && nameConfig.ValueString() != nameState.ValueString() {
+	// If name is unknown in config (e.g. dynamic from upstream resource), ID cannot be known from state
+	if nameConfig.IsUnknown() && idConfig.IsNull() {
+		*idPlan = types.StringUnknown()
+	} else if !nameConfig.IsNull() && !nameConfig.IsUnknown() {
+		// If name was configured and changed relative to state (or state had no name), clear unconfigured ID
+		if idConfig.IsNull() && (nameState.IsNull() || nameConfig.ValueString() != nameState.ValueString()) {
 			*idPlan = types.StringUnknown()
 		}
 	}
 
-	// If ID was configured and changed relative to state, clear unconfigured Name
-	if !idConfig.IsNull() && !idConfig.IsUnknown() {
-		if nameConfig.IsNull() && !idState.IsNull() && idConfig.ValueString() != idState.ValueString() {
+	// If ID is unknown in config, Name cannot be known from state
+	if idConfig.IsUnknown() && nameConfig.IsNull() {
+		*namePlan = types.StringUnknown()
+	} else if !idConfig.IsNull() && !idConfig.IsUnknown() {
+		// If ID was configured and changed relative to state (or state had no ID), clear unconfigured Name
+		if nameConfig.IsNull() && (idState.IsNull() || idConfig.ValueString() != idState.ValueString()) {
 			*namePlan = types.StringUnknown()
 		}
 	}

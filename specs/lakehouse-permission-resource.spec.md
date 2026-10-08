@@ -64,7 +64,7 @@ resource "fabricext_lakehouse_permission" "advanced" {
 
 ## Schema, Plan Modifiers & Validators
 
-- `workspace_id`, `lakehouse_name`, `lakehouse_id`, and `role_name` carry `RequiresReplace()` plan modifiers; `id` carries `UseStateForUnknown()`
+- `workspace_id`, `lakehouse_name`, `lakehouse_id`, and `role_name` carry `RequiresReplace()` plan modifiers; `id`, `lakehouse_name`, and `lakehouse_id` carry `UseStateForUnknown()`
   `[@test] ../internal/provider/lakehouse_permission_resource_test.go::TestAccLakehousePermissionResource_CRUDAndImport`
 - `lakehouse_name` and `lakehouse_id` are optional attributes where at least one must be specified; if `lakehouse_id` is supplied, `lakehouse_name` is resolved automatically via `GetItemByID`, and if `lakehouse_name` is supplied, `lakehouse_id` is resolved via `GetItemByName`; if both are configured, `Create` validates that `lakehouse_name` matches the fetched display name; on replacement, `ModifyPlan` clears the unconfigured counterpart so stale state values from `UseStateForUnknown` do not cause replacement failures
   `[@test] ../internal/provider/lakehouse_permission_resource_test.go::TestAccLakehousePermissionResource_MismatchedIdentifiers`

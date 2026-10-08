@@ -98,6 +98,11 @@ func (d *ItemDataSource) Read(ctx context.Context, req datasource.ReadRequest, r
 		return
 	}
 
+	if d.client == nil {
+		resp.Diagnostics.AddError("Unconfigured Fabric Client", "The provider was not properly configured before data source operation.")
+		return
+	}
+
 	id, err := d.client.GetItemIDByName(
 		ctx,
 		data.WorkspaceID.ValueString(),

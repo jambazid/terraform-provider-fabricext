@@ -195,6 +195,7 @@ removed {
 resource "fabric_onelake_data_access_security" "bronze_readers" {
   workspace_id = var.workspace_id
   item_id      = var.lakehouse_id
+  role_name    = "BronzeReaders"
   # ... configure decision_rules and members matching BronzeReaders ...
 }
 

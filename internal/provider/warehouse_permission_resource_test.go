@@ -300,3 +300,37 @@ resource "fabricext_warehouse_permission" "direct" {
 		},
 	})
 }
+
+func TestAccWarehousePermissionResource_MismatchedIdentifiers(t *testing.T) {
+	t.Parallel()
+
+	srv := fabricmock.NewServer(t)
+	wsID := "11111111-1111-1111-1111-111111111111"
+	whID := "22222222-2222-2222-2222-222222222222"
+	principalID := "33333333-3333-3333-3333-333333333333"
+
+	srv.UpsertItem(fabricmock.Item{
+		ID:          whID,
+		WorkspaceID: wsID,
+		DisplayName: "correct_wh_name",
+		Type:        "Warehouse",
+	})
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
+resource "fabricext_warehouse_permission" "mismatch" {
+  workspace_id   = %q
+  warehouse_id   = %q
+  warehouse_name = "wrong_wh_name"
+  principal_id   = %q
+  role_type      = "read"
+}
+`, wsID, whID, principalID),
+				ExpectError: regexp.MustCompile(`Conflicting Warehouse Identifiers`),
+			},
+		},
+	})
+}

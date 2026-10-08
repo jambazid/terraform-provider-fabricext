@@ -83,6 +83,7 @@ func (r *SQLDatabasePermissionResource) Schema(_ context.Context, _ resource.Sch
 				MarkdownDescription: "Display name of the target Microsoft Fabric SQL Database. At least one of `sql_database_name` or `sql_database_id` must be specified.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
+					stringplanmodifier.UseStateForUnknown(),
 				},
 				Validators: []validator.String{
 					stringvalidator.LengthAtLeast(1),
@@ -94,6 +95,7 @@ func (r *SQLDatabasePermissionResource) Schema(_ context.Context, _ resource.Sch
 				MarkdownDescription: "Resolved or explicitly specified UUID of the Microsoft Fabric SQL Database. At least one of `sql_database_name` or `sql_database_id` must be specified.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
+					stringplanmodifier.UseStateForUnknown(),
 				},
 				Validators: []validator.String{
 					uuidValidator(),
@@ -198,6 +200,11 @@ func (r *SQLDatabasePermissionResource) Create(ctx context.Context, req resource
 		}
 	}
 
+	if r.client == nil {
+		resp.Diagnostics.AddError("Unconfigured Fabric Client", "The provider was not properly configured before resource operation.")
+		return
+	}
+
 	wsID := plan.WorkspaceID.ValueString()
 	principal := client.Principal{
 		ID:   plan.PrincipalID.ValueString(),
@@ -280,6 +287,11 @@ func (r *SQLDatabasePermissionResource) Read(ctx context.Context, req resource.R
 		return
 	}
 
+	if r.client == nil {
+		resp.Diagnostics.AddError("Unconfigured Fabric Client", "The provider was not properly configured before resource operation.")
+		return
+	}
+
 	wsID := state.WorkspaceID.ValueString()
 	dbID := state.SQLDatabaseID.ValueString()
 	principalID := state.PrincipalID.ValueString()
@@ -306,7 +318,7 @@ func (r *SQLDatabasePermissionResource) Read(ctx context.Context, req resource.R
 		return
 	}
 
-	roleType, err := client.CollapseRolePermissions(perms)
+	roleType, err := client.CollapseItemRolePermissions("SQLDatabase", perms)
 	if err != nil {
 		resp.Diagnostics.AddError("Unable to Map SQL Database Permissions to Role Type", err.Error())
 		return
@@ -323,6 +335,11 @@ func (r *SQLDatabasePermissionResource) Update(ctx context.Context, req resource
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	if r.client == nil {
+		resp.Diagnostics.AddError("Unconfigured Fabric Client", "The provider was not properly configured before resource operation.")
 		return
 	}
 
@@ -360,6 +377,11 @@ func (r *SQLDatabasePermissionResource) Delete(ctx context.Context, req resource
 		return
 	}
 
+	if r.client == nil {
+		resp.Diagnostics.AddError("Unconfigured Fabric Client", "The provider was not properly configured before resource operation.")
+		return
+	}
+
 	perms, err := client.ExpandRolePermissions("SQLDatabase", state.RoleType.ValueString())
 	if err != nil {
 		perms = []string{"Read", "ReadData", "ReadAll", "SubscribeOneLakeEvents", "Write", "Reshare"}
@@ -378,6 +400,11 @@ func (r *SQLDatabasePermissionResource) Delete(ctx context.Context, req resource
 
 // ImportState imports an existing SQL Database permission binding by {workspace_id}/{sql_database_id}/{principal_type}/{principal_id}.
 func (r *SQLDatabasePermissionResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	if r.client == nil {
+		resp.Diagnostics.AddError("Unconfigured Fabric Client", "The provider was not properly configured before resource operation.")
+		return
+	}
+
 	parts := strings.Split(req.ID, "/")
 	if len(parts) != 4 || parts[0] == "" || parts[1] == "" || parts[2] == "" || parts[3] == "" {
 		resp.Diagnostics.AddError(
@@ -417,7 +444,7 @@ func (r *SQLDatabasePermissionResource) ImportState(ctx context.Context, req res
 		resp.Diagnostics.AddError("Unable to Read Imported SQL Database Permissions", err.Error())
 		return
 	}
-	roleType, err := client.CollapseRolePermissions(perms)
+	roleType, err := client.CollapseItemRolePermissions("SQLDatabase", perms)
 	if err != nil {
 		resp.Diagnostics.AddError("Unable to Map Imported SQL Database Permissions", err.Error())
 		return

@@ -296,10 +296,11 @@ func ExpandRolePermissions(itemType, roleType string) ([]string, error) {
 	}
 }
 
-// CollapseRolePermissions maps a principal's granted permissions slice back to the canonical Terraform role_type.
-// It uses a deterministic precedence hierarchy to safely map supersets or multi-permission assignments:
-// write > read_spark > read_data > reshare > read.
-func CollapseRolePermissions(perms []string) (string, error) {
+// CollapseItemRolePermissions maps a principal's granted permissions slice back to the canonical Terraform role_type
+// for the specified Fabric item type.
+// For Warehouse: write > reshare > read.
+// For SQLDatabase and default: write > read_spark > read_data > reshare > read.
+func CollapseItemRolePermissions(itemType string, perms []string) (string, error) {
 	var normalized []string
 	for _, p := range perms {
 		if mapped, ok := FromAPIPermission(p); ok {
@@ -311,6 +312,19 @@ func CollapseRolePermissions(perms []string) (string, error) {
 			if lower != "" && !slices.Contains(normalized, lower) {
 				normalized = append(normalized, lower)
 			}
+		}
+	}
+
+	if strings.EqualFold(itemType, "Warehouse") {
+		switch {
+		case slices.Contains(normalized, "write"):
+			return "write", nil
+		case slices.Contains(normalized, "reshare"):
+			return "reshare", nil
+		case slices.Contains(normalized, "read"):
+			return "read", nil
+		default:
+			return "", fmt.Errorf("unable to map permissions %v to a known canonical Warehouse role_type", perms)
 		}
 	}
 
@@ -328,6 +342,12 @@ func CollapseRolePermissions(perms []string) (string, error) {
 	default:
 		return "", fmt.Errorf("unable to map permissions %v to a known canonical role_type", perms)
 	}
+}
+
+// CollapseRolePermissions maps a principal's granted permissions slice back to the canonical Terraform role_type.
+// It delegates to CollapseItemRolePermissions with an empty item type for general compatibility.
+func CollapseRolePermissions(perms []string) (string, error) {
+	return CollapseItemRolePermissions("", perms)
 }
 
 // BuildLakehouseRole constructs a OneLake Data Access Role object for a single Entra principal.
@@ -703,7 +723,7 @@ func (c *FabricClient) UpsertDataAccessRole(ctx context.Context, workspaceID, la
 
 		var apiErr *APIError
 		if errors.As(err, &apiErr) && (apiErr.StatusCode == http.StatusPreconditionFailed || apiErr.StatusCode == http.StatusConflict) {
-			if err := sleepWithContext(ctx, c.baseBackoff*time.Duration(attempt+1)); err != nil {
+			if err := sleepWithContext(ctx, c.retryDelay("", attempt)); err != nil {
 				return err
 			}
 			continue
@@ -780,7 +800,7 @@ func (c *FabricClient) DeleteDataAccessRole(ctx context.Context, workspaceID, la
 
 		var apiErr *APIError
 		if errors.As(err, &apiErr) && (apiErr.StatusCode == http.StatusPreconditionFailed || apiErr.StatusCode == http.StatusConflict) {
-			if err := sleepWithContext(ctx, c.baseBackoff*time.Duration(attempt+1)); err != nil {
+			if err := sleepWithContext(ctx, c.retryDelay("", attempt)); err != nil {
 				return err
 			}
 			continue
@@ -835,7 +855,7 @@ func (c *FabricClient) doJSON(ctx context.Context, method, path string, headers 
 			return nil, fmt.Errorf("execute HTTP request %s %s: %w", method, path, err)
 		}
 
-		respBytes, readErr := io.ReadAll(resp.Body)
+		respBytes, readErr := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
 		_ = resp.Body.Close()
 		if readErr != nil {
 			return nil, fmt.Errorf("read HTTP response body: %w", readErr)
