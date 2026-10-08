@@ -217,3 +217,120 @@ resource "fabricext_warehouse_permission" "invalid_principal_type" {
 		},
 	})
 }
+
+func TestAccWarehousePermissionResource_DirectIDReference(t *testing.T) {
+	t.Parallel()
+
+	srv := fabricmock.NewServer(t)
+	wsID := "11111111-1111-1111-1111-111111111111"
+	whID := "22222222-2222-2222-2222-222222222222"
+	whID2 := "44444444-4444-4444-4444-444444444444"
+	principalID := "33333333-3333-3333-3333-333333333333"
+
+	srv.UpsertItem(fabricmock.Item{
+		ID:          whID,
+		WorkspaceID: wsID,
+		DisplayName: "direct_wh",
+		Type:        "Warehouse",
+	})
+	srv.UpsertItem(fabricmock.Item{
+		ID:          whID2,
+		WorkspaceID: wsID,
+		DisplayName: "direct_wh_2",
+		Type:        "Warehouse",
+	})
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
+resource "fabricext_warehouse_permission" "direct" {
+  workspace_id = %q
+  warehouse_id = %q
+  principal_id = %q
+  role_type    = "read"
+}
+`, wsID, whID, principalID),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("fabricext_warehouse_permission.direct", "id", wsID+"/"+whID+"/Group/"+principalID),
+					resource.TestCheckResourceAttr("fabricext_warehouse_permission.direct", "warehouse_id", whID),
+					resource.TestCheckResourceAttr("fabricext_warehouse_permission.direct", "warehouse_name", "direct_wh"),
+					resource.TestCheckResourceAttr("fabricext_warehouse_permission.direct", "principal_type", "Group"),
+					resource.TestCheckResourceAttr("fabricext_warehouse_permission.direct", "role_type", "read"),
+				),
+			},
+			{
+				ResourceName:      "fabricext_warehouse_permission.direct",
+				ImportState:       true,
+				ImportStateVerify: true,
+			},
+			// Step 3: Replace resource by switching to warehouse_name only (clears warehouse_id in plan)
+			{
+				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
+resource "fabricext_warehouse_permission" "direct" {
+  workspace_id   = %q
+  warehouse_name = "direct_wh_2"
+  principal_id   = %q
+  role_type      = "read"
+}
+`, wsID, principalID),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("fabricext_warehouse_permission.direct", "id", wsID+"/"+whID2+"/Group/"+principalID),
+					resource.TestCheckResourceAttr("fabricext_warehouse_permission.direct", "warehouse_id", whID2),
+					resource.TestCheckResourceAttr("fabricext_warehouse_permission.direct", "warehouse_name", "direct_wh_2"),
+				),
+			},
+			// Step 4: Replace resource by changing warehouse_name (ensures counterpart ID is re-resolved)
+			{
+				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
+resource "fabricext_warehouse_permission" "direct" {
+  workspace_id   = %q
+  warehouse_name = "direct_wh"
+  principal_id   = %q
+  role_type      = "read"
+}
+`, wsID, principalID),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("fabricext_warehouse_permission.direct", "id", wsID+"/"+whID+"/Group/"+principalID),
+					resource.TestCheckResourceAttr("fabricext_warehouse_permission.direct", "warehouse_id", whID),
+					resource.TestCheckResourceAttr("fabricext_warehouse_permission.direct", "warehouse_name", "direct_wh"),
+				),
+			},
+		},
+	})
+}
+
+func TestAccWarehousePermissionResource_MismatchedIdentifiers(t *testing.T) {
+	t.Parallel()
+
+	srv := fabricmock.NewServer(t)
+	wsID := "11111111-1111-1111-1111-111111111111"
+	whID := "22222222-2222-2222-2222-222222222222"
+	principalID := "33333333-3333-3333-3333-333333333333"
+
+	srv.UpsertItem(fabricmock.Item{
+		ID:          whID,
+		WorkspaceID: wsID,
+		DisplayName: "correct_wh_name",
+		Type:        "Warehouse",
+	})
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
+resource "fabricext_warehouse_permission" "mismatch" {
+  workspace_id   = %q
+  warehouse_id   = %q
+  warehouse_name = "wrong_wh_name"
+  principal_id   = %q
+  role_type      = "read"
+}
+`, wsID, whID, principalID),
+				ExpectError: regexp.MustCompile(`Conflicting Warehouse Identifiers`),
+			},
+		},
+	})
+}

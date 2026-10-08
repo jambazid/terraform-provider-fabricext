@@ -33,12 +33,17 @@ const (
 var (
 	_ provider.Provider = &FabricProvider{}
 
-	uuidRegex     = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
-	roleNameRegex = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_]*$`)
+	uuidRegex       = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+	roleNameRegex   = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_]*$`)
+	sourcePathRegex = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 )
 
 func uuidValidator() validator.String {
 	return stringvalidator.RegexMatches(uuidRegex, "must be a valid UUID (e.g. 00000000-0000-0000-0000-000000000000)")
+}
+
+func sourcePathValidator() validator.String {
+	return stringvalidator.RegexMatches(sourcePathRegex, "must be in the format {workspace_id}/{item_id} where both are valid UUIDs")
 }
 
 func normalizePrincipalType(itemType, pt string) (string, error) {
@@ -488,5 +493,34 @@ func (p *FabricProvider) Resources(_ context.Context) []func() resource.Resource
 func (p *FabricProvider) DataSources(_ context.Context) []func() datasource.DataSource {
 	return []func() datasource.DataSource{
 		NewItemDataSource,
+	}
+}
+
+// reconcileItemIdentifiersPlan adjusts item name and item ID plan values when resources
+// are replaced. If an identifier changes, the unconfigured counterpart is set to unknown
+// so stale values preserved by UseStateForUnknown do not cause replacement failures.
+func reconcileItemIdentifiersPlan(
+	nameConfig, idConfig types.String,
+	nameState, idState types.String,
+	namePlan, idPlan *types.String,
+) {
+	// If name is unknown in config (e.g. dynamic from upstream resource), ID cannot be known from state
+	if nameConfig.IsUnknown() && idConfig.IsNull() {
+		*idPlan = types.StringUnknown()
+	} else if !nameConfig.IsNull() && !nameConfig.IsUnknown() {
+		// If name was configured and changed relative to state (or state had no name), clear unconfigured ID
+		if idConfig.IsNull() && (nameState.IsNull() || nameConfig.ValueString() != nameState.ValueString()) {
+			*idPlan = types.StringUnknown()
+		}
+	}
+
+	// If ID is unknown in config, Name cannot be known from state
+	if idConfig.IsUnknown() && nameConfig.IsNull() {
+		*namePlan = types.StringUnknown()
+	} else if !idConfig.IsNull() && !idConfig.IsUnknown() {
+		// If ID was configured and changed relative to state (or state had no ID), clear unconfigured Name
+		if nameConfig.IsNull() && (idState.IsNull() || idConfig.ValueString() != idState.ValueString()) {
+			*namePlan = types.StringUnknown()
+		}
 	}
 }

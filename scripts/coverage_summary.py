@@ -70,8 +70,10 @@ def parse_coverage_profile(filepath: Path) -> tuple[dict[str, dict[str, int]], i
     return packages, total_covered, total_stmts
 
 
-def status_badge(percentage: float) -> str:
-    """Return status icon based on coverage percentage."""
+def status_badge(percentage: float, threshold: float | None = None) -> str:
+    """Return status icon based on coverage percentage and optional threshold."""
+    if threshold is not None and percentage < threshold:
+        return "🔴 FAIL"
     if percentage >= 80.0:
         return "🟢 PASS"
     if percentage >= 60.0:
@@ -88,12 +90,13 @@ def render_markdown_summary(
 ) -> str:
     """Render a GitHub Flavored Markdown summary table."""
     total_pct = (total_covered / total_stmts * 100.0) if total_stmts > 0 else 0.0
+    total_badge = status_badge(total_pct, threshold)
 
     lines = [
         f"## {title}",
         "",
         "<!-- test-coverage-summary -->",
-        f"**Statement Coverage**: `{total_pct:.1f}%` ({total_covered:,} / {total_stmts:,} statements) {status_badge(total_pct)}",
+        f"**Statement Coverage**: `{total_pct:.1f}%` ({total_covered:,} / {total_stmts:,} statements) {total_badge}",
         "",
         "| Package | Covered | Total | Coverage | Status |",
         "| :--- | :---: | :---: | :---: | :---: |",
@@ -106,7 +109,7 @@ def render_markdown_summary(
         pct = (cov / tot * 100.0) if tot > 0 else 0.0
         lines.append(f"| `{pkg_name}` | {cov:,} | {tot:,} | `{pct:.1f}%` | {status_badge(pct)} |")
 
-    lines.append(f"| **Total** | **{total_covered:,}** | **{total_stmts:,}** | **`{total_pct:.1f}%`** | {status_badge(total_pct)} |")
+    lines.append(f"| **Total** | **{total_covered:,}** | **{total_stmts:,}** | **`{total_pct:.1f}%`** | {total_badge} |")
     lines.append("")
 
     if threshold is not None:

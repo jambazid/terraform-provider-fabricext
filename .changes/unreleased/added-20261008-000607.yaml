@@ -1,0 +1,8 @@
+kind: added
+body: >-
+  Add OneLake Data Access Security parity (RLS/CLS dual-mode) to
+  fabricext_lakehouse_permission and direct UUID references to
+  warehouse and sql_database permissions.
+time: 2026-10-08T00:06:07.80724145+01:00
+custom:
+    Issue: "9"

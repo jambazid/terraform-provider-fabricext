@@ -281,8 +281,8 @@ See the embedded Terraform Registry guide [`docs/guides/official_provider_compar
 - **Attributes**:
   - `id` (`String`, `Computed`, `UseStateForUnknown`)
   - `workspace_id` (`String`, `Required`, `RequiresReplace`, UUID validator)
-  - `warehouse_name` (`String`, `Required`, `RequiresReplace`, non-empty validator)
-  - `warehouse_id` (`String`, `Computed`, `UseStateForUnknown`)
+  - `warehouse_name` (`String`, `Optional` + `Computed`, `RequiresReplace`, non-empty validator)
+  - `warehouse_id` (`String`, `Optional` + `Computed`, `RequiresReplace`, UUID validator; at least one of `warehouse_name` or `warehouse_id` must be provided)
   - `principal_id` (`String`, `Required`, `RequiresReplace`, UUID validator)
   - `principal_type` (`String`, `Optional` + `Computed`, default `"Group"`, `RequiresReplace`, `OneOf("User", "Group", "ServicePrincipal", "ServicePrincipalProfile")`)
   - `role_type` (`String`, `Required`, `OneOf("read", "write", "reshare")`)
@@ -293,8 +293,8 @@ See the embedded Terraform Registry guide [`docs/guides/official_provider_compar
 - **Attributes**:
   - `id` (`String`, `Computed`, `UseStateForUnknown`)
   - `workspace_id` (`String`, `Required`, `RequiresReplace`, UUID validator)
-  - `sql_database_name` (`String`, `Required`, `RequiresReplace`, non-empty validator)
-  - `sql_database_id` (`String`, `Computed`, `UseStateForUnknown`)
+  - `sql_database_name` (`String`, `Optional` + `Computed`, `RequiresReplace`, non-empty validator)
+  - `sql_database_id` (`String`, `Optional` + `Computed`, `RequiresReplace`, UUID validator; at least one of `sql_database_name` or `sql_database_id` must be provided)
   - `principal_id` (`String`, `Required`, `RequiresReplace`, UUID validator)
   - `principal_type` (`String`, `Optional` + `Computed`, default `"Group"`, `RequiresReplace`, `OneOf("User", "Group", "ServicePrincipal", "ServicePrincipalProfile")`)
   - `role_type` (`String`, `Required`, `OneOf("read", "read_data", "read_spark", "write", "reshare")`)
@@ -302,16 +302,29 @@ See the embedded Terraform Registry guide [`docs/guides/official_provider_compar
 ### 6.4 `fabricext_lakehouse_permission` Resource
 
 - **Composite ID & Import Format**: `{workspace_id}/{lakehouse_id}/{role_name}`
-- **Attributes**:
-  - `id` (`String`, `Computed`, `UseStateForUnknown`)
-  - `workspace_id` (`String`, `Required`, `RequiresReplace`, UUID validator)
-  - `lakehouse_name` (`String`, `Required`, `RequiresReplace`, non-empty validator)
-  - `lakehouse_id` (`String`, `Computed`, `UseStateForUnknown`)
-  - `role_name` (`String`, `Required`, `RequiresReplace`, `^[a-zA-Z][a-zA-Z0-9_]*$` validator)
-  - `paths` (`Set[String]`, `Required`, `SizeAtLeast(1)`)
-  - `actions` (`Set[String]`, `Optional` + `Computed`, default `["Read"]`, `OneOf("Read")`)
-  - `principal_ids` (`Set[String]`, `Required`, `SizeAtLeast(1)`, UUID element validator)
-  - `principal_type` (`String`, `Optional` + `Computed`, default `"Group"`, `OneOf("User", "Group", "ServicePrincipal", "ManagedIdentity")`)
+- **Dual-Mode Ergonomic Architecture**:
+  - **Core Identifiers**:
+    - `id` (`String`, `Computed`, `UseStateForUnknown`)
+    - `workspace_id` (`String`, `Required`, `RequiresReplace`, UUID validator)
+    - `lakehouse_name` (`String`, `Optional` + `Computed`, `RequiresReplace`, non-empty validator)
+    - `lakehouse_id` (`String`, `Optional` + `Computed`, `RequiresReplace`, UUID validator; at least one of `lakehouse_name` or `lakehouse_id` must be provided)
+    - `role_name` (`String`, `Required`, `RequiresReplace`, `^[a-zA-Z][a-zA-Z0-9_]*$` validator)
+    - `kind` (`String`, `Optional` + `Computed`, default `"Policy"`, `OneOf("Policy")`)
+  - **Simple Flat Mode (100% Backward Compatible)**:
+    - `paths` (`Set[String]`, `Optional` + `Computed`, `SizeAtLeast(1)`)
+    - `actions` (`Set[String]`, `Optional` + `Computed`, default `["Read"]`, `OneOf("Read", "Write", "ReadWrite")`)
+    - `principal_ids` (`Set[String]`, `Optional` + `Computed`, `SizeAtLeast(1)`, UUID element validator)
+    - `principal_type` (`String`, `Optional` + `Computed`, default `"Group"`, `OneOf("User", "Group", "ServicePrincipal", "ManagedIdentity")`)
+  - **Advanced Structured Mode (Feature Parity with Upstream OneLake Data Access Security)**:
+    - `decision_rule` (`List[Block]`, `Optional`): Repeatable decision rules containing:
+      - `paths` (`Set[String]`, `Required`)
+      - `actions` (`Set[String]`, `Optional` + `Computed`, default `["Read"]`, `OneOf("Read", "Write", "ReadWrite")`)
+      - `effect` (`String`, `Optional` + `Computed`, default `"Permit"`, `OneOf("Permit")`)
+      - `row_constraint` (`List[Block]`, `Optional`): Row-Level Security (RLS) predicates with `table_path` (`String`, `Required`) and `predicate` (`String`, `Required`, T-SQL expression).
+      - `column_constraint` (`List[Block]`, `Optional`): Column-Level Security (CLS) masks with `table_path` (`String`, `Required`), `columns` (`Set[String]`, `Required`), `action` (`String`, `Optional`, default `"Read"`), and `effect` (`String`, `Optional`, default `"Permit"`).
+    - `entra_member` (`Set[Block]`, `Optional`): Heterogeneous Entra ID members with `object_id` (`String`, `Required`), `object_type` (`String`, `Required`, `OneOf("User", "Group", "ServicePrincipal", "ManagedIdentity")`), and `tenant_id` (`String`, `Optional`). State refresh correlates existing state by `object_id`/`tenant_id` to preserve configured `object_type` when Fabric API omits `objectType` on GET.
+    - `fabric_item_member` (`Set[Block]`, `Optional`): Cross-item shortcut members with `source_path` (`String`, `Required`, `{workspace_id}/{item_id}` UUID pair format) and `item_access` (`Set[String]`, `Optional`, default `["ReadAll"]`).
+  - **Identifier Consistency & Replacement Law**: In `Create` across `warehouse`, `sql_database`, and `lakehouse`, the provider determines configured identifiers directly from resource configuration (`req.Config`). If both the item name and item ID are explicitly configured, the provider validates that the fetched display name matches the configured name, returning a diagnostic error on conflict before setting state. On resource replacement where an item identifier changes, `ModifyPlan` resets the unconfigured counterpart identifier in the plan to unknown (`(known after apply)`), preventing stale computed identifiers copied by `UseStateForUnknown` from causing false replacement conflicts or inconsistent plan/apply results.
 
 ### 6.5 `fabricext_item` Data Source
 
@@ -360,6 +373,11 @@ resource "fabricext_warehouse_permission" "this" {
 
 `modules/permissions/` accepts a unified `fabric_permissions_matrix` variable (`workspace_id`, `warehouses`, `sql_databases`, `lakehouses`), flattens the nested structures via `flatten([...])` keyed by `"${item_name}/${principal_type}/${principal_id}"` (so role upgrades/downgrades execute in place without recreate races), and provisions `fabricext_warehouse_permission`, `fabricext_sql_database_permission`, and `fabricext_lakehouse_permission` resources deterministically even when optional item maps are omitted.
 
+In the v0.2.0 uplift, `modules/permissions/` expands to:
+
+1. Support direct item UUIDs as map keys (in addition to item display names) across `warehouses`, `sql_databases`, and `lakehouses`.
+2. Support advanced Lakehouse OneLake Data Access Roles: repeatable `decision_rules` with Row-Level Security (`row_constraints`), Column-Level Security (`column_constraints`), heterogeneous `entra_members`, and `fabric_item_members` alongside the standard simple flat role configuration.
+
 ---
 
 ## 8. Distribution, Local Mirror & CI/CD Release Architecture
@@ -386,9 +404,9 @@ flowchart LR
 ```
 
 1. **Separated Verification vs. Release Workflows (`ci.yaml`, `tag.yaml`, & `release.yaml`)**:
-   - **`ci.yaml`**: Runs on `pull_request` and `push` to `main` with read-only `contents: read` permissions and zero access to `GPG_PRIVATE_KEY` or the `release` GitHub Environment. Excludes non-code docs while guaranteeing test runs on `specs/**` and `DESIGN.md`.
+   - **`ci.yaml`**: Runs on `pull_request` and `push` to `main` with read-only `contents: read` permissions and zero access to `GPG_PRIVATE_KEY` or the `release` GitHub Environment. Excludes non-code docs while guaranteeing test runs on `specs/**` and `DESIGN.md`. Renders statement coverage breakdowns to `$GITHUB_STEP_SUMMARY`, uploads coverage artifacts, updates PR sticky comments across both passing and failing runs, and validates the 90.0% coverage threshold via a dedicated verification step to ensure consistent error communication between step summaries and PR discussions.
    - **`changelog.yaml`**: Verifies that pull requests include required Changie fragments (`.changes/unreleased/*.yaml`) before merging.
-   - **`tag.yaml`**: Triggered on `push` to `main` when `.changes/v*.md` files are added or modified. Extracts the version, validates strict SemVer format (`^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$`), creates the git tag `vX.Y.Z` using `GITHUB_TOKEN`, and invokes `release.yaml` at the running commit via `uses: $/.github/workflows/release.yaml`.
+   - **`tag.yaml`**: Triggered on `push` to `main` when `.changes/v*.md` files are added or modified. Extracts the version, validates strict SemVer format (`^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$`), creates the git tag `vX.Y.Z` using `GITHUB_TOKEN`, and invokes `release.yaml` at the running commit via `uses: ./.github/workflows/release.yaml`.
    - **`release.yaml`**: Reusable workflow (`workflow_call` or manual `workflow_dispatch`):
      - **Stage 1 (`gate | verify`)**: Executes full verification gate (`mise run check`) before touching release secrets.
      - **Stage 2 (`provider | release`)**: Runs inside the protected `release` GitHub Environment (`contents: write`, `id-token: write`, `attestations: write`). Imports the GPG signing key via `step-security/ghaction-import-gpg`, runs `goreleaser release --clean` (pinned to match `mise.lock`), and emits SLSA Build Level 2 provenance attestations via `actions/attest-build-provenance`.

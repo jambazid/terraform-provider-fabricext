@@ -261,6 +261,417 @@ resource "fabricext_lakehouse_permission" "empty_paths" {
 `,
 				ExpectError: regexp.MustCompile(`Attribute paths set must contain at least 1 elements`),
 			},
+			{
+				Config: testAccProviderConfig(srv) + `
+resource "fabricext_lakehouse_permission" "missing_definition" {
+  workspace_id   = "11111111-1111-1111-1111-111111111111"
+  lakehouse_name = "raw_bronze_lh"
+  role_name      = "BronzeReaders"
+}
+`,
+				ExpectError: regexp.MustCompile(`Missing Role Definition`),
+			},
+			{
+				Config: testAccProviderConfig(srv) + `
+resource "fabricext_lakehouse_permission" "conflicting_definition" {
+  workspace_id   = "11111111-1111-1111-1111-111111111111"
+  lakehouse_name = "raw_bronze_lh"
+  role_name      = "BronzeReaders"
+  paths          = ["/Tables/customers"]
+  principal_ids  = ["77777777-7777-7777-7777-777777777771"]
+
+  decision_rule {
+    paths = ["/Tables/sales"]
+  }
+}
+`,
+				ExpectError: regexp.MustCompile(`Conflicting Role Definition`),
+			},
+			{
+				Config: testAccProviderConfig(srv) + `
+resource "fabricext_lakehouse_permission" "missing_identifier" {
+  workspace_id  = "11111111-1111-1111-1111-111111111111"
+  role_name     = "BronzeReaders"
+  paths         = ["/Tables/customers"]
+  principal_ids = ["77777777-7777-7777-7777-777777777771"]
+}
+`,
+				ExpectError: regexp.MustCompile(`Missing Lakehouse Identifier`),
+			},
+			{
+				Config: testAccProviderConfig(srv) + `
+resource "fabricext_lakehouse_permission" "missing_principals" {
+  workspace_id   = "11111111-1111-1111-1111-111111111111"
+  lakehouse_name = "raw_bronze_lh"
+  role_name      = "BronzeReaders"
+  paths          = ["/Tables/customers"]
+}
+`,
+				ExpectError: regexp.MustCompile(`Missing Required Attribute in Simple Mode`),
+			},
+			{
+				Config: testAccProviderConfig(srv) + `
+resource "fabricext_lakehouse_permission" "advanced_missing_rules" {
+  workspace_id   = "11111111-1111-1111-1111-111111111111"
+  lakehouse_name = "raw_bronze_lh"
+  role_name      = "BronzeReaders"
+
+  entra_member {
+    object_id   = "77777777-7777-7777-7777-777777777771"
+    object_type = "User"
+  }
+}
+`,
+				ExpectError: regexp.MustCompile(`Missing Required Block in Advanced Mode`),
+			},
+			{
+				Config: testAccProviderConfig(srv) + `
+resource "fabricext_lakehouse_permission" "advanced_missing_members" {
+  workspace_id   = "11111111-1111-1111-1111-111111111111"
+  lakehouse_name = "raw_bronze_lh"
+  role_name      = "BronzeReaders"
+
+  decision_rule {
+    paths = ["/Tables/customers"]
+  }
+}
+`,
+				ExpectError: regexp.MustCompile(`Missing Required Members in Advanced Mode`),
+			},
+			{
+				Config: testAccProviderConfig(srv) + `
+resource "fabricext_lakehouse_permission" "invalid_source_path" {
+  workspace_id   = "11111111-1111-1111-1111-111111111111"
+  lakehouse_name = "raw_bronze_lh"
+  role_name      = "BronzeReaders"
+
+  decision_rule {
+    paths = ["/Tables/customers"]
+  }
+
+  fabric_item_member {
+    source_path = "invalid-not-uuid-pair"
+  }
+}
+`,
+				ExpectError: regexp.MustCompile(`must be in the format \{workspace_id\}/\{item_id\} where both are valid UUIDs`),
+			},
+			{
+				Config: testAccProviderConfig(srv) + `
+resource "fabricext_lakehouse_permission" "mixing_actions_advanced" {
+  workspace_id   = "11111111-1111-1111-1111-111111111111"
+  lakehouse_name = "raw_bronze_lh"
+  role_name      = "BronzeReaders"
+  actions        = ["Read"]
+
+  decision_rule {
+    paths = ["/Tables/customers"]
+  }
+
+  entra_member {
+    object_id = "77777777-7777-7777-7777-777777777771"
+  }
+}
+`,
+				ExpectError: regexp.MustCompile(`Conflicting Role Definition`),
+			},
+		},
+	})
+}
+
+func TestAccLakehousePermissionResource_SimpleAndAdvancedParity(t *testing.T) {
+	t.Parallel()
+
+	srv := fabricmock.NewServer(t)
+	wsID := "11111111-1111-1111-1111-111111111111"
+	lhID := "66666666-6666-6666-6666-666666666666"
+	principalID := "77777777-7777-7777-7777-777777777771"
+
+	srv.UpsertItem(fabricmock.Item{
+		ID:          lhID,
+		WorkspaceID: wsID,
+		DisplayName: "raw_bronze_lh",
+		Type:        "Lakehouse",
+	})
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			// 1. Simple flat mode using direct lakehouse_id
+			{
+				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
+resource "fabricext_lakehouse_permission" "parity" {
+  workspace_id   = %q
+  lakehouse_id   = %q
+  role_name      = "ParityRole"
+  paths          = ["/Tables/customers", "/Files/landing"]
+  actions        = ["ReadWrite"]
+  principal_ids  = [%q]
+  principal_type = "Group"
+}
+`, wsID, lhID, principalID),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.parity", "id", wsID+"/"+lhID+"/ParityRole"),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.parity", "lakehouse_id", lhID),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.parity", "lakehouse_name", "raw_bronze_lh"),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.parity", "paths.#", "2"),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.parity", "actions.#", "1"),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.parity", "principal_ids.#", "1"),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.parity", "principal_type", "Group"),
+				),
+			},
+			// 2. In-place update to advanced structured mode with RLS and CLS
+			{
+				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
+resource "fabricext_lakehouse_permission" "parity" {
+  workspace_id = %q
+  lakehouse_id = %q
+  role_name    = "ParityRole"
+  kind         = "Policy"
+
+  decision_rule {
+    paths   = ["/Tables/customers"]
+    actions = ["Read", "Write"]
+    effect  = "Permit"
+
+    row_constraint {
+      table_path = "/Tables/customers"
+      predicate  = "Region = 'EMEA'"
+    }
+
+    column_constraint {
+      table_path = "/Tables/customers"
+      columns    = ["customer_id", "email"]
+      action     = "Read"
+      effect     = "Permit"
+    }
+  }
+
+  entra_member {
+    object_id   = %q
+    object_type = "Group"
+  }
+}
+`, wsID, lhID, principalID),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.parity", "id", wsID+"/"+lhID+"/ParityRole"),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.parity", "kind", "Policy"),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.parity", "decision_rule.#", "1"),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.parity", "decision_rule.0.paths.#", "1"),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.parity", "decision_rule.0.actions.#", "2"),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.parity", "decision_rule.0.row_constraint.#", "1"),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.parity", "decision_rule.0.row_constraint.0.table_path", "/Tables/customers"),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.parity", "decision_rule.0.row_constraint.0.predicate", "Region = 'EMEA'"),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.parity", "decision_rule.0.column_constraint.#", "1"),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.parity", "decision_rule.0.column_constraint.0.table_path", "/Tables/customers"),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.parity", "decision_rule.0.column_constraint.0.columns.#", "2"),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.parity", "entra_member.#", "1"),
+					resource.TestCheckTypeSetElemNestedAttrs("fabricext_lakehouse_permission.parity", "entra_member.*", map[string]string{
+						"object_id":   principalID,
+						"object_type": "Group",
+					}),
+				),
+			},
+			// 3. ImportState verification of advanced mode
+			{
+				ResourceName:      "fabricext_lakehouse_permission.parity",
+				ImportState:       true,
+				ImportStateVerify: true,
+			},
+		},
+	})
+}
+
+func TestAccLakehousePermissionResource_MixedMembersAndShortcuts(t *testing.T) {
+	t.Parallel()
+
+	srv := fabricmock.NewServer(t)
+	wsID := "11111111-1111-1111-1111-111111111111"
+	lhID := "66666666-6666-6666-6666-666666666666"
+	memberUser := "77777777-7777-7777-7777-777777777771"
+	memberSP := "77777777-7777-7777-7777-777777777772"
+	shortcutSource := "11111111-1111-1111-1111-111111111111/88888888-8888-8888-8888-888888888888"
+
+	srv.UpsertItem(fabricmock.Item{
+		ID:          lhID,
+		WorkspaceID: wsID,
+		DisplayName: "gold_analytics_lh",
+		Type:        "Lakehouse",
+	})
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
+resource "fabricext_lakehouse_permission" "mixed" {
+  workspace_id   = %q
+  lakehouse_name = "gold_analytics_lh"
+  role_name      = "MixedRole"
+
+  decision_rule {
+    paths   = ["/Tables/sales"]
+    actions = ["Read"]
+  }
+
+  decision_rule {
+    paths   = ["/Tables/dim_date", "/Tables/dim_geo"]
+    actions = ["Read"]
+  }
+
+  entra_member {
+    object_id   = %q
+    object_type = "User"
+  }
+
+  entra_member {
+    object_id   = %q
+    object_type = "ServicePrincipal"
+    tenant_id   = "99999999-9999-9999-9999-999999999999"
+  }
+
+  fabric_item_member {
+    source_path = %q
+    item_access = ["ReadAll"]
+  }
+}
+`, wsID, memberUser, memberSP, shortcutSource),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.mixed", "id", wsID+"/"+lhID+"/MixedRole"),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.mixed", "lakehouse_id", lhID),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.mixed", "decision_rule.#", "2"),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.mixed", "entra_member.#", "2"),
+					resource.TestCheckTypeSetElemNestedAttrs("fabricext_lakehouse_permission.mixed", "entra_member.*", map[string]string{
+						"object_id":   memberUser,
+						"object_type": "User",
+					}),
+					resource.TestCheckTypeSetElemNestedAttrs("fabricext_lakehouse_permission.mixed", "entra_member.*", map[string]string{
+						"object_id":   memberSP,
+						"object_type": "ServicePrincipal",
+						"tenant_id":   "99999999-9999-9999-9999-999999999999",
+					}),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.mixed", "fabric_item_member.#", "1"),
+					resource.TestCheckTypeSetElemNestedAttrs("fabricext_lakehouse_permission.mixed", "fabric_item_member.*", map[string]string{
+						"source_path": shortcutSource,
+					}),
+				),
+			},
+			{
+				ResourceName:      "fabricext_lakehouse_permission.mixed",
+				ImportState:       true,
+				ImportStateVerify: true,
+			},
+		},
+	})
+}
+
+func TestAccLakehousePermissionResource_MismatchedIdentifiers(t *testing.T) {
+	t.Parallel()
+
+	srv := fabricmock.NewServer(t)
+	wsID := "11111111-1111-1111-1111-111111111111"
+	lhID := "66666666-6666-6666-6666-666666666666"
+
+	srv.UpsertItem(fabricmock.Item{
+		ID:          lhID,
+		WorkspaceID: wsID,
+		DisplayName: "correct_lakehouse_name",
+		Type:        "Lakehouse",
+	})
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
+resource "fabricext_lakehouse_permission" "mismatch" {
+  workspace_id   = %q
+  lakehouse_id   = %q
+  lakehouse_name = "wrong_lakehouse_name"
+  role_name      = "MismatchRole"
+  paths          = ["/Tables/customers"]
+  principal_ids  = ["77777777-7777-7777-7777-777777777771"]
+}
+`, wsID, lhID),
+				ExpectError: regexp.MustCompile(`Conflicting Lakehouse Identifiers`),
+			},
+		},
+	})
+}
+
+func TestAccLakehousePermissionResource_IdentifierReplacement(t *testing.T) {
+	t.Parallel()
+
+	srv := fabricmock.NewServer(t)
+	wsID := "11111111-1111-1111-1111-111111111111"
+	lhID1 := "22222222-2222-2222-2222-222222222222"
+	lhID2 := "33333333-3333-3333-3333-333333333333"
+	principalID := "77777777-7777-7777-7777-777777777771"
+
+	srv.UpsertItem(fabricmock.Item{
+		ID:          lhID1,
+		WorkspaceID: wsID,
+		DisplayName: "lakehouse_one",
+		Type:        "Lakehouse",
+	})
+	srv.UpsertItem(fabricmock.Item{
+		ID:          lhID2,
+		WorkspaceID: wsID,
+		DisplayName: "lakehouse_two",
+		Type:        "Lakehouse",
+	})
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			// Step 1: Create targeting lakehouse_id
+			{
+				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
+resource "fabricext_lakehouse_permission" "test" {
+  workspace_id  = %q
+  lakehouse_id  = %q
+  role_name     = "Role1"
+  paths         = ["/Tables/sales"]
+  principal_ids = [%q]
+}
+`, wsID, lhID1, principalID),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.test", "lakehouse_id", lhID1),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.test", "lakehouse_name", "lakehouse_one"),
+				),
+			},
+			// Step 2: Replace by switching to lakehouse_name only
+			{
+				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
+resource "fabricext_lakehouse_permission" "test" {
+  workspace_id   = %q
+  lakehouse_name = "lakehouse_two"
+  role_name      = "Role1"
+  paths          = ["/Tables/sales"]
+  principal_ids  = [%q]
+}
+`, wsID, principalID),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.test", "lakehouse_id", lhID2),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.test", "lakehouse_name", "lakehouse_two"),
+				),
+			},
+			// Step 3: Replace by changing lakehouse_name
+			{
+				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
+resource "fabricext_lakehouse_permission" "test" {
+  workspace_id   = %q
+  lakehouse_name = "lakehouse_one"
+  role_name      = "Role1"
+  paths          = ["/Tables/sales"]
+  principal_ids  = [%q]
+}
+`, wsID, principalID),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.test", "lakehouse_id", lhID1),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.test", "lakehouse_name", "lakehouse_one"),
+				),
+			},
 		},
 	})
 }

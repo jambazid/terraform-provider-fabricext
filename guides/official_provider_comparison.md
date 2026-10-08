@@ -15,9 +15,9 @@ Comparative architecture analysis between Microsoft's official Terraform provide
 
 | Dimension | `microsoft/fabric` (Official) | `jambazid/fabricext` (Stopgap) | Cost | Impact | Risk |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Primary Scope** | Workspace & item lifecycle provisioning (`fabric_workspace`, `fabric_warehouse`, `fabric_lakehouse`, `fabric_sql_database`, `fabric_workspace_role_assignment`). | Declarative item-level sharing (`fabricext_warehouse_permission`, `fabricext_sql_database_permission`, `fabricext_lakehouse_permission`). | Low | High — fills upstream item-sharing gap (including Lakehouse permissions requested in [Issue #425](https://github.com/microsoft/terraform-provider-fabric/issues/425)). | Low — zero resource-name collision (`fabricext_*` prefix). |
+| **Primary Scope** | Workspace & item lifecycle provisioning (`fabric_workspace`, `fabric_warehouse`, `fabric_lakehouse`, `fabric_sql_database`, `fabric_workspace_role_assignment`). | Declarative item-level sharing (`fabricext_warehouse_permission`, `fabricext_sql_database_permission`, `fabricext_lakehouse_permission`). | Low | High — fills upstream item-sharing gap for Warehouses and SQL Databases, and provides OneLake Data Access Roles for Lakehouses (clarifying [Issue #425](https://github.com/microsoft/terraform-provider-fabric/issues/425) where Lakehouse item-level sharing has no public API). | Low — zero resource-name collision (`fabricext_*` prefix). |
 | **SDK & API Layer** | 100% bound to generated `microsoft/fabric-sdk-go` service clients. Cannot call REST endpoints absent from `microsoft/fabric-rest-api-specs`. | Uses `microsoft/fabric-sdk-go` models + `azidentity` with a targeted REST/RPC client (`internal/client/fabric_client.go`) for item permission and OneLake ETag RMW operations. | Low | High — unblocks `/permissions`, `/grantPermissions`, and `/revokePermissions` before upstream SDK generation lands. | Low — validated against vendored OpenAPI specs + overlay (`specs/openapi/`). |
-| **OneLake Data Access Roles** | `fabric_onelake_data_access_security` (Preview-only, requires `preview = true`; affected by `object_type` drift in [Issue #1044](https://github.com/microsoft/terraform-provider-fabric/issues/1044)). | `fabricext_lakehouse_permission` (GA `GET`/`PUT /dataAccessRoles` with per-Lakehouse mutex, `If-Match` ETag RMW, and `objectType` omission resilience). | Low | High — safe under parallel `for_each` without preview-mode gating. | Low — shares identical `{workspace_id}/{lakehouse_id}/{role_name}` import ID for zero-destroy migration. |
+| **OneLake Data Access Roles** | `fabric_onelake_data_access_security` (Preview-only, requires `preview = true`; affected by `object_type` drift in [Issue #1044](https://github.com/microsoft/terraform-provider-fabric/issues/1044)). | `fabricext_lakehouse_permission` (GA `GET`/`PUT /dataAccessRoles` with per-Lakehouse mutex, `If-Match` ETag RMW, dual-mode simple/advanced RLS & CLS, and direct ID support). | Low | High — safe under parallel `for_each` without preview-mode gating. | Low — shares identical `{workspace_id}/{lakehouse_id}/{role_name}` import ID for zero-destroy migration. |
 | **Contract & Acceptance Testing** | Unit tests use compile-time `fabcore/fake` Go struct stubs; acceptance tests require live Azure/Fabric capacities. | All API client tests and `TF_ACC=1` acceptance tests communicating with Fabric endpoints validate wire payloads at runtime through `kin-openapi` (`openapi3filter`) against `specs/openapi/`. | Low | High — catches wire-level schema regressions offline in < 10s. | Low — `mise run specs:sync` detects upstream Swagger drift. |
 
 ---
@@ -58,10 +58,21 @@ sequenceDiagram
 | Aspect | `microsoft/fabric` (`fabric_onelake_data_access_security`) | `jambazid/fabricext` (`fabricext_lakehouse_permission`) |
 | :--- | :--- | :--- |
 | **Maturity Gate** | Preview-only; fails at plan/apply unless `provider "fabric" { preview = true }` is set. | Available by default using the GA `GET` and `PUT /dataAccessRoles` endpoints (`platform/swagger.json`). |
-| **Resource Granularity** | Manages all roles or single roles depending on endpoint version, using deeply nested `decision_rules` and `members.microsoft_entra_members` blocks. | Atomic per-role resource (`role_name`, `paths`, `actions`, `principal_ids`, `principal_type`), enabling independent `for_each` lifecycle per Lakehouse role. |
+| **Resource Granularity & Modes** | Single-mode nested `decision_rules` and `members` blocks. | Dual-mode: simple flat mode (`paths`, `actions`, `principal_ids`, `principal_type`) or advanced structured mode (`decision_rule`, `row_constraint`, `column_constraint`, `entra_member`, `fabric_item_member`). |
+| **Item Identification** | Accepts `item_id` (UUID). | Accepts either `lakehouse_id` (UUID) or `lakehouse_name` (display name resolved via type-isolated cache). |
+| **Row & Column Level Security (RLS/CLS)** | Supported via `row_constraints` and `column_constraints` in `decision_rules`. | Supported via `row_constraint` and `column_constraint` in `decision_rule` blocks (100% parity). |
+| **Mixed Entra Members & Shortcuts** | Supported via `members.microsoft_entra_members` and `fabric_item_members`. | Supported via `entra_member` (heterogeneous types/tenants) and `fabric_item_member` (shortcut inheritance). |
 | **Concurrent `for_each` Safety** | Direct API calls without cross-resource in-process mutex coordination. | Keyed per-Lakehouse `sync.Mutex` (`workspaceID + "/" + lakehouseID`) + `If-Match` ETag optimistic concurrency with bounded `412 Precondition Failed` retry. |
 | **Read-Back `objectType` Bug ([Issue #1044](https://github.com/microsoft/terraform-provider-fabric/issues/1044))** | Fails with `Provider produced inconsistent result after apply` when the Fabric `GET /dataAccessRoles` API omits `objectType` in `microsoftEntraMembers`. | Preserves `state.PrincipalType` when the API response omits `objectType` on read-back (`internal/provider/lakehouse_permission_resource.go`). |
 | **Import ID Format** | `{workspace_id}/{item_id}/{role_name}` | `{workspace_id}/{lakehouse_id}/{role_name}` (100% compatible). |
+
+#### Disentangling OneLake Data Access Roles vs. Lakehouse Item Sharing
+
+> [!NOTE]
+> **OneLake Data Access Roles vs. Lakehouse Item Sharing**:
+>
+> - **OneLake Data Access Roles** (Storage Layer): Both `microsoft/fabric` (`fabric_onelake_data_access_security`) and `jambazid/fabricext` (`fabricext_lakehouse_permission`) manage OneLake Data Access Roles via the OneLake Data Access Security API (`/v1/.../items/{id}/dataAccessRoles`). These roles govern fine-grained access to Parquet tables, folders, rows (RLS), and columns (CLS) in OneLake storage.
+> - **Lakehouse Item-Level Sharing** (Workspace Layer): Fabric item-level sharing (`ReadAll` workspace share grants at the Fabric item level) does not currently have a public REST API for Lakehouses, as discussed in [microsoft/terraform-provider-fabric#425](https://github.com/microsoft/terraform-provider-fabric/issues/425). Neither provider manages Lakehouse item-level sharing until Microsoft makes that API available.
 
 ---
 
@@ -184,6 +195,7 @@ removed {
 resource "fabric_onelake_data_access_security" "bronze_readers" {
   workspace_id = var.workspace_id
   item_id      = var.lakehouse_id
+  role_name    = "BronzeReaders"
   # ... configure decision_rules and members matching BronzeReaders ...
 }
 

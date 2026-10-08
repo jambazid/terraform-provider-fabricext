@@ -215,3 +215,120 @@ resource "fabricext_sql_database_permission" "invalid_uuid" {
 		},
 	})
 }
+
+func TestAccSQLDatabasePermissionResource_DirectIDReference(t *testing.T) {
+	t.Parallel()
+
+	srv := fabricmock.NewServer(t)
+	wsID := "11111111-1111-1111-1111-111111111111"
+	dbID := "44444444-4444-4444-4444-444444444444"
+	dbID2 := "55555555-5555-5555-5555-555555555555"
+	principalID := "33333333-3333-3333-3333-333333333333"
+
+	srv.UpsertItem(fabricmock.Item{
+		ID:          dbID,
+		WorkspaceID: wsID,
+		DisplayName: "direct_db",
+		Type:        "SQLDatabase",
+	})
+	srv.UpsertItem(fabricmock.Item{
+		ID:          dbID2,
+		WorkspaceID: wsID,
+		DisplayName: "direct_db_2",
+		Type:        "SQLDatabase",
+	})
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
+resource "fabricext_sql_database_permission" "direct" {
+  workspace_id      = %q
+  sql_database_id   = %q
+  principal_id      = %q
+  role_type         = "read_data"
+}
+`, wsID, dbID, principalID),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("fabricext_sql_database_permission.direct", "id", wsID+"/"+dbID+"/Group/"+principalID),
+					resource.TestCheckResourceAttr("fabricext_sql_database_permission.direct", "sql_database_id", dbID),
+					resource.TestCheckResourceAttr("fabricext_sql_database_permission.direct", "sql_database_name", "direct_db"),
+					resource.TestCheckResourceAttr("fabricext_sql_database_permission.direct", "principal_type", "Group"),
+					resource.TestCheckResourceAttr("fabricext_sql_database_permission.direct", "role_type", "read_data"),
+				),
+			},
+			{
+				ResourceName:      "fabricext_sql_database_permission.direct",
+				ImportState:       true,
+				ImportStateVerify: true,
+			},
+			// Step 3: Replace resource by switching to sql_database_name only (clears sql_database_id in plan)
+			{
+				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
+resource "fabricext_sql_database_permission" "direct" {
+  workspace_id      = %q
+  sql_database_name = "direct_db_2"
+  principal_id      = %q
+  role_type         = "read_data"
+}
+`, wsID, principalID),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("fabricext_sql_database_permission.direct", "id", wsID+"/"+dbID2+"/Group/"+principalID),
+					resource.TestCheckResourceAttr("fabricext_sql_database_permission.direct", "sql_database_id", dbID2),
+					resource.TestCheckResourceAttr("fabricext_sql_database_permission.direct", "sql_database_name", "direct_db_2"),
+				),
+			},
+			// Step 4: Replace resource by changing sql_database_name (ensures counterpart ID is re-resolved)
+			{
+				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
+resource "fabricext_sql_database_permission" "direct" {
+  workspace_id      = %q
+  sql_database_name = "direct_db"
+  principal_id      = %q
+  role_type         = "read_data"
+}
+`, wsID, principalID),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("fabricext_sql_database_permission.direct", "id", wsID+"/"+dbID+"/Group/"+principalID),
+					resource.TestCheckResourceAttr("fabricext_sql_database_permission.direct", "sql_database_id", dbID),
+					resource.TestCheckResourceAttr("fabricext_sql_database_permission.direct", "sql_database_name", "direct_db"),
+				),
+			},
+		},
+	})
+}
+
+func TestAccSQLDatabasePermissionResource_MismatchedIdentifiers(t *testing.T) {
+	t.Parallel()
+
+	srv := fabricmock.NewServer(t)
+	wsID := "11111111-1111-1111-1111-111111111111"
+	dbID := "22222222-2222-2222-2222-222222222222"
+	principalID := "33333333-3333-3333-3333-333333333333"
+
+	srv.UpsertItem(fabricmock.Item{
+		ID:          dbID,
+		WorkspaceID: wsID,
+		DisplayName: "correct_db_name",
+		Type:        "SQLDatabase",
+	})
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
+resource "fabricext_sql_database_permission" "mismatch" {
+  workspace_id      = %q
+  sql_database_id   = %q
+  sql_database_name = "wrong_db_name"
+  principal_id      = %q
+  role_type         = "read_data"
+}
+`, wsID, dbID, principalID),
+				ExpectError: regexp.MustCompile(`Conflicting SQL Database Identifiers`),
+			},
+		},
+	})
+}

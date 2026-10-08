@@ -24,16 +24,18 @@ resource "fabricext_sql_database_permission" "example" {
 
 ## Schema, Plan Modifiers & Validators
 
-- `workspace_id`, `sql_database_name`, `principal_id`, and `principal_type` carry `RequiresReplace()` plan modifiers; `id` and `sql_database_id` carry `UseStateForUnknown()`
+- `workspace_id`, `sql_database_name`, `sql_database_id`, `principal_id`, and `principal_type` carry `RequiresReplace()` plan modifiers; `id`, `sql_database_name`, and `sql_database_id` carry `UseStateForUnknown()`
   `[@test] ../internal/provider/sql_database_permission_resource_test.go::TestAccSQLDatabasePermissionResource_CRUDDowngradeAndImport`
-- `role_type` validates `OneOf("read", "read_data", "read_spark", "write", "reshare")` mapping to Fabric SQL Database permissions (`["Read"]`, `["Read", "ReadData"]`, `["Read", "ReadAll", "SubscribeOneLakeEvents"]`, `["Read", "Write"]`, `["Read", "Reshare"]`)
+- `sql_database_name` and `sql_database_id` are optional attributes where at least one must be specified; if `sql_database_id` is supplied, `sql_database_name` is resolved automatically via `GetItemByID`, and if `sql_database_name` is supplied, `sql_database_id` is resolved via `GetItemByName`; if both are configured, `Create` validates that `sql_database_name` matches the fetched display name; on replacement, `ModifyPlan` clears the unconfigured counterpart so stale state values from `UseStateForUnknown` do not cause replacement failures
+  `[@test] ../internal/provider/sql_database_permission_resource_test.go::TestAccSQLDatabasePermissionResource_MismatchedIdentifiers`
+- `workspace_id`, `sql_database_id`, and `principal_id` validate UUID format at plan time; `role_type` validates `OneOf("read", "read_data", "read_spark", "write", "reshare")` mapping to Fabric SQL Database permissions (`["Read"]`, `["Read", "ReadData"]`, `["Read", "ReadAll", "SubscribeOneLakeEvents"]`, `["Read", "Write"]`, `["Read", "Reshare"]`)
   `[@test] ../internal/provider/sql_database_permission_resource_test.go::TestAccSQLDatabasePermissionResource_ValidationErrors`
 
 ## CRUD Lifecycle, Downgrade Revocation, Disappears & ImportState
 
-- `Create` resolves `sql_database_name` to `sql_database_id` (`itemType: "SQLDatabase"`), grants the mapped permissions, and sets composite `id = "{workspace_id}/{sql_database_id}/{principal_type}/{principal_id}"`
+- `Create` resolves `sql_database_name` to `sql_database_id` (or verifies `sql_database_id`), grants the mapped permissions, and sets composite `id = "{workspace_id}/{sql_database_id}/{principal_type}/{principal_id}"`
   `[@test] ../internal/provider/sql_database_permission_resource_test.go::TestAccSQLDatabasePermissionResource_CRUDDowngradeAndImport`
-- `Update` revokes removed permissions before granting target permissions on role changes (e.g. `"read_spark"` $\rightarrow$ `"read"` or `"write"` $\rightarrow$ `"read_data"`)
+- `Update` revokes removed permissions before granting target permissions on role changes (e.g. `"read_spark"` $\rightarrow$ `"read"` or `"write"` $\rightarrow$ `"read_data"`) so downgrades never leave excess privileges
   `[@test] ../internal/provider/sql_database_permission_resource_test.go::TestAccSQLDatabasePermissionResource_CRUDDowngradeAndImport`
 - `Read` calls `resp.State.RemoveResource(ctx)` if the SQL Database or principal permission is deleted out-of-band
   `[@test] ../internal/provider/sql_database_permission_resource_test.go::TestAccSQLDatabasePermissionResource_Disappears`

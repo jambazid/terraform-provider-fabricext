@@ -14,13 +14,13 @@ This module flattens and declaratively provisions workspace-wide item permission
 > **Workspace Role Prerequisites**: The executing identity (user, service principal, or managed identity) must have **Admin** or **Member** permissions on the target Microsoft Fabric workspace to manage item-level permissions and OneLake Data Access Roles. Principals with only **Contributor** or **Viewer** workspace roles cannot grant or revoke item permissions.
 
 > [!NOTE]
-> **Lakehouse Member Type Uniformity**: Microsoft Fabric OneLake Data Access Roles require uniform `principal_type` per role resource. When assigning access to mixed principal types (e.g. both users and service principals) for the same role, assign them via an Entra ID security `Group`.
+> **Simple Mode vs. Advanced Mode Member Types**: In simple mode (`principal_ids`), Microsoft Fabric OneLake Data Access Roles apply a single uniform `principal_type` (`Group`, `User`, or `ServicePrincipal`). In advanced mode (`entra_members`), heterogeneous principal types (Users, Groups, ServicePrincipals, and ManagedIdentities) and cross-item shortcut members (`fabric_item_members`) can be freely combined within the same role.
 
 ## Usage
 
 ```hcl
 module "workspace_permissions" {
-  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=v0.1.5"
+  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=v0.2.0"
 
   fabric_permissions_matrix = {
     workspace_id = "00000000-0000-0000-0000-000000000001"
@@ -74,7 +74,7 @@ module "workspace_permissions" {
 | Name | Version |
 | :--- | :--- |
 | terraform | `>= 1.6.0` |
-| fabricext | `>= 0.1.0` |
+| fabricext | `>= 0.2.0` |
 
 ## Inputs
 

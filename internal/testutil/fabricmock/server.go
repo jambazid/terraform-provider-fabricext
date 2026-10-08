@@ -68,10 +68,31 @@ type PermissionScope struct {
 	AttributeValueIncludedIn []string `json:"attributeValueIncludedIn"`
 }
 
-// DecisionRule defines the effect and permission scopes of a OneLake Data Access Role.
+// ColumnConstraint defines a column-level security constraint (CLS) applied to a table.
+type ColumnConstraint struct {
+	TablePath    string   `json:"tablePath"`
+	ColumnNames  []string `json:"columnNames"`
+	ColumnAction []string `json:"columnAction"`
+	ColumnEffect string   `json:"columnEffect"`
+}
+
+// RowConstraint defines a row-level security predicate (RLS) applied to a table.
+type RowConstraint struct {
+	TablePath string `json:"tablePath"`
+	Value     string `json:"value"`
+}
+
+// Constraints defines row-level and column-level security constraints applied to tables.
+type Constraints struct {
+	Columns []ColumnConstraint `json:"columns,omitempty"`
+	Rows    []RowConstraint    `json:"rows,omitempty"`
+}
+
+// DecisionRule defines the effect, permission scopes, and optional constraints of a OneLake Data Access Role.
 type DecisionRule struct {
-	Effect     string            `json:"effect,omitempty"`
-	Permission []PermissionScope `json:"permission"`
+	Effect      string            `json:"effect,omitempty"`
+	Permission  []PermissionScope `json:"permission"`
+	Constraints *Constraints      `json:"constraints,omitempty"`
 }
 
 // FabricItemMember defines workspace item-access inheritance for a Data Access Role.
