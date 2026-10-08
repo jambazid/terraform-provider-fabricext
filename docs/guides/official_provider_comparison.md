@@ -5,7 +5,7 @@ description: |-
   Comparative architecture analysis between Microsoft's official Terraform provider (microsoft/fabric) and the jambazid/fabricext item-sharing stopgap provider, including dual-provider coexistence and Terraform 1.7+ state migration playbooks for Lakehouses, Warehouses, and SQL Databases.
 ---
 
-# Official Fabric Provider Comparison & Migration Guide
+# Official Fabric Provider Comparison
 
 Comparative architecture analysis between Microsoft's official Terraform provider ([`microsoft/terraform-provider-fabric`](https://github.com/microsoft/terraform-provider-fabric), `registry.terraform.io/microsoft/fabric`) and this stopgap item-sharing provider (`registry.terraform.io/jambazid/fabricext`).
 
@@ -71,7 +71,7 @@ Terraform (jambazid/fabricext)                     Fabric REST API (/permissions
 | **Read-Back `objectType` Bug ([Issue #1044](https://github.com/microsoft/terraform-provider-fabric/issues/1044))** | Fails with `Provider produced inconsistent result after apply` when the Fabric `GET /dataAccessRoles` API omits `objectType` in `microsoftEntraMembers`. | Preserves `state.PrincipalType` when the API response omits `objectType` on read-back (`internal/provider/lakehouse_permission_resource.go`). |
 | **Import ID Format** | `{workspace_id}/{item_id}/{role_name}` | `{workspace_id}/{lakehouse_id}/{role_name}` (100% compatible). |
 
-#### Disentangling OneLake Data Access Roles vs. Lakehouse Item Sharing
+#### OneLake Roles vs Item Sharing
 
 Practitioners sometimes conflate Fabric item-level sharing with OneLake Data Access Roles:
 

@@ -12,7 +12,7 @@ description: |-
 
 ## Example Usage
 
-### Default (Automatic Entra ID Credential Chain)
+### Automatic Credential Chain
 
 {{ tffile "examples/provider/provider.tf" }}
 
@@ -32,7 +32,7 @@ description: |-
 
 {{ tffile "examples/provider/service_principal_certificate.tf" }}
 
-### Workload Identity Federation (GitHub Actions OIDC)
+### Workload Identity Federation
 
 {{ tffile "examples/provider/service_principal_oidc.tf" }}
 
@@ -63,11 +63,11 @@ The provider implements the complete Microsoft Entra ID authentication credentia
 | Priority | Credential Source | Configuration Attributes / Environment Variables | Guide |
 | :--- | :--- | :--- | :--- |
 | **1** | **Static Access Token** | `access_token` attribute or `FABRIC_ACCESS_TOKEN` | *Testing / Pre-minted* |
-| **2** | **Client Certificate** | `client_certificate`, `client_certificate_file_path`, `client_certificate_password` or `FABRIC_CLIENT_CERTIFICATE_*` | [Guide](https://registry.terraform.io/providers/jambazid/fabricext/latest/docs/guides/auth_spn_cert) |
-| **3** | **Client Secret** | `client_id`, `client_secret`, `tenant_id` (plus `*_file_path` variants) or `FABRIC_*` / `AZURE_*` / `ARM_*` | [Guide](https://registry.terraform.io/providers/jambazid/fabricext/latest/docs/guides/auth_spn_secret) |
-| **4** | **Azure DevOps OIDC** | `azure_devops_service_connection_id`, `oidc_request_token` or `SYSTEM_ACCESSTOKEN` | [Guide](https://registry.terraform.io/providers/jambazid/fabricext/latest/docs/guides/auth_azure_devops) |
-| **5** | **Workload Identity (OIDC)** | `use_oidc = true`, `oidc_token`, `oidc_token_file_path` or `AZURE_FEDERATED_TOKEN_FILE` | [Guide](https://registry.terraform.io/providers/jambazid/fabricext/latest/docs/guides/auth_spn_oidc) |
-| **6** | **Managed Identity (MSI)** | `use_msi = true`, optional `client_id` for User-Assigned MSI or `FABRIC_USE_MSI` | [Guide](https://registry.terraform.io/providers/jambazid/fabricext/latest/docs/guides/auth_msi) |
+| **2** | **Client Certificate** | `client_certificate`, `client_certificate_file_path`, `client_certificate_password` or `FABRIC_CLIENT_CERTIFICATE_*` | [Guide](guides/auth_spn_cert.md) |
+| **3** | **Client Secret** | `client_id`, `client_secret`, `tenant_id` (plus `*_file_path` variants) or `FABRIC_*` / `AZURE_*` / `ARM_*` | [Guide](guides/auth_spn_secret.md) |
+| **4** | **Azure DevOps OIDC** | `azure_devops_service_connection_id`, `oidc_request_token` or `SYSTEM_ACCESSTOKEN` | [Guide](guides/auth_azure_devops.md) |
+| **5** | **Workload Identity (OIDC)** | `use_oidc = true`, `oidc_token`, `oidc_token_file_path` or `AZURE_FEDERATED_TOKEN_FILE` | [Guide](guides/auth_spn_oidc.md) |
+| **6** | **Managed Identity (MSI)** | `use_msi = true`, optional `client_id` for User-Assigned MSI or `FABRIC_USE_MSI` | [Guide](guides/auth_msi.md) |
 | **7** | **Azure Developer CLI** | `use_dev_cli = true` or `FABRIC_USE_DEV_CLI=true` | *Local `azd`* |
 | **8** | **Azure CLI (`az login`)** | `use_cli = true` (default) or `FABRIC_USE_CLI` | *Interactive `az`* |
 
@@ -83,7 +83,7 @@ The provider implements the complete Microsoft Entra ID authentication credentia
 
 ~> **Important:** **Workspace Role Prerequisites**: The executing identity (user, service principal, or managed identity) must have **Admin** or **Member** permissions on the target Microsoft Fabric workspace to manage item-level permissions and OneLake Data Access Roles. Principals with only **Contributor** or **Viewer** workspace roles cannot grant or revoke item permissions.
 
-Following HashiCorp Provider Design Principles, each `fabricext_*` resource manages a single atomic permission binding or OneLake role. Keying `for_each` by `{item_name}/{principal_type}/{principal_id}` (omitting `role_type` from the map key) ensures role upgrades and downgrades execute in-place without recreate races. You can declaratively manage an entire workspace's permissions matrix either with **Zero-Module Native HCL (`for_each`)** or with the in-repo **`modules/permissions`** wrapper module:
+Following HashiCorp Provider Design Principles, each `fabricext_*` resource manages a single atomic permission binding or OneLake role. Keying `for_each` by `{item_name}/{principal_type}/{principal_id}` (omitting `role_type` from the map key) ensures that role changes update the existing resource in-place rather than causing Terraform to destroy and recreate the permission. You can declaratively manage an entire workspace's permissions matrix either with **Zero-Module Native HCL (`for_each`)** or with the in-repo **`modules/permissions`** wrapper module:
 
 ```hcl
 locals {
@@ -110,7 +110,7 @@ resource "fabricext_warehouse_permission" "grants" {
 }
 ```
 
-### Using the Reusable Permissions Module (`modules/permissions`)
+### Reusable Permissions Module
 
 You can also use the in-repo companion HCL module to flatten matrices across Warehouses, SQL Databases, and Lakehouses in one place:
 
@@ -137,20 +137,20 @@ module "workspace_permissions" {
 
 *(Note: In local or monorepo development checkouts, you can also use `source = "./modules/permissions"`).*
 
-~> **Note:** **Lakehouse Member Type Uniformity**: Microsoft Fabric OneLake Data Access Roles require uniform `principal_type` per role resource. When assigning access to mixed principal types (e.g. both users and service principals) for the same role, assign them via an Entra ID security `Group`.
+~> **Note:** **Lakehouse Member Type Uniformity**: In simple mode (`principal_ids`), Microsoft Fabric OneLake Data Access Roles require uniform `principal_type` per role resource. In advanced mode (`entra_member` blocks), heterogeneous member types (Users, Groups, Service Principals, and Managed Identities) are natively supported on the same role.
 
 ## Use Cases & Security Architecture
 
 For detailed architectural deep dives on enterprise security perimeters, schema isolation, and cross-engine identity flows, refer to the **Use Cases** guides:
 
-- **[Use Cases Overview](https://registry.terraform.io/providers/jambazid/fabricext/latest/docs/guides/use_case_overview)**: Master comparison matrix and 5-layer perimeter overview.
-- **[Security Controls & Interactions](https://registry.terraform.io/providers/jambazid/fabricext/latest/docs/guides/use_case_controls_and_interactions)**: Controls inventory, evaluation precedence, and conflict resolution rules.
-- **[Warehouse Schema Isolation & Declarative RBAC](https://registry.terraform.io/providers/jambazid/fabricext/latest/docs/guides/use_case_warehouse_schema_isolation)**: Granular schema isolation via `role_type = "read"` and T-SQL, Microsoft Entra ID Display Name resolution, and declarative schema-as-code integration.
-- **[Lakehouse OneLake Security](https://registry.terraform.io/providers/jambazid/fabricext/latest/docs/guides/use_case_lakehouse_onelake_security)**: OneLake Data Access Roles, path filters, storage RLS/CLS, and shortcut delegation.
-- **[Power BI Identity Flow](https://registry.terraform.io/providers/jambazid/fabricext/latest/docs/guides/use_case_powerbi_identity_propagation)**: DirectQuery TDS vs Direct Lake Parquet SSO identity propagation.
+- **[Use Cases Overview](guides/use_case_overview.md)**: Master comparison matrix and 6-tier perimeter overview.
+- **[Security Controls & Interactions](guides/use_case_controls_and_interactions.md)**: Controls inventory, evaluation precedence, and conflict resolution rules.
+- **[Warehouse Schema Isolation](guides/use_case_warehouse_schema_isolation.md)**: Granular schema isolation via `role_type = "read"` and T-SQL, Microsoft Entra ID Display Name resolution, and declarative schema-as-code integration.
+- **[Lakehouse OneLake Security](guides/use_case_lakehouse_onelake_security.md)**: OneLake Data Access Roles, path filters, storage RLS/CLS, and shortcut delegation.
+- **[Power BI Identity Flow](guides/use_case_powerbi_identity_propagation.md)**: DirectQuery TDS vs Direct Lake Parquet SSO identity propagation.
 
 ## Migration & Official Provider Coexistence
 
-For detailed architectural trade-offs, state migration instructions, and resource mapping between `fabricext` and `microsoft/fabric`, see the [Official Provider Comparison & Migration Guide](https://registry.terraform.io/providers/jambazid/fabricext/latest/docs/guides/official_provider_comparison).
+For detailed architectural trade-offs, state migration instructions, and resource mapping between `fabricext` and `microsoft/fabric`, see the [Official Provider Comparison Guide](guides/official_provider_comparison.md).
 
 {{ .SchemaMarkdown | trimspace }}

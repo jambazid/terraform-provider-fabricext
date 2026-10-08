@@ -12,17 +12,7 @@ This guide explains how to authenticate the `fabricext` provider using Azure Man
 ## System-Assigned Managed Identity
 
 ```terraform
-terraform {
-  required_version = ">= 1.6.0"
-  required_providers {
-    fabricext = {
-      source  = "jambazid/fabricext"
-      version = "~> 0.2.0"
-    }
-  }
-}
-
-# Authenticate using a System-Assigned Managed Identity (MSI) on Azure VMs, Container Apps, or Azure DevOps agents.
+# Authenticate using an Azure System-Assigned Managed Identity.
 provider "fabricext" {
   use_msi = true
 }
@@ -37,25 +27,10 @@ export FABRIC_USE_MSI="true"
 ## User-Assigned Managed Identity
 
 ```terraform
-terraform {
-  required_version = ">= 1.6.0"
-  required_providers {
-    fabricext = {
-      source  = "jambazid/fabricext"
-      version = "~> 0.2.0"
-    }
-  }
-}
-
-# Authenticate using a User-Assigned Managed Identity (MSI) specifying its Client ID.
+# Authenticate using an Azure User-Assigned Managed Identity.
 provider "fabricext" {
   use_msi   = true
-  client_id = var.managed_identity_client_id
-}
-
-variable "managed_identity_client_id" {
-  type        = string
-  description = "Client (Application) ID of the User-Assigned Managed Identity."
+  client_id = "00000000-0000-0000-0000-000000000001" # Client ID of the User-Assigned MSI
 }
 ```
 

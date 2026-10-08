@@ -12,7 +12,7 @@ The **Fabric Extensions (fabricext)** provider (`registry.terraform.io/jambazid/
 
 ## Example Usage
 
-### Default (Automatic Entra ID Credential Chain)
+### Automatic Credential Chain
 
 ```terraform
 terraform {
@@ -33,16 +33,6 @@ provider "fabricext" {}
 ### Azure CLI (Default Interactive)
 
 ```terraform
-terraform {
-  required_version = ">= 1.6.0"
-  required_providers {
-    fabricext = {
-      source  = "jambazid/fabricext"
-      version = "~> 0.2.0"
-    }
-  }
-}
-
 # Authenticate using an interactive Azure CLI session (`az login`).
 # The provider automatically uses credentials from the active az CLI session.
 provider "fabricext" {
@@ -56,156 +46,50 @@ provider "fabricext" {
 ### Azure Developer CLI (`azd`)
 
 ```terraform
-terraform {
-  required_version = ">= 1.6.0"
-  required_providers {
-    fabricext = {
-      source  = "jambazid/fabricext"
-      version = "~> 0.2.0"
-    }
-  }
-}
-
-# Authenticate using the Azure Developer CLI (`azd auth login`).
+# Authenticate using Azure Developer CLI (`azd auth login`).
 provider "fabricext" {
   use_dev_cli = true
-
-  # Optional tenant ID
-  # tenant_id = "00000000-0000-0000-0000-000000000000"
 }
 ```
 
 ### Service Principal with Client Secret
 
 ```terraform
-terraform {
-  required_version = ">= 1.6.0"
-  required_providers {
-    fabricext = {
-      source  = "jambazid/fabricext"
-      version = "~> 0.2.0"
-    }
-  }
-}
-
-# Authenticate using a Microsoft Entra ID Service Principal with a Client Secret.
-# We recommend passing sensitive values via environment variables:
-# FABRIC_TENANT_ID, FABRIC_CLIENT_ID, and FABRIC_CLIENT_SECRET.
+# Authenticate using a Microsoft Entra Service Principal with a Client Secret.
 provider "fabricext" {
-  tenant_id     = var.tenant_id
-  client_id     = var.client_id
-  client_secret = var.client_secret
-}
-
-variable "tenant_id" {
-  type        = string
-  description = "Microsoft Entra ID tenant UUID."
-}
-
-variable "client_id" {
-  type        = string
-  description = "Microsoft Entra ID Service Principal application (client) UUID."
-}
-
-variable "client_secret" {
-  type        = string
-  sensitive   = true
-  description = "Microsoft Entra ID Service Principal client secret."
+  client_id     = "00000000-0000-0000-0000-000000000001"
+  client_secret = "your-client-secret-here"
+  tenant_id     = "00000000-0000-0000-0000-000000000000"
 }
 ```
 
 ### Service Principal with Client Certificate
 
 ```terraform
-terraform {
-  required_version = ">= 1.6.0"
-  required_providers {
-    fabricext = {
-      source  = "jambazid/fabricext"
-      version = "~> 0.2.0"
-    }
-  }
-}
-
-# Authenticate using a Microsoft Entra ID Service Principal with a Client Certificate (.pfx / .p12).
-# Supports base64-encoded certificate strings or filesystem paths.
+# Authenticate using a Microsoft Entra Service Principal with a Client Certificate (PKCS#12 / PFX).
 provider "fabricext" {
-  tenant_id                    = var.tenant_id
-  client_id                    = var.client_id
+  client_id                    = "00000000-0000-0000-0000-000000000001"
+  tenant_id                    = "00000000-0000-0000-0000-000000000000"
   client_certificate_file_path = "/path/to/certificate.pfx"
-  client_certificate_password  = var.client_certificate_password
-
-  # Alternatively, pass base64 encoded certificate data directly:
-  # client_certificate = var.client_certificate_base64
-}
-
-variable "tenant_id" {
-  type        = string
-  description = "Microsoft Entra ID tenant UUID."
-}
-
-variable "client_id" {
-  type        = string
-  description = "Microsoft Entra ID Service Principal application (client) UUID."
-}
-
-variable "client_certificate_password" {
-  type        = string
-  sensitive   = true
-  description = "Password protecting the PKCS#12 certificate file."
+  client_certificate_password  = "cert-password"
 }
 ```
 
-### Workload Identity Federation (GitHub Actions OIDC)
+### Workload Identity Federation
 
 ```terraform
-terraform {
-  required_version = ">= 1.6.0"
-  required_providers {
-    fabricext = {
-      source  = "jambazid/fabricext"
-      version = "~> 0.2.0"
-    }
-  }
-}
-
-# Authenticate using Workload Identity Federation (OpenID Connect / OIDC) in CI/CD (e.g. GitHub Actions).
-# When using azure/login in GitHub Actions, the provider can resolve credentials automatically via
-# AZURE_FEDERATED_TOKEN_FILE or through explicit attributes:
+# Authenticate using Workload Identity Federation (OIDC) in CI/CD (e.g., GitHub Actions).
 provider "fabricext" {
+  client_id = "00000000-0000-0000-0000-000000000001"
+  tenant_id = "00000000-0000-0000-0000-000000000000"
   use_oidc  = true
-  tenant_id = var.tenant_id
-  client_id = var.client_id
-
-  # Explicit OIDC token or file path if not relying on AZURE_FEDERATED_TOKEN_FILE:
-  # oidc_token = var.oidc_jwt_token
-}
-
-variable "tenant_id" {
-  type        = string
-  description = "Microsoft Entra ID tenant UUID."
-}
-
-variable "client_id" {
-  type        = string
-  description = "Microsoft Entra ID Service Principal application (client) UUID."
 }
 ```
 
 ### Managed Identity (System-Assigned)
 
 ```terraform
-terraform {
-  required_version = ">= 1.6.0"
-  required_providers {
-    fabricext = {
-      source  = "jambazid/fabricext"
-      version = "~> 0.2.0"
-    }
-  }
-}
-
-# Authenticate using a System-Assigned Managed Identity (MSI) on Azure VMs, Container Apps, or Azure DevOps agents.
+# Authenticate using an Azure System-Assigned Managed Identity.
 provider "fabricext" {
   use_msi = true
 }
@@ -214,71 +98,21 @@ provider "fabricext" {
 ### Managed Identity (User-Assigned)
 
 ```terraform
-terraform {
-  required_version = ">= 1.6.0"
-  required_providers {
-    fabricext = {
-      source  = "jambazid/fabricext"
-      version = "~> 0.2.0"
-    }
-  }
-}
-
-# Authenticate using a User-Assigned Managed Identity (MSI) specifying its Client ID.
+# Authenticate using an Azure User-Assigned Managed Identity.
 provider "fabricext" {
   use_msi   = true
-  client_id = var.managed_identity_client_id
-}
-
-variable "managed_identity_client_id" {
-  type        = string
-  description = "Client (Application) ID of the User-Assigned Managed Identity."
+  client_id = "00000000-0000-0000-0000-000000000001" # Client ID of the User-Assigned MSI
 }
 ```
 
 ### Azure DevOps Workload Identity Federation
 
 ```terraform
-terraform {
-  required_version = ">= 1.6.0"
-  required_providers {
-    fabricext = {
-      source  = "jambazid/fabricext"
-      version = "~> 0.2.0"
-    }
-  }
-}
-
-# Authenticate using Azure DevOps Workload Identity Federation in Azure Pipelines.
-# In an Azure Pipelines task, SYSTEM_ACCESSTOKEN and service connection ID can be passed:
+# Authenticate using Azure DevOps Workload Identity Federation (Service Connection OIDC).
 provider "fabricext" {
-  tenant_id                          = var.tenant_id
-  client_id                          = var.client_id
-  azure_devops_service_connection_id = var.azure_devops_service_connection_id
-  oidc_request_token                 = var.system_access_token
-
-  # Or allow the provider to automatically read FABRIC_AZURE_DEVOPS_SERVICE_CONNECTION_ID and SYSTEM_ACCESSTOKEN from the environment.
-}
-
-variable "tenant_id" {
-  type        = string
-  description = "Microsoft Entra ID tenant UUID."
-}
-
-variable "client_id" {
-  type        = string
-  description = "Microsoft Entra ID Service Principal application (client) UUID."
-}
-
-variable "azure_devops_service_connection_id" {
-  type        = string
-  description = "The Azure DevOps Service Connection ID using Workload Identity Federation."
-}
-
-variable "system_access_token" {
-  type        = string
-  sensitive   = true
-  description = "The $(System.AccessToken) provided by Azure Pipelines."
+  client_id                          = "00000000-0000-0000-0000-000000000001"
+  tenant_id                          = "00000000-0000-0000-0000-000000000000"
+  azure_devops_service_connection_id = "00000000-0000-0000-0000-000000000002"
 }
 ```
 
@@ -333,24 +167,10 @@ variable "analysts_group_id" {
 ### Sovereign Cloud Environments
 
 ```terraform
-terraform {
-  required_version = ">= 1.6.0"
-  required_providers {
-    fabricext = {
-      source  = "jambazid/fabricext"
-      version = "~> 0.2.0"
-    }
-  }
-}
-
-# Authenticate against a sovereign cloud environment (e.g. Azure US Government or China).
-# The provider automatically targets the sovereign endpoint and audience token scope:
-# - usgovernment: https://api.fabric.microsoft.us/.default
-# - china: https://api.fabric.microsoft.cn/.default
+# Configure for Microsoft Azure Government (US Government) or China cloud.
 provider "fabricext" {
-  environment = "usgovernment"
-
-  # Or let the provider read FABRIC_ENVIRONMENT="usgovernment"
+  environment = "usgovernment" # Options: "public" (default), "usgovernment", "china"
+  use_cli     = true
 }
 ```
 
@@ -361,11 +181,11 @@ The provider implements the complete Microsoft Entra ID authentication credentia
 | Priority | Credential Source | Configuration Attributes / Environment Variables | Guide |
 | :--- | :--- | :--- | :--- |
 | **1** | **Static Access Token** | `access_token` attribute or `FABRIC_ACCESS_TOKEN` | *Testing / Pre-minted* |
-| **2** | **Client Certificate** | `client_certificate`, `client_certificate_file_path`, `client_certificate_password` or `FABRIC_CLIENT_CERTIFICATE_*` | [Guide](https://registry.terraform.io/providers/jambazid/fabricext/latest/docs/guides/auth_spn_cert) |
-| **3** | **Client Secret** | `client_id`, `client_secret`, `tenant_id` (plus `*_file_path` variants) or `FABRIC_*` / `AZURE_*` / `ARM_*` | [Guide](https://registry.terraform.io/providers/jambazid/fabricext/latest/docs/guides/auth_spn_secret) |
-| **4** | **Azure DevOps OIDC** | `azure_devops_service_connection_id`, `oidc_request_token` or `SYSTEM_ACCESSTOKEN` | [Guide](https://registry.terraform.io/providers/jambazid/fabricext/latest/docs/guides/auth_azure_devops) |
-| **5** | **Workload Identity (OIDC)** | `use_oidc = true`, `oidc_token`, `oidc_token_file_path` or `AZURE_FEDERATED_TOKEN_FILE` | [Guide](https://registry.terraform.io/providers/jambazid/fabricext/latest/docs/guides/auth_spn_oidc) |
-| **6** | **Managed Identity (MSI)** | `use_msi = true`, optional `client_id` for User-Assigned MSI or `FABRIC_USE_MSI` | [Guide](https://registry.terraform.io/providers/jambazid/fabricext/latest/docs/guides/auth_msi) |
+| **2** | **Client Certificate** | `client_certificate`, `client_certificate_file_path`, `client_certificate_password` or `FABRIC_CLIENT_CERTIFICATE_*` | [Guide](guides/auth_spn_cert.md) |
+| **3** | **Client Secret** | `client_id`, `client_secret`, `tenant_id` (plus `*_file_path` variants) or `FABRIC_*` / `AZURE_*` / `ARM_*` | [Guide](guides/auth_spn_secret.md) |
+| **4** | **Azure DevOps OIDC** | `azure_devops_service_connection_id`, `oidc_request_token` or `SYSTEM_ACCESSTOKEN` | [Guide](guides/auth_azure_devops.md) |
+| **5** | **Workload Identity (OIDC)** | `use_oidc = true`, `oidc_token`, `oidc_token_file_path` or `AZURE_FEDERATED_TOKEN_FILE` | [Guide](guides/auth_spn_oidc.md) |
+| **6** | **Managed Identity (MSI)** | `use_msi = true`, optional `client_id` for User-Assigned MSI or `FABRIC_USE_MSI` | [Guide](guides/auth_msi.md) |
 | **7** | **Azure Developer CLI** | `use_dev_cli = true` or `FABRIC_USE_DEV_CLI=true` | *Local `azd`* |
 | **8** | **Azure CLI (`az login`)** | `use_cli = true` (default) or `FABRIC_USE_CLI` | *Interactive `az`* |
 
@@ -381,7 +201,7 @@ The provider implements the complete Microsoft Entra ID authentication credentia
 
 ~> **Important:** **Workspace Role Prerequisites**: The executing identity (user, service principal, or managed identity) must have **Admin** or **Member** permissions on the target Microsoft Fabric workspace to manage item-level permissions and OneLake Data Access Roles. Principals with only **Contributor** or **Viewer** workspace roles cannot grant or revoke item permissions.
 
-Following HashiCorp Provider Design Principles, each `fabricext_*` resource manages a single atomic permission binding or OneLake role. Keying `for_each` by `{item_name}/{principal_type}/{principal_id}` (omitting `role_type` from the map key) ensures role upgrades and downgrades execute in-place without recreate races. You can declaratively manage an entire workspace's permissions matrix either with **Zero-Module Native HCL (`for_each`)** or with the in-repo **`modules/permissions`** wrapper module:
+Following HashiCorp Provider Design Principles, each `fabricext_*` resource manages a single atomic permission binding or OneLake role. Keying `for_each` by `{item_name}/{principal_type}/{principal_id}` (omitting `role_type` from the map key) ensures that role changes update the existing resource in-place rather than causing Terraform to destroy and recreate the permission. You can declaratively manage an entire workspace's permissions matrix either with **Zero-Module Native HCL (`for_each`)** or with the in-repo **`modules/permissions`** wrapper module:
 
 ```hcl
 locals {
@@ -408,7 +228,7 @@ resource "fabricext_warehouse_permission" "grants" {
 }
 ```
 
-### Using the Reusable Permissions Module (`modules/permissions`)
+### Reusable Permissions Module
 
 You can also use the in-repo companion HCL module to flatten matrices across Warehouses, SQL Databases, and Lakehouses in one place:
 
@@ -435,21 +255,21 @@ module "workspace_permissions" {
 
 *(Note: In local or monorepo development checkouts, you can also use `source = "./modules/permissions"`).*
 
-~> **Note:** **Lakehouse Member Type Uniformity**: Microsoft Fabric OneLake Data Access Roles require uniform `principal_type` per role resource. When assigning access to mixed principal types (e.g. both users and service principals) for the same role, assign them via an Entra ID security `Group`.
+~> **Note:** **Lakehouse Member Type Uniformity**: In simple mode (`principal_ids`), Microsoft Fabric OneLake Data Access Roles require uniform `principal_type` per role resource. In advanced mode (`entra_member` blocks), heterogeneous member types (Users, Groups, Service Principals, and Managed Identities) are natively supported on the same role.
 
 ## Use Cases & Security Architecture
 
 For detailed architectural deep dives on enterprise security perimeters, schema isolation, and cross-engine identity flows, refer to the **Use Cases** guides:
 
-- **[Use Cases Overview](https://registry.terraform.io/providers/jambazid/fabricext/latest/docs/guides/use_case_overview)**: Master comparison matrix and 5-layer perimeter overview.
-- **[Security Controls & Interactions](https://registry.terraform.io/providers/jambazid/fabricext/latest/docs/guides/use_case_controls_and_interactions)**: Controls inventory, evaluation precedence, and conflict resolution rules.
-- **[Warehouse Schema Isolation & Declarative RBAC](https://registry.terraform.io/providers/jambazid/fabricext/latest/docs/guides/use_case_warehouse_schema_isolation)**: Granular schema isolation via `role_type = "read"` and T-SQL, Microsoft Entra ID Display Name resolution, and declarative schema-as-code integration.
-- **[Lakehouse OneLake Security](https://registry.terraform.io/providers/jambazid/fabricext/latest/docs/guides/use_case_lakehouse_onelake_security)**: OneLake Data Access Roles, path filters, storage RLS/CLS, and shortcut delegation.
-- **[Power BI Identity Flow](https://registry.terraform.io/providers/jambazid/fabricext/latest/docs/guides/use_case_powerbi_identity_propagation)**: DirectQuery TDS vs Direct Lake Parquet SSO identity propagation.
+- **[Use Cases Overview](guides/use_case_overview.md)**: Master comparison matrix and 6-tier perimeter overview.
+- **[Security Controls & Interactions](guides/use_case_controls_and_interactions.md)**: Controls inventory, evaluation precedence, and conflict resolution rules.
+- **[Warehouse Schema Isolation](guides/use_case_warehouse_schema_isolation.md)**: Granular schema isolation via `role_type = "read"` and T-SQL, Microsoft Entra ID Display Name resolution, and declarative schema-as-code integration.
+- **[Lakehouse OneLake Security](guides/use_case_lakehouse_onelake_security.md)**: OneLake Data Access Roles, path filters, storage RLS/CLS, and shortcut delegation.
+- **[Power BI Identity Flow](guides/use_case_powerbi_identity_propagation.md)**: DirectQuery TDS vs Direct Lake Parquet SSO identity propagation.
 
 ## Migration & Official Provider Coexistence
 
-For detailed architectural trade-offs, state migration instructions, and resource mapping between `fabricext` and `microsoft/fabric`, see the [Official Provider Comparison & Migration Guide](https://registry.terraform.io/providers/jambazid/fabricext/latest/docs/guides/official_provider_comparison).
+For detailed architectural trade-offs, state migration instructions, and resource mapping between `fabricext` and `microsoft/fabric`, see the [Official Provider Comparison Guide](guides/official_provider_comparison.md).
 
 <!-- schema generated by tfplugindocs -->
 ## Schema

@@ -10,11 +10,9 @@ This module flattens and declaratively provisions workspace-wide item permission
 
 ## Prerequisites
 
-> [!IMPORTANT]
-> **Workspace Role Prerequisites**: The executing identity (user, service principal, or managed identity) must have **Admin** or **Member** permissions on the target Microsoft Fabric workspace to manage item-level permissions and OneLake Data Access Roles. Principals with only **Contributor** or **Viewer** workspace roles cannot grant or revoke item permissions.
+~> **Important:** **Workspace Role Prerequisites**: The executing identity (user, service principal, or managed identity) must have **Admin** or **Member** permissions on the target Microsoft Fabric workspace to manage item-level permissions and OneLake Data Access Roles. Principals with only **Contributor** or **Viewer** workspace roles cannot grant or revoke item permissions.
 
-> [!NOTE]
-> **Simple Mode vs. Advanced Mode Member Types**: In simple mode (`principal_ids`), Microsoft Fabric OneLake Data Access Roles apply a single uniform `principal_type` (`Group`, `User`, or `ServicePrincipal`). In advanced mode (`entra_members`), heterogeneous principal types (Users, Groups, ServicePrincipals, and ManagedIdentities) and cross-item shortcut members (`fabric_item_members`) can be freely combined within the same role.
+~> **Note:** **Simple Mode vs. Advanced Mode Member Types**: In simple mode (`principal_ids`), Microsoft Fabric OneLake Data Access Roles apply a single uniform `principal_type` (`Group`, `User`, or `ServicePrincipal`). In advanced mode (`entra_members`), heterogeneous principal types (Users, Groups, ServicePrincipals, and ManagedIdentities) and cross-item shortcut members (`fabric_item_members`) can be freely combined within the same role.
 
 ## Usage
 

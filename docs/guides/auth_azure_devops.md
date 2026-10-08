@@ -5,7 +5,7 @@ description: |-
   How to configure the fabricext provider using Azure DevOps Pipeline Workload Identity Federation with a service connection.
 ---
 
-# Authenticating with Azure DevOps Workload Identity Federation
+# Azure DevOps OIDC Authentication
 
 This guide explains how to authenticate the `fabricext` provider using Azure DevOps Workload Identity Federation with Azure Pipelines.
 
@@ -29,45 +29,10 @@ steps:
 ## Provider Configuration
 
 ```terraform
-terraform {
-  required_version = ">= 1.6.0"
-  required_providers {
-    fabricext = {
-      source  = "jambazid/fabricext"
-      version = "~> 0.2.0"
-    }
-  }
-}
-
-# Authenticate using Azure DevOps Workload Identity Federation in Azure Pipelines.
-# In an Azure Pipelines task, SYSTEM_ACCESSTOKEN and service connection ID can be passed:
+# Authenticate using Azure DevOps Workload Identity Federation (Service Connection OIDC).
 provider "fabricext" {
-  tenant_id                          = var.tenant_id
-  client_id                          = var.client_id
-  azure_devops_service_connection_id = var.azure_devops_service_connection_id
-  oidc_request_token                 = var.system_access_token
-
-  # Or allow the provider to automatically read FABRIC_AZURE_DEVOPS_SERVICE_CONNECTION_ID and SYSTEM_ACCESSTOKEN from the environment.
-}
-
-variable "tenant_id" {
-  type        = string
-  description = "Microsoft Entra ID tenant UUID."
-}
-
-variable "client_id" {
-  type        = string
-  description = "Microsoft Entra ID Service Principal application (client) UUID."
-}
-
-variable "azure_devops_service_connection_id" {
-  type        = string
-  description = "The Azure DevOps Service Connection ID using Workload Identity Federation."
-}
-
-variable "system_access_token" {
-  type        = string
-  sensitive   = true
-  description = "The $(System.AccessToken) provided by Azure Pipelines."
+  client_id                          = "00000000-0000-0000-0000-000000000001"
+  tenant_id                          = "00000000-0000-0000-0000-000000000000"
+  azure_devops_service_connection_id = "00000000-0000-0000-0000-000000000002"
 }
 ```
