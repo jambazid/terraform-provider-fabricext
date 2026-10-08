@@ -356,7 +356,7 @@ provider "fabricext" {
 
 ## Authentication and Credential Chain
 
-The provider implements **100% authentication parity** with Microsoft's official `microsoft/fabric` provider, utilizing Microsoft's official Go authentication SDK (`github.com/Azure/azure-sdk-for-go/sdk/azidentity`). Credentials are evaluated in the following deterministic order:
+The provider implements the complete Microsoft Entra ID authentication credential chain using Microsoft's official Go authentication SDK (`github.com/Azure/azure-sdk-for-go/sdk/azidentity`). Credentials are evaluated in the following deterministic order:
 
 | Priority | Credential Source | Configuration Attributes / Environment Variables | Guide |
 | :--- | :--- | :--- | :--- |
@@ -435,7 +435,17 @@ module "workspace_permissions" {
 
 *(Note: In local or monorepo development checkouts, you can also use `source = "./modules/permissions"`).*
 
--> **Note:** **Lakehouse Member Type Uniformity**: Microsoft Fabric OneLake Data Access Roles require uniform `principal_type` per role resource. When assigning access to mixed principal types (e.g. both users and service principals) for the same role, assign them via an Entra ID security `Group`.
+~> **Note:** **Lakehouse Member Type Uniformity**: Microsoft Fabric OneLake Data Access Roles require uniform `principal_type` per role resource. When assigning access to mixed principal types (e.g. both users and service principals) for the same role, assign them via an Entra ID security `Group`.
+
+## Use Cases & Security Architecture
+
+For detailed architectural deep dives on enterprise security perimeters, schema isolation, and cross-engine identity flows, refer to the **Use Cases** guides:
+
+- **[Use Cases Overview](https://registry.terraform.io/providers/jambazid/fabricext/latest/docs/guides/use_case_overview)**: Master comparison matrix and 5-layer perimeter overview.
+- **[Security Controls & Interactions](https://registry.terraform.io/providers/jambazid/fabricext/latest/docs/guides/use_case_controls_and_interactions)**: Controls inventory, evaluation precedence, and conflict resolution rules.
+- **[Warehouse Schema Isolation & Declarative RBAC](https://registry.terraform.io/providers/jambazid/fabricext/latest/docs/guides/use_case_warehouse_schema_isolation)**: Granular schema isolation via `role_type = "read"` and T-SQL, Microsoft Entra ID Display Name resolution, and declarative schema-as-code integration.
+- **[Lakehouse OneLake Security](https://registry.terraform.io/providers/jambazid/fabricext/latest/docs/guides/use_case_lakehouse_onelake_security)**: OneLake Data Access Roles, path filters, storage RLS/CLS, and shortcut delegation.
+- **[Power BI Identity Flow](https://registry.terraform.io/providers/jambazid/fabricext/latest/docs/guides/use_case_powerbi_identity_propagation)**: DirectQuery TDS vs Direct Lake Parquet SSO identity propagation.
 
 ## Migration & Official Provider Coexistence
 
