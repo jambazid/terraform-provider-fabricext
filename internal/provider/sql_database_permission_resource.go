@@ -207,8 +207,10 @@ func (r *SQLDatabasePermissionResource) Create(ctx context.Context, req resource
 	hasConfigID := !config.SQLDatabaseID.IsNull() && !config.SQLDatabaseID.IsUnknown() && config.SQLDatabaseID.ValueString() != ""
 	hasConfigName := !config.SQLDatabaseName.IsNull() && !config.SQLDatabaseName.IsUnknown() && config.SQLDatabaseName.ValueString() != ""
 	if !hasConfigID && !hasConfigName {
-		hasConfigID = !plan.SQLDatabaseID.IsNull() && !plan.SQLDatabaseID.IsUnknown() && plan.SQLDatabaseID.ValueString() != ""
-		hasConfigName = !plan.SQLDatabaseName.IsNull() && !plan.SQLDatabaseName.IsUnknown() && plan.SQLDatabaseName.ValueString() != ""
+		config.SQLDatabaseID = plan.SQLDatabaseID
+		config.SQLDatabaseName = plan.SQLDatabaseName
+		hasConfigID = !config.SQLDatabaseID.IsNull() && !config.SQLDatabaseID.IsUnknown() && config.SQLDatabaseID.ValueString() != ""
+		hasConfigName = !config.SQLDatabaseName.IsNull() && !config.SQLDatabaseName.IsUnknown() && config.SQLDatabaseName.ValueString() != ""
 	}
 
 	var dbID string

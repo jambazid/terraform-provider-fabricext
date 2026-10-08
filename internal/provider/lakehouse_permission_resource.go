@@ -799,8 +799,10 @@ func (r *LakehousePermissionResource) Create(ctx context.Context, req resource.C
 	hasConfigID := !config.LakehouseID.IsNull() && !config.LakehouseID.IsUnknown() && config.LakehouseID.ValueString() != ""
 	hasConfigName := !config.LakehouseName.IsNull() && !config.LakehouseName.IsUnknown() && config.LakehouseName.ValueString() != ""
 	if !hasConfigID && !hasConfigName {
-		hasConfigID = !plan.LakehouseID.IsNull() && !plan.LakehouseID.IsUnknown() && plan.LakehouseID.ValueString() != ""
-		hasConfigName = !plan.LakehouseName.IsNull() && !plan.LakehouseName.IsUnknown() && plan.LakehouseName.ValueString() != ""
+		config.LakehouseID = plan.LakehouseID
+		config.LakehouseName = plan.LakehouseName
+		hasConfigID = !config.LakehouseID.IsNull() && !config.LakehouseID.IsUnknown() && config.LakehouseID.ValueString() != ""
+		hasConfigName = !config.LakehouseName.IsNull() && !config.LakehouseName.IsUnknown() && config.LakehouseName.ValueString() != ""
 	}
 
 	var lhID string

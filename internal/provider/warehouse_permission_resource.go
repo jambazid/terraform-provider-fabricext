@@ -207,8 +207,10 @@ func (r *WarehousePermissionResource) Create(ctx context.Context, req resource.C
 	hasConfigID := !config.WarehouseID.IsNull() && !config.WarehouseID.IsUnknown() && config.WarehouseID.ValueString() != ""
 	hasConfigName := !config.WarehouseName.IsNull() && !config.WarehouseName.IsUnknown() && config.WarehouseName.ValueString() != ""
 	if !hasConfigID && !hasConfigName {
-		hasConfigID = !plan.WarehouseID.IsNull() && !plan.WarehouseID.IsUnknown() && plan.WarehouseID.ValueString() != ""
-		hasConfigName = !plan.WarehouseName.IsNull() && !plan.WarehouseName.IsUnknown() && plan.WarehouseName.ValueString() != ""
+		config.WarehouseID = plan.WarehouseID
+		config.WarehouseName = plan.WarehouseName
+		hasConfigID = !config.WarehouseID.IsNull() && !config.WarehouseID.IsUnknown() && config.WarehouseID.ValueString() != ""
+		hasConfigName = !config.WarehouseName.IsNull() && !config.WarehouseName.IsUnknown() && config.WarehouseName.ValueString() != ""
 	}
 
 	var whID string
