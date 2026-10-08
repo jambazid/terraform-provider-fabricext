@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -386,5 +387,141 @@ func TestCollapseRolePermissions(t *testing.T) {
 				t.Fatalf("expected %q, got %q", tc.expected, got)
 			}
 		})
+	}
+}
+
+func TestCollapseItemRolePermissions_Exhaustive(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		itemType string
+		perms    []string
+		expected string
+		wantErr  bool
+	}{
+		// Warehouse
+		{name: "Warehouse write", itemType: "Warehouse", perms: []string{"Read", "Write"}, expected: "write"},
+		{name: "Warehouse reshare", itemType: "Warehouse", perms: []string{"Read", "Reshare"}, expected: "reshare"},
+		{name: "Warehouse read", itemType: "Warehouse", perms: []string{"Read"}, expected: "read"},
+		{name: "Warehouse unmapped permission ReadData", itemType: "Warehouse", perms: []string{"ReadData"}, wantErr: true},
+		{name: "Warehouse unknown permission", itemType: "Warehouse", perms: []string{"Unknown"}, wantErr: true},
+
+		// SQLDatabase
+		{name: "SQLDatabase write", itemType: "SQLDatabase", perms: []string{"Read", "Write"}, expected: "write"},
+		{name: "SQLDatabase reshare", itemType: "SQLDatabase", perms: []string{"Read", "Reshare"}, expected: "reshare"},
+		{name: "SQLDatabase read_data", itemType: "SQLDatabase", perms: []string{"Read", "ReadData"}, expected: "read_data"},
+		{name: "SQLDatabase read", itemType: "SQLDatabase", perms: []string{"Read"}, expected: "read"},
+		{name: "SQLDatabase unknown permission", itemType: "SQLDatabase", perms: []string{"Unknown"}, wantErr: true},
+
+		// Default / Lakehouse
+		{name: "Default Lakehouse read_spark", itemType: "Lakehouse", perms: []string{"Read", "ReadAll"}, expected: "read_spark"},
+		{name: "Default Lakehouse unknown", itemType: "Lakehouse", perms: []string{"Unknown"}, wantErr: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := CollapseItemRolePermissions(tc.itemType, tc.perms)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tc.expected {
+				t.Fatalf("expected %q, got %q", tc.expected, got)
+			}
+		})
+	}
+}
+
+func TestItemPermissionsBasePath_Exhaustive(t *testing.T) {
+	t.Parallel()
+
+	wsID := "11111111-1111-1111-1111-111111111111"
+	itemID := "22222222-2222-2222-2222-222222222222"
+
+	whPath, err := itemPermissionsBasePath(wsID, itemID, "Warehouse")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if whPath != fmt.Sprintf("/v1/workspaces/%s/warehouses/%s", wsID, itemID) {
+		t.Fatalf("unexpected warehouse path: %s", whPath)
+	}
+
+	sqlPath, err := itemPermissionsBasePath(wsID, itemID, "SQLDatabase")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if sqlPath != fmt.Sprintf("/v1/workspaces/%s/sqlDatabases/%s", wsID, itemID) {
+		t.Fatalf("unexpected sql path: %s", sqlPath)
+	}
+
+	_, err = itemPermissionsBasePath(wsID, itemID, "Lakehouse")
+	if err == nil {
+		t.Fatal("expected error for unsupported item type Lakehouse")
+	}
+}
+
+func TestGetLakehouseMutex_Concurrency(t *testing.T) {
+	t.Parallel()
+
+	c, err := NewFabricClient(Config{
+		Endpoint: "https://api.fabric.microsoft.com",
+		TokenProvider: func(context.Context) (string, error) {
+			return "mock-token", nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	var testMu sync.Mutex
+	var active [3]int32
+	counts := make(map[string]int)
+	ptrs := make(map[string]*sync.Mutex)
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			bucket := idx % 3
+			key := fmt.Sprintf("lh-%d", bucket)
+			mu := c.getLakehouseMutex("ws-1", key)
+
+			mu.Lock()
+			cur := atomic.AddInt32(&active[bucket], 1)
+			if cur > 1 {
+				t.Errorf("expected at most 1 active goroutine for key %s, got %d", key, cur)
+			}
+			time.Sleep(50 * time.Microsecond)
+			atomic.AddInt32(&active[bucket], -1)
+			mu.Unlock()
+
+			testMu.Lock()
+			counts[key]++
+			if existing, ok := ptrs[key]; ok {
+				if existing != mu {
+					t.Errorf("expected same mutex pointer for key %s", key)
+				}
+			} else {
+				ptrs[key] = mu
+			}
+			testMu.Unlock()
+		}(i)
+	}
+	wg.Wait()
+
+	testMu.Lock()
+	defer testMu.Unlock()
+	for i := 0; i < 3; i++ {
+		key := fmt.Sprintf("lh-%d", i)
+		if counts[key] == 0 {
+			t.Errorf("expected non-zero count for %s", key)
+		}
 	}
 }

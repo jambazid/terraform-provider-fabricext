@@ -1171,3 +1171,493 @@ func TestLakehouse_ModifyPlan_EdgeCases(t *testing.T) {
 		}
 	})
 }
+
+func TestResource_NilClientErrors(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	// 1. WarehousePermissionResource
+	{
+		r := &WarehousePermissionResource{client: nil}
+		var schemaResp tfsdkresource.SchemaResponse
+		r.Schema(ctx, tfsdkresource.SchemaRequest{}, &schemaResp)
+
+		plan := tfsdk.Plan{Schema: schemaResp.Schema}
+		state := tfsdk.State{Schema: schemaResp.Schema}
+
+		var createResp tfsdkresource.CreateResponse
+		r.Create(ctx, tfsdkresource.CreateRequest{Plan: plan}, &createResp)
+		if !createResp.Diagnostics.HasError() {
+			t.Fatal("expected error on nil client Create")
+		}
+
+		var readResp tfsdkresource.ReadResponse
+		r.Read(ctx, tfsdkresource.ReadRequest{State: state}, &readResp)
+		if !readResp.Diagnostics.HasError() {
+			t.Fatal("expected error on nil client Read")
+		}
+
+		var updateResp tfsdkresource.UpdateResponse
+		r.Update(ctx, tfsdkresource.UpdateRequest{Plan: plan, State: state}, &updateResp)
+		if !updateResp.Diagnostics.HasError() {
+			t.Fatal("expected error on nil client Update")
+		}
+
+		var delResp tfsdkresource.DeleteResponse
+		r.Delete(ctx, tfsdkresource.DeleteRequest{State: state}, &delResp)
+		if !delResp.Diagnostics.HasError() {
+			t.Fatal("expected error on nil client Delete")
+		}
+
+		var importResp tfsdkresource.ImportStateResponse
+		r.ImportState(ctx, tfsdkresource.ImportStateRequest{ID: "ws/wh/User/p"}, &importResp)
+		if !importResp.Diagnostics.HasError() {
+			t.Fatal("expected error on nil client ImportState")
+		}
+	}
+
+	// 2. SQLDatabasePermissionResource
+	{
+		r := &SQLDatabasePermissionResource{client: nil}
+		var schemaResp tfsdkresource.SchemaResponse
+		r.Schema(ctx, tfsdkresource.SchemaRequest{}, &schemaResp)
+
+		plan := tfsdk.Plan{Schema: schemaResp.Schema}
+		state := tfsdk.State{Schema: schemaResp.Schema}
+
+		var createResp tfsdkresource.CreateResponse
+		r.Create(ctx, tfsdkresource.CreateRequest{Plan: plan}, &createResp)
+		if !createResp.Diagnostics.HasError() {
+			t.Fatal("expected error on nil client Create")
+		}
+
+		var readResp tfsdkresource.ReadResponse
+		r.Read(ctx, tfsdkresource.ReadRequest{State: state}, &readResp)
+		if !readResp.Diagnostics.HasError() {
+			t.Fatal("expected error on nil client Read")
+		}
+
+		var updateResp tfsdkresource.UpdateResponse
+		r.Update(ctx, tfsdkresource.UpdateRequest{Plan: plan, State: state}, &updateResp)
+		if !updateResp.Diagnostics.HasError() {
+			t.Fatal("expected error on nil client Update")
+		}
+
+		var delResp tfsdkresource.DeleteResponse
+		r.Delete(ctx, tfsdkresource.DeleteRequest{State: state}, &delResp)
+		if !delResp.Diagnostics.HasError() {
+			t.Fatal("expected error on nil client Delete")
+		}
+
+		var importResp tfsdkresource.ImportStateResponse
+		r.ImportState(ctx, tfsdkresource.ImportStateRequest{ID: "ws/db/User/p"}, &importResp)
+		if !importResp.Diagnostics.HasError() {
+			t.Fatal("expected error on nil client ImportState")
+		}
+	}
+
+	// 3. LakehousePermissionResource
+	{
+		r := &LakehousePermissionResource{client: nil}
+		var schemaResp tfsdkresource.SchemaResponse
+		r.Schema(ctx, tfsdkresource.SchemaRequest{}, &schemaResp)
+
+		plan := tfsdk.Plan{Schema: schemaResp.Schema}
+		state := tfsdk.State{Schema: schemaResp.Schema}
+
+		var createResp tfsdkresource.CreateResponse
+		r.Create(ctx, tfsdkresource.CreateRequest{Plan: plan}, &createResp)
+		if !createResp.Diagnostics.HasError() {
+			t.Fatal("expected error on nil client Create")
+		}
+
+		var readResp tfsdkresource.ReadResponse
+		r.Read(ctx, tfsdkresource.ReadRequest{State: state}, &readResp)
+		if !readResp.Diagnostics.HasError() {
+			t.Fatal("expected error on nil client Read")
+		}
+
+		var updateResp tfsdkresource.UpdateResponse
+		r.Update(ctx, tfsdkresource.UpdateRequest{Plan: plan, State: state}, &updateResp)
+		if !updateResp.Diagnostics.HasError() {
+			t.Fatal("expected error on nil client Update")
+		}
+
+		var delResp tfsdkresource.DeleteResponse
+		r.Delete(ctx, tfsdkresource.DeleteRequest{State: state}, &delResp)
+		if !delResp.Diagnostics.HasError() {
+			t.Fatal("expected error on nil client Delete")
+		}
+
+		var importResp tfsdkresource.ImportStateResponse
+		r.ImportState(ctx, tfsdkresource.ImportStateRequest{ID: "ws/lh/role"}, &importResp)
+		if !importResp.Diagnostics.HasError() {
+			t.Fatal("expected error on nil client ImportState")
+		}
+	}
+
+	// 4. ItemDataSource
+	{
+		d := &ItemDataSource{client: nil}
+		var schemaResp datasource.SchemaResponse
+		d.Schema(ctx, datasource.SchemaRequest{}, &schemaResp)
+
+		cfg := tfsdk.Config{Schema: schemaResp.Schema}
+		var readResp datasource.ReadResponse
+		d.Read(ctx, datasource.ReadRequest{Config: cfg}, &readResp)
+		if !readResp.Diagnostics.HasError() {
+			t.Fatal("expected error on nil client Read")
+		}
+	}
+}
+
+func TestReconcileItemIdentifiersPlan_Exhaustive(t *testing.T) {
+	t.Parallel()
+
+	// 1. nameConfig is unknown, idConfig is null -> idPlan becomes unknown
+	{
+		var namePlan types.String
+		idPlan := types.StringValue("state-id")
+		reconcileItemIdentifiersPlan(
+			types.StringUnknown(), types.StringNull(),
+			types.StringNull(), types.StringValue("state-id"),
+			&namePlan, &idPlan,
+		)
+		if !idPlan.IsUnknown() {
+			t.Fatalf("expected idPlan unknown, got %v", idPlan)
+		}
+	}
+
+	// 2. nameConfig is value, idConfig is null, nameState is null -> idPlan becomes unknown
+	{
+		var namePlan types.String
+		idPlan := types.StringValue("state-id")
+		reconcileItemIdentifiersPlan(
+			types.StringValue("new-name"), types.StringNull(),
+			types.StringNull(), types.StringValue("state-id"),
+			&namePlan, &idPlan,
+		)
+		if !idPlan.IsUnknown() {
+			t.Fatalf("expected idPlan unknown, got %v", idPlan)
+		}
+	}
+
+	// 3. nameConfig is value, idConfig is null, nameState is different -> idPlan becomes unknown
+	{
+		var namePlan types.String
+		idPlan := types.StringValue("state-id")
+		reconcileItemIdentifiersPlan(
+			types.StringValue("new-name"), types.StringNull(),
+			types.StringValue("old-name"), types.StringValue("state-id"),
+			&namePlan, &idPlan,
+		)
+		if !idPlan.IsUnknown() {
+			t.Fatalf("expected idPlan unknown, got %v", idPlan)
+		}
+	}
+
+	// 4. nameConfig is value, idConfig is null, nameState is identical -> idPlan unchanged
+	{
+		var namePlan types.String
+		idPlan := types.StringValue("state-id")
+		reconcileItemIdentifiersPlan(
+			types.StringValue("same-name"), types.StringNull(),
+			types.StringValue("same-name"), types.StringValue("state-id"),
+			&namePlan, &idPlan,
+		)
+		if idPlan.ValueString() != "state-id" {
+			t.Fatalf("expected idPlan unchanged, got %v", idPlan)
+		}
+	}
+
+	// 5. idConfig is unknown, nameConfig is null -> namePlan becomes unknown
+	{
+		namePlan := types.StringValue("state-name")
+		var idPlan types.String
+		reconcileItemIdentifiersPlan(
+			types.StringNull(), types.StringUnknown(),
+			types.StringValue("state-name"), types.StringNull(),
+			&namePlan, &idPlan,
+		)
+		if !namePlan.IsUnknown() {
+			t.Fatalf("expected namePlan unknown, got %v", namePlan)
+		}
+	}
+
+	// 6. idConfig is value, nameConfig is null, idState is null -> namePlan becomes unknown
+	{
+		namePlan := types.StringValue("state-name")
+		var idPlan types.String
+		reconcileItemIdentifiersPlan(
+			types.StringNull(), types.StringValue("new-id"),
+			types.StringValue("state-name"), types.StringNull(),
+			&namePlan, &idPlan,
+		)
+		if !namePlan.IsUnknown() {
+			t.Fatalf("expected namePlan unknown, got %v", namePlan)
+		}
+	}
+
+	// 7. idConfig is value, nameConfig is null, idState is different -> namePlan becomes unknown
+	{
+		namePlan := types.StringValue("state-name")
+		var idPlan types.String
+		reconcileItemIdentifiersPlan(
+			types.StringNull(), types.StringValue("new-id"),
+			types.StringValue("state-name"), types.StringValue("old-id"),
+			&namePlan, &idPlan,
+		)
+		if !namePlan.IsUnknown() {
+			t.Fatalf("expected namePlan unknown, got %v", namePlan)
+		}
+	}
+
+	// 8. idConfig is value, nameConfig is null, idState is identical -> namePlan unchanged
+	{
+		namePlan := types.StringValue("state-name")
+		var idPlan types.String
+		reconcileItemIdentifiersPlan(
+			types.StringNull(), types.StringValue("same-id"),
+			types.StringValue("state-name"), types.StringValue("same-id"),
+			&namePlan, &idPlan,
+		)
+		if namePlan.ValueString() != "state-name" {
+			t.Fatalf("expected namePlan unchanged, got %v", namePlan)
+		}
+	}
+}
+
+func TestResource_APIErrors_Exhaustive(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	badClient, err := client.NewFabricClient(client.Config{
+		Endpoint: "https://api.fabric.microsoft.com",
+		TokenProvider: func(context.Context) (string, error) {
+			return "mock-token", nil
+		},
+		HTTPClient: &http.Client{
+			Transport: &errRoundTripper{},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to create badClient: %v", err)
+	}
+
+	// Warehouse Read/Update/Delete/Import with failing client
+	{
+		r := &WarehousePermissionResource{client: badClient}
+		var schemaResp tfsdkresource.SchemaResponse
+		r.Schema(ctx, tfsdkresource.SchemaRequest{}, &schemaResp)
+
+		stateModel := WarehousePermissionResourceModel{
+			ID:            types.StringValue("11111111-1111-1111-1111-111111111111/22222222-2222-2222-2222-222222222222/User/33333333-3333-3333-3333-333333333333"),
+			WorkspaceID:   types.StringValue("11111111-1111-1111-1111-111111111111"),
+			WarehouseName: types.StringValue("wh"),
+			WarehouseID:   types.StringValue("22222222-2222-2222-2222-222222222222"),
+			PrincipalID:   types.StringValue("33333333-3333-3333-3333-333333333333"),
+			PrincipalType: types.StringValue("User"),
+			RoleType:      types.StringValue("read"),
+		}
+		state := tfsdk.State{Schema: schemaResp.Schema}
+		_ = state.Set(ctx, &stateModel)
+
+		var readResp tfsdkresource.ReadResponse
+		r.Read(ctx, tfsdkresource.ReadRequest{State: state}, &readResp)
+		if !readResp.Diagnostics.HasError() {
+			t.Fatal("expected error on Warehouse Read with failing client")
+		}
+
+		var importResp tfsdkresource.ImportStateResponse
+		r.ImportState(ctx, tfsdkresource.ImportStateRequest{
+			ID: "11111111-1111-1111-1111-111111111111/22222222-2222-2222-2222-222222222222/User/33333333-3333-3333-3333-333333333333",
+		}, &importResp)
+		if !importResp.Diagnostics.HasError() {
+			t.Fatal("expected error on Warehouse ImportState with failing client")
+		}
+
+		// Create with ID only where GetItemByID fails
+		whPlanIDOnly := WarehousePermissionResourceModel{
+			WorkspaceID:   types.StringValue("11111111-1111-1111-1111-111111111111"),
+			WarehouseID:   types.StringValue("22222222-2222-2222-2222-222222222222"),
+			PrincipalID:   types.StringValue("33333333-3333-3333-3333-333333333333"),
+			PrincipalType: types.StringValue("User"),
+			RoleType:      types.StringValue("read"),
+		}
+		planIDOnly := tfsdk.Plan{Schema: schemaResp.Schema}
+		_ = planIDOnly.Set(ctx, &whPlanIDOnly)
+		var createRespIDOnly tfsdkresource.CreateResponse
+		r.Create(ctx, tfsdkresource.CreateRequest{Plan: planIDOnly}, &createRespIDOnly)
+		if !createRespIDOnly.Diagnostics.HasError() {
+			t.Fatal("expected error on Warehouse Create with failing ID lookup")
+		}
+
+		// Create with both ID and Name where GetItemByID fails
+		whPlanBoth := WarehousePermissionResourceModel{
+			WorkspaceID:   types.StringValue("11111111-1111-1111-1111-111111111111"),
+			WarehouseID:   types.StringValue("22222222-2222-2222-2222-222222222222"),
+			WarehouseName: types.StringValue("wh"),
+			PrincipalID:   types.StringValue("33333333-3333-3333-3333-333333333333"),
+			PrincipalType: types.StringValue("User"),
+			RoleType:      types.StringValue("read"),
+		}
+		planBoth := tfsdk.Plan{Schema: schemaResp.Schema}
+		_ = planBoth.Set(ctx, &whPlanBoth)
+		var createRespBoth tfsdkresource.CreateResponse
+		r.Create(ctx, tfsdkresource.CreateRequest{Plan: planBoth}, &createRespBoth)
+		if !createRespBoth.Diagnostics.HasError() {
+			t.Fatal("expected error on Warehouse Create with both ID and Name lookup failure")
+		}
+	}
+
+	// SQLDatabase Read/Update/Delete/Import with failing client
+	{
+		r := &SQLDatabasePermissionResource{client: badClient}
+		var schemaResp tfsdkresource.SchemaResponse
+		r.Schema(ctx, tfsdkresource.SchemaRequest{}, &schemaResp)
+
+		stateModel := SQLDatabasePermissionResourceModel{
+			ID:              types.StringValue("11111111-1111-1111-1111-111111111111/22222222-2222-2222-2222-222222222222/User/33333333-3333-3333-3333-333333333333"),
+			WorkspaceID:     types.StringValue("11111111-1111-1111-1111-111111111111"),
+			SQLDatabaseName: types.StringValue("db"),
+			SQLDatabaseID:   types.StringValue("22222222-2222-2222-2222-222222222222"),
+			PrincipalID:     types.StringValue("33333333-3333-3333-3333-333333333333"),
+			PrincipalType:   types.StringValue("User"),
+			RoleType:        types.StringValue("read"),
+		}
+		state := tfsdk.State{Schema: schemaResp.Schema}
+		_ = state.Set(ctx, &stateModel)
+
+		var readResp tfsdkresource.ReadResponse
+		r.Read(ctx, tfsdkresource.ReadRequest{State: state}, &readResp)
+		if !readResp.Diagnostics.HasError() {
+			t.Fatal("expected error on SQLDatabase Read with failing client")
+		}
+
+		var importResp tfsdkresource.ImportStateResponse
+		r.ImportState(ctx, tfsdkresource.ImportStateRequest{
+			ID: "11111111-1111-1111-1111-111111111111/22222222-2222-2222-2222-222222222222/User/33333333-3333-3333-3333-333333333333",
+		}, &importResp)
+		if !importResp.Diagnostics.HasError() {
+			t.Fatal("expected error on SQLDatabase ImportState with failing client")
+		}
+
+		// Create with ID only where GetItemByID fails
+		sqlPlanIDOnly := SQLDatabasePermissionResourceModel{
+			WorkspaceID:   types.StringValue("11111111-1111-1111-1111-111111111111"),
+			SQLDatabaseID: types.StringValue("22222222-2222-2222-2222-222222222222"),
+			PrincipalID:   types.StringValue("33333333-3333-3333-3333-333333333333"),
+			PrincipalType: types.StringValue("User"),
+			RoleType:      types.StringValue("read"),
+		}
+		planIDOnly := tfsdk.Plan{Schema: schemaResp.Schema}
+		_ = planIDOnly.Set(ctx, &sqlPlanIDOnly)
+		var createRespIDOnly tfsdkresource.CreateResponse
+		r.Create(ctx, tfsdkresource.CreateRequest{Plan: planIDOnly}, &createRespIDOnly)
+		if !createRespIDOnly.Diagnostics.HasError() {
+			t.Fatal("expected error on SQLDatabase Create with failing ID lookup")
+		}
+
+		// Create with both ID and Name where GetItemByID fails
+		sqlPlanBoth := SQLDatabasePermissionResourceModel{
+			WorkspaceID:     types.StringValue("11111111-1111-1111-1111-111111111111"),
+			SQLDatabaseID:   types.StringValue("22222222-2222-2222-2222-222222222222"),
+			SQLDatabaseName: types.StringValue("db"),
+			PrincipalID:     types.StringValue("33333333-3333-3333-3333-333333333333"),
+			PrincipalType:   types.StringValue("User"),
+			RoleType:        types.StringValue("read"),
+		}
+		planBoth := tfsdk.Plan{Schema: schemaResp.Schema}
+		_ = planBoth.Set(ctx, &sqlPlanBoth)
+		var createRespBoth tfsdkresource.CreateResponse
+		r.Create(ctx, tfsdkresource.CreateRequest{Plan: planBoth}, &createRespBoth)
+		if !createRespBoth.Diagnostics.HasError() {
+			t.Fatal("expected error on SQLDatabase Create with both ID and Name lookup failure")
+		}
+	}
+
+	// Lakehouse Read/Update/Delete/Import with failing client
+	{
+		r := &LakehousePermissionResource{client: badClient}
+		var schemaResp tfsdkresource.SchemaResponse
+		r.Schema(ctx, tfsdkresource.SchemaRequest{}, &schemaResp)
+
+		principalIDs, _ := types.SetValueFrom(ctx, types.StringType, []string{"33333333-3333-3333-3333-333333333333"})
+		paths, _ := types.SetValueFrom(ctx, types.StringType, []string{"/Tables/a"})
+		actions, _ := types.SetValueFrom(ctx, types.StringType, []string{"Read"})
+
+		stateModel := LakehousePermissionResourceModel{
+			ID:               types.StringValue("11111111-1111-1111-1111-111111111111/22222222-2222-2222-2222-222222222222/CustomRole"),
+			WorkspaceID:      types.StringValue("11111111-1111-1111-1111-111111111111"),
+			LakehouseName:    types.StringValue("lh"),
+			LakehouseID:      types.StringValue("22222222-2222-2222-2222-222222222222"),
+			RoleName:         types.StringValue("CustomRole"),
+			PrincipalIDs:     principalIDs,
+			PrincipalType:    types.StringValue("User"),
+			Paths:            paths,
+			Actions:          actions,
+			DecisionRule:     types.ListNull(decisionRuleElemType),
+			EntraMember:      types.SetNull(entraMemberElemType),
+			FabricItemMember: types.SetNull(fabricItemMemberElemType),
+		}
+		state := tfsdk.State{Schema: schemaResp.Schema}
+		_ = state.Set(ctx, &stateModel)
+
+		var readResp tfsdkresource.ReadResponse
+		r.Read(ctx, tfsdkresource.ReadRequest{State: state}, &readResp)
+		if !readResp.Diagnostics.HasError() {
+			t.Fatal("expected error on Lakehouse Read with failing client")
+		}
+
+		var importResp tfsdkresource.ImportStateResponse
+		r.ImportState(ctx, tfsdkresource.ImportStateRequest{
+			ID: "11111111-1111-1111-1111-111111111111/22222222-2222-2222-2222-222222222222/CustomRole",
+		}, &importResp)
+		if !importResp.Diagnostics.HasError() {
+			t.Fatal("expected error on Lakehouse ImportState with failing client")
+		}
+
+		// Create with ID only where GetItemByID fails
+		lhPlanIDOnly := LakehousePermissionResourceModel{
+			WorkspaceID:      types.StringValue("11111111-1111-1111-1111-111111111111"),
+			LakehouseID:      types.StringValue("22222222-2222-2222-2222-222222222222"),
+			RoleName:         types.StringValue("CustomRole"),
+			PrincipalIDs:     principalIDs,
+			PrincipalType:    types.StringValue("User"),
+			Paths:            paths,
+			Actions:          actions,
+			DecisionRule:     types.ListNull(decisionRuleElemType),
+			EntraMember:      types.SetNull(entraMemberElemType),
+			FabricItemMember: types.SetNull(fabricItemMemberElemType),
+		}
+		planIDOnly := tfsdk.Plan{Schema: schemaResp.Schema}
+		_ = planIDOnly.Set(ctx, &lhPlanIDOnly)
+		var createRespIDOnly tfsdkresource.CreateResponse
+		r.Create(ctx, tfsdkresource.CreateRequest{Plan: planIDOnly}, &createRespIDOnly)
+		if !createRespIDOnly.Diagnostics.HasError() {
+			t.Fatal("expected error on Lakehouse Create with failing ID lookup")
+		}
+
+		// Create with both ID and Name where GetItemByID fails
+		lhPlanBoth := LakehousePermissionResourceModel{
+			WorkspaceID:      types.StringValue("11111111-1111-1111-1111-111111111111"),
+			LakehouseID:      types.StringValue("22222222-2222-2222-2222-222222222222"),
+			LakehouseName:    types.StringValue("lh"),
+			RoleName:         types.StringValue("CustomRole"),
+			PrincipalIDs:     principalIDs,
+			PrincipalType:    types.StringValue("User"),
+			Paths:            paths,
+			Actions:          actions,
+			DecisionRule:     types.ListNull(decisionRuleElemType),
+			EntraMember:      types.SetNull(entraMemberElemType),
+			FabricItemMember: types.SetNull(fabricItemMemberElemType),
+		}
+		planBoth := tfsdk.Plan{Schema: schemaResp.Schema}
+		_ = planBoth.Set(ctx, &lhPlanBoth)
+		var createRespBoth tfsdkresource.CreateResponse
+		r.Create(ctx, tfsdkresource.CreateRequest{Plan: planBoth}, &createRespBoth)
+		if !createRespBoth.Diagnostics.HasError() {
+			t.Fatal("expected error on Lakehouse Create with both ID and Name lookup failure")
+		}
+	}
+}

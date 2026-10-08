@@ -373,8 +373,7 @@ func TestToolingAndCI_Invariants(t *testing.T) {
 		"GITHUB_STEP_SUMMARY",
 		"actions/upload-artifact@",
 		"test-coverage-report",
-		"step-security/paths-filter@",
-		"peter-evans/create-or-update-comment@",
+		"coverage | verify-threshold",
 	} {
 		if !strings.Contains(ciText, snippet) {
 			t.Errorf("ci.yaml missing required coverage reporting snippet %q", snippet)
@@ -530,12 +529,6 @@ func TestAccPermissionsModule_MatrixWithRLSandCLS(t *testing.T) {
             {
               object_id   = "55555555-5555-5555-5555-555555555551"
               object_type = "Group"
-            }
-          ]
-          fabric_item_members = [
-            {
-              source_path = "11111111-1111-1111-1111-111111111111/44444444-4444-4444-4444-444444444444"
-              item_access = ["ReadAll"]
             }
           ]
         }

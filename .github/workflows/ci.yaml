@@ -148,9 +148,10 @@ jobs:
           python3 scripts/coverage_summary.py coverage.out \
             --title "🎯 Combined Project Test Coverage" \
             --threshold 90.0 --html coverage.html \
-            -o coverage-summary.md >> "$GITHUB_STEP_SUMMARY"
+            -o coverage-summary.md >> "$GITHUB_STEP_SUMMARY" || touch .coverage_failed
 
       - name: coverage | archive
+        if: always() && !cancelled()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: test-coverage-report
@@ -164,7 +165,12 @@ jobs:
 
       - name: pr | find-comment
         id: find_comment
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        if: |
+          always() &&
+          !cancelled() &&
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          hashFiles('coverage-summary.md') != ''
         uses: peter-evans/find-comment@b30e6a3c0ed37e7c023ccd3f1db5c6c0b0c23aad  # v4.0.0
         with:
           issue-number: ${{ github.event.pull_request.number }}
@@ -172,10 +178,23 @@ jobs:
           body-includes: '<!-- test-coverage-summary -->'
 
       - name: pr | comment-coverage
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        if: |
+          always() &&
+          !cancelled() &&
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          hashFiles('coverage-summary.md') != ''
         uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9  # v5.0.0
         with:
           comment-id: ${{ steps.find_comment.outputs.comment-id }}
           issue-number: ${{ github.event.pull_request.number }}
           body-path: coverage-summary.md
           edit-mode: replace
+
+      - name: coverage | verify-threshold
+        if: always() && !cancelled()
+        run: |
+          if [ -f .coverage_failed ]; then
+            echo "::error::Test coverage fell below the required threshold of 90.0%."
+            exit 1
+          fi
