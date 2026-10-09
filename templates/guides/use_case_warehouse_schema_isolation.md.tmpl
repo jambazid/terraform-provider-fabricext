@@ -101,9 +101,9 @@ CREATE USER [external_user#EXT#@tenant.onmicrosoft.com] FROM EXTERNAL PROVIDER;
 ```
 
 **Identity Resolution Rules & Caveats**:
-- **Display Names vs. UPNs**: Entra Security Groups and Enterprise Applications resolve by `displayName`. Individual user accounts **strictly require the UserPrincipalName (UPN)**. Passing a user's display name (`CREATE USER [Bob Smith] FROM EXTERNAL PROVIDER`) fails with `Msg 33130`.
+- **Display Names vs. UPNs**: Microsoft Entra Security Groups and Enterprise Applications resolve by `displayName`. Individual user accounts **strictly require the UserPrincipalName (UPN)**. Passing a user's display name (`CREATE USER [Bob Smith] FROM EXTERNAL PROVIDER`) fails with `Msg 33130` ("*Principal 'Bob Smith' could not be found or this principal type is not supported.*").
 - **Why Bracketed UUIDs Fail**: When `CREATE USER [name] FROM EXTERNAL PROVIDER` runs, the SQL engine queries Microsoft Graph filtering strictly on `displayName eq '<name>'` (for groups) or `userPrincipalName eq '<name>'` (for users). It does not query `id eq '<guid>'`. Passing a raw UUID `[00000000-0000-...]` fails unless the directory object's display name or UPN literally matches that UUID string.
-- **Duplicate Display Names & `WITH OBJECT_ID`**: Microsoft Entra ID permits duplicate group display names. If ambiguous display names exist in a tenant, SQL fails with `Msg 33131`. Resolve this using the official syntax:
+- **Duplicate Display Names & `WITH OBJECT_ID`**: Microsoft Entra ID permits duplicate group display names. If ambiguous display names exist in a tenant, SQL fails with `Msg 33131` ("*Principal 'SEC-Fabric-Finance-Analysts' has a duplicate display name.*"). Resolve this ambiguity by supplying the object UUID using the official syntax:
   ```sql
   CREATE USER [Finance-Analysts-Alias] FROM EXTERNAL PROVIDER WITH OBJECT_ID = '11111111-1111-1111-1111-111111111111';
   ```
@@ -145,7 +145,7 @@ While `fabricext` manages the Fabric item boundary (`CONNECT`), managing interna
 
 ### Architecture Blueprint
 
-~> **Important:** **TDS Authentication & Privileges**: Fabric Warehouse TDS endpoints (port 1433) **only support Microsoft Entra ID authentication**; standard SQL username/password logins are unsupported. The CI/CD identity running the schema operator must authenticate via Entra ID (CLI session, service principal, or workload identity) and hold administrative privileges (`db_owner` / workspace Contributor or Admin) to create users, schemas, and grant permissions. Fabric Warehouse operates as an MPP distributed query engine with a specific T-SQL subset.
+~> **Important:** **TDS Authentication & Privileges**: Fabric Warehouse TDS endpoints (port 1433) **only support Microsoft Entra ID authentication**; standard SQL username/password logins are unsupported. The CI/CD identity running the schema operator must authenticate via Entra ID (CLI session, service principal, or workload identity) and hold administrative privileges (`db_owner` / workspace Contributor or Admin) to create users, schemas, and grant permissions. Fabric Warehouse operates as a Massively Parallel Processing (MPP) distributed query engine with a specific T-SQL subset.
 
 ```hcl
 # --- 1. Identity & Workspace Provisioning ---
@@ -197,7 +197,7 @@ When an Entra security group receives `read` via `fabricext_warehouse_permission
 1. **OneLake Data Hub**: The Warehouse appears under the **"Shared with me"** tab and in the OneLake Data Hub catalog.
 2. **Workspace Navigation**: The user **cannot** see the parent workspace in the workspace flyout menu.
 3. **Web Query Editor**: Clicking the Warehouse opens the Web Query Editor. The object explorer renders only the schemas and tables that the user's Entra credentials have SQL permissions to view (metadata hiding). Schemas without `GRANT` permissions do not appear in the tree.
-4. **Connection Endpoints**: The user can copy the TDS connection string (`*.datawarehouse.fabric.microsoft.com`) and connect via SSMS, Azure Data Studio, VS Code, Python, or DBeaver.
+4. **Connection Endpoints**: The user can copy the TDS connection string (`*.datawarehouse.fabric.microsoft.com`) and connect via SQL Server Management Studio (SSMS), Azure Data Studio, VS Code, Python, or DBeaver.
 
 ---
 

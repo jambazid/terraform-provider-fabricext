@@ -23,15 +23,15 @@ OneLake Data Access Roles follow a **centralized policy, distributed compute eng
 +--------------------------------------------------------------------------+
 | Analytics Compute Engines (Enforcement Layer)                            |
 | ├─ Apache Spark (Compiles policies into physical Spark execution plan)   |
-| ├─ Power BI Analysis Services (Enforces policies under Direct Lake SSO)  |
-| └─ SQL Analytics Endpoint (Enforces policies over TDS queries)           |
+| ├─ Power BI Analysis Services (Enforces policies under Direct Lake Single Sign-On / SSO)  |
+| └─ SQL Analytics Endpoint (Enforces policies over Tabular Data Stream / TDS queries)      |
 +--------------------------------------------------------------------------+
                                      │
                                      ▼ Retrieves effective role policies
 +--------------------------------------------------------------------------+
 | OneLake Storage Security Engine (Centralized Policy Definition)          |
 | ├─ Path Filters: Folder / Table Boundaries (/Tables/{tableName})         |
-| ├─ Action Scopes: Read, Write, ReadWrite                                 |
+| ├─ Action Scopes: Read, ReadWrite                                       |
 | ├─ Storage-Level Row-Level Security (RLS Predicates)                     |
 | └─ Storage-Level Column-Level Security (CLS Masks)                       |
 +--------------------------------------------------------------------------+
@@ -54,8 +54,8 @@ The `fabricext_lakehouse_permission` resource supports two operational modes:
 | :--- | :--- | :--- |
 | **Primary Use Case** | Broad folder or table access with uniform actions across one or more Entra principals. | Fine-grained path boundaries, storage-level RLS row constraints, CLS column constraints, and shortcut delegation. |
 | **Path Filtering** | Specified via `paths` attribute (e.g. `["/Tables/sales"]` or `["*"]`). | Configured per `decision_rule.paths` set (`/Tables/{tableName}`). |
-| **Action Scopes** | `actions` (`Read`, `Write`, `ReadWrite`). Defaults to `["Read"]`. | Configured per `decision_rule.actions` (`Read`, `Write`, `ReadWrite`). |
-| **Member Assignment** | `principal_ids` (Set of UUIDs) + uniform `principal_type`. | `entra_member` blocks (`object_id`, `object_type`, `tenant_id`). Supports mixed types. |
+| **Action Scopes** | `actions` (`Read`, `ReadWrite`). Defaults to `["Read"]`. | Configured per `decision_rule.actions` (`Read`, `ReadWrite`). |
+| **Member Assignment** | `principal_ids` (Set of UUIDs) + uniform `principal_type`. | `entra_member` blocks (`object_id`, `object_type`, `tenant_id`). Supports mixed Microsoft Entra ID types. |
 | **Row-Level Security** | Not supported. | Configurable via `decision_rule.row_constraint` (`table_path`, `predicate`). |
 | **Column Security** | Not supported. | Configurable via `decision_rule.column_constraint` (`table_path`, `columns`, `action`, `effect`). |
 | **Shortcut Delegation** | Not supported. | Dynamic membership inheritance via `fabric_item_member` (`source_path`, `item_access`). |
@@ -148,7 +148,7 @@ resource "fabricext_lakehouse_permission" "cross_workspace_readers" {
 
 ## Concurrency & Mutex Semantics
 
-Updating OneLake Data Access Roles involves a `GET` $\rightarrow$ `PUT` Read-Modify-Write cycle with `If-Match` ETag headers.
+Updating OneLake Data Access Roles involves a `GET` → `PUT` Read-Modify-Write (RMW) cycle with `If-Match` HTTP ETag headers.
 
 Under parallel Terraform execution (`for_each`), concurrent requests mutating roles on the same Lakehouse can result in HTTP 412 (`Precondition Failed`). The `fabricext` provider protects this lifecycle with:
 

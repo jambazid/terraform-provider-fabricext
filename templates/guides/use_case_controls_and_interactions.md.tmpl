@@ -17,11 +17,11 @@ Security controls in Microsoft Fabric span identity, capacity, workspace, item, 
 
 | Tier | Control Type | Primary Governance Plane | Description |
 | :--- | :--- | :--- | :--- |
-| **Tier 1: Identity** | Entra ID Groups & Principals | Azure Entra ID / Graph | Authenticates users (UPN), security groups (display name), and service principals; establishes group memberships. |
+| **Tier 1: Identity** | Entra ID Groups & Principals | Azure Entra ID / Graph | Authenticates users (User Principal Name / UPN), security groups (display name), and service principals; establishes group memberships. |
 | **Tier 2: Tenant & Capacity** | Tenant Switch Overrides & Domains | Fabric Admin Portal | Controls external sharing toggles, OneLake access API switches, and capacity assignment boundaries. |
 | **Tier 3: Workspace Boundary** | Workspace Roles | Fabric Workspace API / `microsoft/fabric` | Roles: `Admin`, `Member`, `Contributor`, `Viewer`. Determines administrative and collaboration scope. |
 | **Tier 4: Item Perimeter** | Item Shares & Permissions | Fabric Item Permission API / `fabricext` | Roles: `read` (CONNECT to TDS endpoint), `read_data` (SQL DB broad read), `read_spark` (SQL DB Spark analytics), `write`, `reshare`, OneLake Data Access Roles. Controls item discovery and gateway access. |
-| **Tier 5: Data Engine RBAC** | T-SQL RBAC & OneLake Storage Roles | SQL TDS Engine / OneLake Storage Engine | T-SQL `GRANT`/`DENY` on Schemas/Tables/Views, SQL Row-Level Security (RLS), Column-Level Security (CLS), OneLake path filters, and row/column constraints over Tabular Data Stream (TDS, port 1433). |
+| **Tier 5: Data Engine RBAC** | T-SQL RBAC & OneLake Storage Roles | SQL TDS Engine / OneLake Storage Engine | T-SQL `GRANT`/`DENY` on Schemas/Tables/Views, SQL Row-Level Security (RLS), Column-Level Security (CLS), OneLake path filters, and row/column constraints over Tabular Data Stream (TDS, port 1433). Enforces Role-Based Access Control (RBAC). |
 | **Tier 6: Consumption & BI** | Semantic Models & Power BI Apps | Power BI Analysis Services | Direct Lake mode, DirectQuery fallback over TDS, Entra Single Sign-On (SSO) token delegation, and dataset-level RLS/Object-Level Security (OLS). |
 
 ---
@@ -54,8 +54,8 @@ When multiple controls apply to a principal simultaneously, Microsoft Fabric eva
 To enforce granular object-level or schema-level security:
 
 1. **Keep Data Consumers Out of Workspace Roles**: Data analysts and reporting users should have **no role assignment** on the parent workspace. Grant access exclusively at the item level using `fabricext_warehouse_permission` (`role_type = "read"`) or `fabricext_lakehouse_permission`.
-2. **Beware of Workspace `Viewer` Cross-Item Leakage**: While assigning the **Viewer** role respects T-SQL permissions on a specific Warehouse, it grants read and enumeration access across **all** items in that workspace (including other Warehouses, notebooks, pipelines, and unconfigured Lakehouses). To maintain strict cross-item isolation, principals should have **no workspace role** (pure item share).
-3. **Split-Workspace Topology for Data Engineers**: If engineers require Contributor permissions to build ETL pipelines or notebooks, separate the ETL authoring workspace from the production storage workspace. Grant pipeline identities access to the warehouse item via `fabricext`, leaving the developers without administrative roles on the data-bearing workspace.
+2. **Workspace-Wide Scope of the `Viewer` Role**: While assigning the **Viewer** role respects T-SQL permissions on a specific Warehouse, it grants read and enumeration access across **all** items in that workspace (including other Warehouses, notebooks, pipelines, and unconfigured Lakehouses). To maintain strict cross-item isolation, principals should have **no workspace role** (pure item share).
+3. **Split-Workspace Topology for Data Engineers**: If engineers require Contributor permissions to build Extract, Transform, Load (ETL) pipelines or notebooks, separate the ETL authoring workspace from the production storage workspace. Grant pipeline identities access to the warehouse item via `fabricext`, leaving the developers without administrative roles on the data-bearing workspace.
 
 ---
 

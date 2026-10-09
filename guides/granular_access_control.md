@@ -9,7 +9,7 @@ description: |-
 
 This architectural guide explains the multi-layered security architecture of Microsoft Fabric across Microsoft Entra ID, workspace boundaries, item-level sharing, SQL engine permissions (T-SQL), OneLake Data Access Roles, and Power BI semantic models.
 
-It addresses how granular permissions propagate across data engines, how to manage Entra ID Object IDs vs. display names in SQL, how to isolate access to specific schemas within a Fabric Warehouse, how declarative schema migration tools like **Atlas** conceptually fit into database-level RBAC, and how [`terraform-provider-fabricext`](https://registry.terraform.io/providers/jambazid/fabricext/latest) enables an automated enterprise access model.
+It addresses how granular permissions propagate across data engines, how to manage Entra ID Object IDs vs. display names in SQL, how to isolate access to specific schemas within a Fabric Warehouse, how declarative schema migration tools like **Atlas** conceptually fit into database-level Role-Based Access Control (RBAC), and how [`terraform-provider-fabricext`](https://registry.terraform.io/providers/jambazid/fabricext/latest) enables an automated enterprise access model.
 
 ---
 
@@ -41,10 +41,10 @@ Microsoft Fabric evaluates access across six distinct security tiers. Understand
 
 | Tier | Control Type | Primary Governance Plane | Description |
 | :--- | :--- | :--- | :--- |
-| **Tier 1: Identity** | Entra ID Groups & Principals | Azure Entra ID / Graph | Authenticates users (UPN), security groups (display name), and service principals; establishes group memberships. |
+| **Tier 1: Identity** | Entra ID Groups & Principals | Azure Entra ID / Graph | Authenticates users (User Principal Name / UPN), security groups (display name), and service principals; establishes group memberships. |
 | **Tier 2: Tenant & Capacity** | Tenant Switch Overrides & Domains | Fabric Admin Portal | Controls external sharing toggles, OneLake access API switches, and capacity assignment boundaries. |
 | **Tier 3: Workspace Boundary** | Workspace Roles | Fabric Workspace API / `microsoft/fabric` | Roles: `Admin`, `Member`, `Contributor`, `Viewer`. Determines administrative and collaboration scope. |
-| **Tier 4: Item Perimeter** | Item Shares & Permissions | Fabric Item Permission API / `fabricext` | Roles: `read` (CONNECT to TDS endpoint), `read_data` (SQL DB broad read), `read_spark` (SQL DB Spark analytics), `write`, `reshare`, OneLake Data Access Roles. Controls item discovery and gateway access. |
+| **Tier 4: Item Perimeter** | Item Shares & Permissions | Fabric Item Permission API / `fabricext` | Roles: `read` (CONNECT to Tabular Data Stream / TDS endpoint), `read_data` (SQL DB broad read), `read_spark` (SQL DB Spark analytics), `write`, `reshare`, OneLake Data Access Roles. Controls item discovery and gateway access. |
 | **Tier 5: Data Engine RBAC** | T-SQL RBAC & OneLake Storage Roles | SQL TDS Engine / OneLake Storage Engine | T-SQL `GRANT`/`DENY` on Schemas/Tables/Views, SQL Row-Level Security (RLS), Column-Level Security (CLS), OneLake path filters, and row/column constraints over Tabular Data Stream (TDS, port 1433). |
 | **Tier 6: Consumption & BI** | Semantic Models & Power BI Apps | Power BI Analysis Services | Direct Lake mode, DirectQuery fallback over TDS, Entra Single Sign-On (SSO) token delegation, and dataset-level RLS/Object-Level Security (OLS). |
 
@@ -129,7 +129,7 @@ When an Entra security group receives `read` via `fabricext_warehouse_permission
 1. **OneLake Data Hub**: The Warehouse appears under the **"Shared with me"** tab and in the OneLake Data Hub catalog.
 2. **Workspace Navigation**: The user **cannot** see the parent workspace in the workspace flyout menu.
 3. **Web Query Editor**: Clicking the Warehouse opens the Web Query Editor. The object explorer renders only the schemas and tables that the user's Entra credentials have SQL permissions to view (metadata hiding). Schemas without `GRANT` permissions do not appear in the tree.
-4. **Connection Endpoints**: The user can copy the TDS connection string (`*.datawarehouse.fabric.microsoft.com`) and connect via SSMS, Azure Data Studio, VS Code, Python, or DBeaver.
+4. **Connection Endpoints**: The user can copy the TDS connection string (`*.datawarehouse.fabric.microsoft.com`) and connect via SQL Server Management Studio (SSMS), Azure Data Studio, VS Code, Python, or DBeaver.
 
 ---
 
@@ -170,7 +170,7 @@ A frequent practitioner question is how Microsoft Entra ID identities map betwee
      ```
 
    - **Why Bracketed UUIDs Fail**: T-SQL queries Microsoft Graph filtering strictly on `displayName eq '<name>'` or `userPrincipalName eq '<name>'`. It does not filter on `id eq '<guid>'`. Passing a raw UUID fails unless the object's display name literally matches that UUID string.
-   - **Duplicate Display Names**: If non-unique display names exist, use the official syntax:
+   - **Duplicate Display Names**: If duplicate display names exist in a tenant (triggering `Msg 33131: Principal '...' has a duplicate display name`), use the official syntax:
 
      ```sql
      CREATE USER [Finance-Analysts-Alias] FROM EXTERNAL PROVIDER WITH OBJECT_ID = '11111111-1111-1111-1111-111111111111';
@@ -239,15 +239,15 @@ flowchart LR
 ### Direct Lake Credential Delegation
 
 > [!WARNING]
-> **Direct Lake Default Credential Trap**:
-> In Microsoft Fabric, default Direct Lake semantic models connect using the **Fixed Identity of the Semantic Model Owner** unless Single Sign-On (SSO) is explicitly enabled on the connection. Under fixed identity, queries execute as the dataset owner (typically a workspace Admin/Contributor), **silently bypassing all OneLake Data Access Roles** configured via `fabricext_lakehouse_permission` for report viewers! Single Sign-On must be explicitly enabled.
+> **Direct Lake Identity Delegation & Fixed-Identity Risks**:
+> In Microsoft Fabric, Direct Lake semantic models operate under Single Sign-On (SSO) by default, passing the active viewer's Microsoft Entra ID token to evaluate OneLake Data Access Roles. However, if the semantic model connection is modified to use a **Fixed Identity** (such as a shared connection or model owner credentials in **Semantic Model Settings > Gateway and Cloud Connections**), Analysis Services queries OneLake as that fixed identity (often an administrative account), **bypassing all OneLake Data Access Roles** configured via `fabricext_lakehouse_permission` for report viewers. Maintain Single Sign-On on the Direct Lake connection whenever granular OneLake roles must govern end-user data visibility.
 
 Key query execution rules:
 
 - **Direct Lake on OneLake**: Operates exclusively in `DirectLakeOnly` mode and does **not** fall back to DirectQuery. Unsupported DAX functions or security rules return a query error.
 - **DirectQuery Fallback on Warehouses**: When a semantic model queries a Warehouse with SQL RLS/CLS, Power BI automatically falls back from Direct Lake to DirectQuery over TDS (port 1433).
-  - *Without SSO*: Queries run as the model owner (`db_owner`), causing silent privilege escalation.
-  - *With SSO*: All report viewers must hold an item-level `read` permission (`fabricext_warehouse_permission`) AND database-level T-SQL grants.
+  - *Without SSO*: Queries run as the model owner (`db_owner`), causing unintended query execution under elevated dataset-owner privileges.
+  - *With SSO*: All report viewers must hold an item-level `read` permission (`fabricext_warehouse_permission`) AND database-level T-SQL grants. Configure SSO in **Workspace > Semantic Model > Settings > Gateway and cloud connections > Data source credentials > Edit credentials > Advanced > check "Report viewers can only access this data source with their own Power BI identities using Direct Query"**.
 
 ---
 

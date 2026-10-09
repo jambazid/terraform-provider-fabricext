@@ -110,17 +110,11 @@ module "workspace_permissions" {
 
     lakehouses = {
       raw_lakehouse = {
-        roles = {
-          raw_readers = {
-            paths   = ["*"]
-            actions = ["Read"]
-            members = [
-              {
-                id   = "11111111-1111-1111-1111-111111111111"
-                type = "Group"
-              }
-            ]
-          }
+        RawReaders = {
+          paths          = ["/Tables/customers", "/Files/landing"]
+          actions        = ["Read"]
+          principal_ids  = ["11111111-1111-1111-1111-111111111111"]
+          principal_type = "Group"
         }
       }
     }
@@ -134,7 +128,7 @@ module "workspace_permissions" {
 
 ## Lakehouse Member Type Uniformity
 
-~> **Note:** **Lakehouse Member Type Uniformity**: In simple mode (`principal_ids`), Microsoft Fabric OneLake Data Access Roles require uniform `principal_type` per role resource. In advanced mode (`entra_member` blocks), heterogeneous member types (Users, Groups, Service Principals, and Managed Identities) are natively supported on the same role.
+~> **Note:** **Member Type Uniformity & Advanced Mode**: In simple mode (`principal_ids`), OneLake Data Access Roles require uniform `principal_type` per role. For heterogeneous member types on the same role, use advanced mode. In `modules/permissions`, advanced configuration uses plural map attributes (`entra_members`, `decision_rules`, `fabric_item_members`), which the module projects to singular resource blocks (`entra_member`, `decision_rule`, `fabric_item_member`) as detailed in the **[Lakehouse OneLake Security Guide](use_case_lakehouse_onelake_security.md)**.
 
 ---
 

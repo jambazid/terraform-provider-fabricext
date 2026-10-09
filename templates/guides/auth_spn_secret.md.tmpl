@@ -11,7 +11,7 @@ This guide explains how to authenticate the `fabricext` provider using a Microso
 
 ## Prerequisites
 
-1. An Azure App Registration with permissions granted in Microsoft Fabric (under **Tenant Settings > Developer Settings > Service principals can use Fabric APIs**).
+1. An Azure App Registration with permissions granted in Microsoft Fabric (under **Settings (gear icon) > Admin portal > Tenant settings > Developer settings > Service principals can use Fabric APIs**).
 2. The Tenant ID (directory ID), Client ID (application ID), and a generated Client Secret.
 
 ## Example Configuration

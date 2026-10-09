@@ -53,10 +53,10 @@ Analyst               Power BI Service (Analysis Services)   Warehouse SQL Engin
    │◄── 5. Render Visual ─────────────│
 ```
 
-!> **Warning:** **Power BI Service SSO Configuration Required**: When configuring a semantic model connected to a Warehouse or SQL Analytics endpoint in the Power BI Service, administrators **must check the box**: *"Report viewers can only access this data source with their own Power BI identities using Direct Query"* (Single Sign-On / SSO).
+!> **Warning:** **Power BI Service SSO Configuration Required**: When configuring a semantic model connected to a Warehouse or SQL Analytics endpoint in the Power BI Service (**Workspace > Semantic Model > Settings > Gateway and cloud connections > Data source credentials > Edit credentials > Advanced**), administrators **must check the box**: *"Report viewers can only access this data source with their own Power BI identities using Direct Query"* (Single Sign-On / SSO).
 
 **Dual Consequence of DirectQuery Fallback**:
-- **Without SSO**: If Single Sign-On is not enabled, Power BI executes all report queries using the fixed credentials of the dataset owner. Because dataset creators typically hold workspace Contributor or Admin roles (`db_owner`), **queries run as `db_owner`, completely bypassing the end-user's T-SQL RLS predicates and schema isolation** (silent privilege escalation).
+- **Without SSO**: If Single Sign-On is not enabled, Power BI executes all report queries using the fixed credentials of the dataset owner. Because dataset creators typically hold workspace Contributor or Admin roles (`db_owner`), **queries run as `db_owner`, completely bypassing the end-user's T-SQL RLS predicates and schema isolation** (unintended query execution under elevated dataset-owner privileges).
 - **With SSO**: When Single Sign-On is enabled, every report viewer must hold an item-level `read` permission (`fabricext_warehouse_permission` granting TDS `CONNECT`) AND database-level T-SQL grants. Users granted report access in Power BI without an underlying item share will experience visual errors (`Cannot connect to the data source`).
 
 ### Identity & Enforcement Rules
@@ -86,13 +86,13 @@ Analyst               Power BI Direct Lake (Analysis Services) OneLake Storage S
    │◄── 5. Render Visual ─────────────│
 ```
 
-!> **Warning:** **Direct Lake Default Credential Trap**: In Microsoft Fabric, default Direct Lake semantic models default to the **Fixed Identity of the Semantic Model Owner** unless Single Sign-On (SSO) is explicitly configured on the cloud connection in the Power BI Service. Under fixed identity, Analysis Services queries OneLake as the model owner (typically a workspace Admin/Contributor), **silently bypassing all OneLake Data Access Roles** configured via `fabricext_lakehouse_permission` for report viewers! Single Sign-On must be explicitly enabled on the Direct Lake connection.
+!> **Warning:** **Direct Lake Identity Delegation & Fixed-Identity Risks**: In Microsoft Fabric, Direct Lake semantic models operate under Single Sign-On (SSO) by default, passing the active viewer's Microsoft Entra ID token to evaluate OneLake Data Access Roles. However, if the semantic model connection is modified to use a **Fixed Identity** (such as a shared connection or model owner credentials in **Semantic Model Settings > Gateway and Cloud Connections**), Analysis Services queries OneLake as that fixed identity (often an administrative account), **bypassing all OneLake Data Access Roles** configured via `fabricext_lakehouse_permission` for report viewers. Maintain Single Sign-On on the Direct Lake connection whenever granular OneLake roles must govern end-user data visibility.
 
 ### OneLake Enforcement Rules
 
 1. **Storage-Level Access**: Analysis Services reads Delta Lake Parquet metadata and columnar files directly from OneLake storage without passing through a SQL query engine.
 2. **OneLake Role Enforcement**: OneLake evaluates the user's Entra identity against the Lakehouse's **OneLake Data Access Roles** (configured via `fabricext_lakehouse_permission`).
-3. **No DirectQuery Fallback on OneLake**: Direct Lake on OneLake operates exclusively in `DirectLakeOnly` mode. If a query encounters unsupported operations, guardrail violations, or security incompatibilities, **the query fails with an error**. DirectQuery fallback is physically unavailable in this mode because the model is bound to storage endpoints rather than a relational TDS endpoint.
+3. **No DirectQuery Fallback on OneLake**: Direct Lake on OneLake operates exclusively in `DirectLakeOnly` mode. If a query encounters unsupported operations, guardrail violations, or security incompatibilities, **the query fails with an error**. DirectQuery fallback is not supported in this mode because the model binds directly to storage files rather than a relational TDS endpoint.
 
 ---
 

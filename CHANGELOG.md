@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
-## v0.2.1 - October 08, 2026
+## v0.2.1 - October 09, 2026
 
 ### 📚 Documentation
 
@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * Streamline the Terraform Registry landing page into a lean, single-example introduction matching the official provider structure, moving detailed material into dedicated guides.
 * Add dedicated documentation guides for the Entra ID authentication and credential chain (`guides/authentication.md`) and declarative permission matrix composition (`guides/matrix_composition.md`).
 * Redesign comparison tables in `guides/official_provider_comparison.md` to eliminate horizontal scrollbars and ensure responsive presentation on the Terraform Registry.
+
+### 🚨 Security
+
+* Bump `golang.org/x/net` from `v0.58.0` to `v0.60.0` to resolve `CVE-2026-78669` (HTTP/2 SETTINGS DoS).
 
 ## v0.2.0 - October 08, 2026
 

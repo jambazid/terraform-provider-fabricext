@@ -23,7 +23,7 @@ When no static token is configured, the provider evaluates credentials in the fo
 | **2** | **Client Certificate** | `client_certificate`, `client_certificate_file_path`, `client_certificate_password` or `FABRIC_CLIENT_CERTIFICATE_*` | [Guide](auth_spn_cert.md) |
 | **3** | **Client Secret** | `client_id`, `client_secret`, `tenant_id` (plus `*_file_path` variants) or `FABRIC_*` / `AZURE_*` / `ARM_*` | [Guide](auth_spn_secret.md) |
 | **4** | **Azure DevOps OIDC** | `azure_devops_service_connection_id`, `oidc_request_token` or `SYSTEM_ACCESSTOKEN` | [Guide](auth_azure_devops.md) |
-| **5** | **Workload Identity (OIDC)** | `use_oidc = true`, `oidc_token`, `oidc_token_file_path` or `AZURE_FEDERATED_TOKEN_FILE` | [Guide](auth_spn_oidc.md) |
+| **5** | **Workload Identity (OIDC)** | `use_oidc = true` (requires `client_id`, `tenant_id`, plus `oidc_token`, `oidc_token_file_path` or `AZURE_FEDERATED_TOKEN_FILE`) | [Guide](auth_spn_oidc.md) |
 | **6** | **Managed Identity (MSI)** | `use_msi = true`, optional `client_id` for User-Assigned MSI or `FABRIC_USE_MSI` | [Guide](auth_msi.md) |
 | **7** | **Azure Developer CLI** | `use_dev_cli = true` or `FABRIC_USE_DEV_CLI=true` | *Local `azd`* |
 | **8** | **Azure CLI (`az login`)** | `use_cli = true` (default) or `FABRIC_USE_CLI` | *Interactive `az`* |

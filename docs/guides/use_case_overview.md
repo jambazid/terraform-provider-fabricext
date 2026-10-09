@@ -18,7 +18,7 @@ Security in Microsoft Fabric is governed by six decoupled, cascading evaluation 
 ```text
 +--------------------------------------------------------------------------+
 | Tier 1: Identity & Directory Perimeter (Microsoft Entra ID)              |
-| - User accounts (UPN), Security Groups (display name), Service Principals|
+| - User accounts (UserPrincipalName / UPN), Security Groups (display name)|
 | - Multi-factor authentication (MFA) & Conditional Access Policies        |
 +--------------------------------------------------------------------------+
                                      │
@@ -39,14 +39,14 @@ Security in Microsoft Fabric is governed by six decoupled, cascading evaluation 
                                      ▼
 +--------------------------------------------------------------------------+
 | Tier 4: Item Perimeter (fabricext Sharing & Discovery)                   |
-| - Warehouse: 'read' (CONNECT to TDS endpoint), 'write', 'reshare'        |
+| - Warehouse: 'read' (CONNECT to Tabular Data Stream / TDS endpoint)      |
 | - SQL Database: 'read', 'read_data', 'read_spark', 'write', 'reshare'    |
 | - Lakehouse: OneLake Data Access Roles (path & action scopes)            |
 +--------------------------------------------------------------------------+
                                      │
                                      ▼
 +--------------------------------------------------------------------------+
-| Tier 5: Engine & Storage RBAC                                            |
+| Tier 5: Engine & Storage RBAC (Role-Based Access Control)                |
 | ├─ Warehouse / SQL DB: T-SQL Permissions Engine                          |
 | │  - GRANT / DENY on Schema, Table, View over TDS (port 1433)            |
 | │  - T-SQL Row-Level Security (RLS) & Column-Level Security (CLS)        |
@@ -78,7 +78,7 @@ The following matrix maps enterprise access control requirements to their Micros
 | :--- | :--- | :--- | :--- |
 | **Broad Workspace Access**<br/>User needs to read or collaborate on all items across a workspace. | Assign **Viewer** (read-only) or **Contributor** (read/write) workspace role. | **Tier 3 (Workspace)**<br/>Workspace role assignment via Fabric Portal or `microsoft/fabric`. | **Out of Scope**<br/>Handled by official `fabric_workspace_role_assignment`. |
 | **Warehouse Schema Isolation**<br/>User needs access to schema `finance` only; all other schemas (`hr`, `sales`) must be denied. | Grant item **`read`** (connectivity only) + create Entra DB user + grant T-SQL schema permissions. | **Tier 4 (Item Share) + Tier 5 (SQL Engine)**<br/>Item share grants Tabular Data Stream (TDS, port 1433) `CONNECT`; default-deny SQL engine restricts data access. | **Item Connectivity Gate**<br/>`fabricext_warehouse_permission` (`role_type = "read"`) grants TDS connection without granting `db_owner` rights. *(Note: Warehouses support `ReadData` platform-wide; `fabricext` restricts to `read` to enforce schema isolation).* |
-| **SQL Database Broad Access**<br/>User needs read access across all tables in a Fabric SQL Database. | Grant item-level **`read_data`** share on the SQL database item. | **Tier 4 (Item Share)**<br/>Item permission grants connectivity and broad data access across all tables in the operational OLTP database. | **Direct**<br/>`fabricext_sql_database_permission` (`role_type = "read_data"`). |
+| **SQL Database Broad Access**<br/>User needs read access across all tables in a Fabric SQL Database. | Grant item-level **`read_data`** share on the SQL database item. | **Tier 4 (Item Share)**<br/>Item permission grants connectivity and broad data access across all tables in the operational Online Transaction Processing (OLTP) database. | **Direct**<br/>`fabricext_sql_database_permission` (`role_type = "read_data"`). |
 | **SQL Database Spark Analytics**<br/>Spark notebooks require read access to OneLake mirrored database data. | Grant item-level **`read_spark`** share on the SQL database item. | **Tier 4 (Item Share) + Tier 5 (Storage)**<br/>Grants Spark access to near-real-time mirrored Parquet data and event subscriptions. | **Direct**<br/>`fabricext_sql_database_permission` (`role_type = "read_spark"`). |
 | **Object-Level Security (OLS)**<br/>User can access specific tables or views within a schema, but sensitive tables are hidden. | Item **`read`** + T-SQL `GRANT SELECT ON table/view`. | **Tier 5 (SQL Engine)**<br/>SQL metadata hiding ensures unpermitted tables are invisible in `sys.tables`. | **Item Connectivity Gate**<br/>`fabricext_warehouse_permission` (`role_type = "read"`). |
 | **SQL Row/Column Security (RLS/CLS)**<br/>Warehouse user should only see regional rows or cannot see credit card columns. | Item **`read`** + T-SQL Security Policies (predicate function) & `DENY SELECT ON table(col)`. | **Tier 5 (SQL Engine)**<br/>T-SQL execution engine filters rows/columns at query runtime. | **Item Connectivity Gate**<br/>`fabricext_warehouse_permission` (`role_type = "read"`). |

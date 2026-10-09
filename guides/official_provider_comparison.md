@@ -2,12 +2,12 @@
 page_title: "Official Fabric Provider Comparison & Migration Guide"
 subcategory: "Architecture & Migration"
 description: |-
-  Comparative architecture analysis between Microsoft's official Terraform provider (microsoft/fabric) and the jambazid/fabricext item-sharing stopgap provider, including dual-provider coexistence and Terraform 1.7+ state migration playbooks for Lakehouses, Warehouses, and SQL Databases.
+  Comparative architecture analysis between Microsoft's official Terraform provider (microsoft/fabric) and the jambazid/fabricext community extension provider, including dual-provider coexistence and Terraform 1.7+ state migration playbooks for Lakehouses, Warehouses, and SQL Databases.
 ---
 
 # Official Fabric Provider Comparison
 
-Comparative architecture analysis between Microsoft's official Terraform provider ([`microsoft/terraform-provider-fabric`](https://github.com/microsoft/terraform-provider-fabric), `registry.terraform.io/microsoft/fabric`) and this stopgap item-sharing provider (`registry.terraform.io/jambazid/fabricext`).
+Comparative architecture analysis between Microsoft's official Terraform provider ([`microsoft/terraform-provider-fabric`](https://github.com/microsoft/terraform-provider-fabric), `registry.terraform.io/microsoft/fabric`) and this community extension provider (`registry.terraform.io/jambazid/fabricext`).
 
 ---
 
@@ -17,8 +17,8 @@ Comparative architecture analysis between Microsoft's official Terraform provide
 | :--- | :--- | :--- |
 | **Scope** | Workspace and item lifecycle provisioning | Declarative item-level sharing & OneLake roles |
 | **API Layer** | Bound to generated `fabric-sdk-go` client | Targeted REST/RPC client unblocking item permissions |
-| **OneLake Roles** | Preview-only, affected by `objectType` drift | GA endpoints, mutex + ETag RMW, dual-mode RLS/CLS |
-| **Testing** | Struct stubs; live cloud required for acceptance | Hermetic `fabricmock` + runtime `kin-openapi` validation |
+| **OneLake Roles** | Preview endpoints; strict object type validation | GA endpoints, mutex + ETag Read-Modify-Write (RMW), dual-mode RLS/CLS |
+| **Testing** | In-memory SDK fake clients; live cloud required for acceptance | Hermetic `fabricmock` + runtime `kin-openapi` validation |
 
 ### Architectural Trade-Off Analysis
 
@@ -37,7 +37,7 @@ Comparative architecture analysis between Microsoft's official Terraform provide
 
 Microsoft Fabric exposes item-level permission endpoints (`GET /permissions`, `POST /grantPermissions`, `POST /revokePermissions`) for Warehouses and SQL Databases, but the official provider does not currently offer resources managing these item-level permissions.
 
-1. **Swagger & SDK Generation Bottleneck**:
+1. **Upstream OpenAPI & SDK Code Generation Lifecycle**:
    - `microsoft/terraform-provider-fabric` delegates all HTTP calls to `github.com/microsoft/fabric-sdk-go`.
    - `fabric-sdk-go` is strictly code-generated from [`microsoft/fabric-rest-api-specs`](https://github.com/microsoft/fabric-rest-api-specs).
    - Because `warehouse/swagger.json` and `sqlDatabase/swagger.json` do not yet include the `/permissions`, `/grantPermissions`, and `/revokePermissions` path definitions, `fabric-sdk-go` exposes no client methods for them, blocking the official provider.
@@ -45,7 +45,7 @@ Microsoft Fabric exposes item-level permission endpoints (`GET /permissions`, `P
 2. **Additive Grant vs. Declarative Reconciliation**:
    - Fabric's `POST /grantPermissions` endpoint is **additive**: calling `grantPermissions` with `["Read"]` on a principal that currently holds `["Read", "Write", "Reshare"]` leaves `"Write"` and `"Reshare"` intact.
    - `jambazid/fabricext` bridges this gap via a formal OpenAPI overlay (`specs/openapi/overlays/item-permissions.json`) and set-difference reconciliation in `FabricClient.UpdateItemPermissions`:
-     - Revokes removed permissions first (`current \ target`) under the Downgrade Revocation Law so downgrades never leave excess privileges.
+     - Revokes removed permissions first (`current \ target`) under declarative downgrade reconciliation so downgrades never leave excess privileges.
      - Grants target permissions (`target`) to establish the complete desired state.
 
 ```mermaid
@@ -72,7 +72,7 @@ sequenceDiagram
 | **Item Identification** | UUID only (`item_id`) | UUID (`lakehouse_id`) or display name (`lakehouse_name`) |
 | **RLS & CLS** | Supported in `decision_rules` | Supported in `decision_rule` blocks (100% parity) |
 | **Members & Shortcuts** | Entra members and shortcut items | Entra members and shortcut items (`fabric_item_member`) |
-| **Concurrency** | Direct uncoordinated API calls | Per-Lakehouse mutex + `If-Match` ETag RMW retry |
+| **Concurrency** | Direct API calls without client-side serialization | Per-Lakehouse mutex + `If-Match` ETag Read-Modify-Write (RMW) retry |
 | **Read-Back Drift** | Fails on omitted `objectType` ([#1044](https://github.com/microsoft/terraform-provider-fabric/issues/1044)) | Preserves `PrincipalType` on empty API read-back |
 | **Import ID** | `{workspace_id}/{item_id}/{role_name}` | `{workspace_id}/{lakehouse_id}/{role_name}` (100% parity) |
 
@@ -167,7 +167,7 @@ flowchart LR
         A3["Acceptance Tests (TF_ACC=1)"] --> A4["Live Azure & Fabric Capacity Required"]
     end
 
-    subgraph Stopgap["jambazid/terraform-provider-fabricext"]
+    subgraph Community["jambazid/terraform-provider-fabricext"]
         B1["Unit & TF_ACC=1 Tests"] --> B2["fabricmock (httptest.Server)"]
         B2 --> B3["kin-openapi (openapi3filter)<br/>Request & Response Validation"]
         B3 --> B4["Vendored specs/openapi/*.json<br/>+ SHA-256 lock.json"]
@@ -183,6 +183,9 @@ flowchart LR
 ## State Migration Playbook
 
 When `microsoft/fabric` promotes OneLake Data Access Security to GA and adds native Warehouse/SQL Database item-permission resources, practitioners can migrate state with **zero permission revocation or downtime** using Terraform 1.7+ `removed` and `import` blocks.
+
+> [!IMPORTANT]
+> **Terraform Version Prerequisite**: Declarative `removed` blocks with `lifecycle { destroy = false }` require Terraform `>= 1.7.0`. For deployments running Terraform 1.6.x, practitioners should use the imperative CLI command `terraform state rm <resource_address>` prior to applying the target `import` block.
 
 > [!TIP]
 > **Retrieving Resolved Item UUIDs Before Migration**: Every `jambazid/fabricext` permission resource stores the resolved Fabric item UUID in state (`lakehouse_id`, `warehouse_id`, or `sql_database_id`). Before replacing a `fabricext_*` resource block, inspect state with `terraform state show` (or reference `data.fabricext_item`) to obtain the item UUID for your `import` block.
@@ -259,7 +262,7 @@ import {
 | `write` | `["Read", "Write"]` | Read and modify SQL Database schema and data. |
 | `reshare` | `["Read", "Reshare"]` | Read and re-share the SQL Database with additional principals. |
 
-When `microsoft/fabric` ships native SQL Database item permission resources, detach the stopgap resource with `destroy = false` and import the existing SQL Database grant:
+When `microsoft/fabric` ships native SQL Database item permission resources, detach the `fabricext` resource with `destroy = false` and import the existing SQL Database grant:
 
 > [!NOTE]
 > **Illustrative Migration Pseudocode**: The `fabric_item_permission` resource block below is conceptual pseudocode illustrating the Terraform 1.7+ migration pattern. Upstream resource names, schemas, and import ID conventions have not yet been defined by Microsoft.
