@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 📚 Documentation
 
 * Add comprehensive enterprise access control and security guides under the "Use Cases" documentation category covering the 6-tier perimeter stack, Warehouse schema isolation via role_type = "read", Entra ID Object ID binding in T-SQL, OneLake Data Access Roles, Power BI Direct Lake vs. DirectQuery identity propagation, and declarative Atlas schema-as-code integration.
+* Streamline the Terraform Registry landing page into a lean, single-example introduction matching the official provider structure, moving detailed material into dedicated guides.
+* Add dedicated documentation guides for the Entra ID authentication and credential chain (`guides/authentication.md`) and declarative permission matrix composition (`guides/matrix_composition.md`).
+* Redesign comparison tables in `guides/official_provider_comparison.md` to eliminate horizontal scrollbars and ensure responsive presentation on the Terraform Registry.
 
 ## v0.2.0 - October 08, 2026
 

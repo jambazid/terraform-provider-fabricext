@@ -13,12 +13,21 @@ Comparative architecture analysis between Microsoft's official Terraform provide
 
 ## Executive Summary
 
-| Dimension | `microsoft/fabric` (Official) | `jambazid/fabricext` (Stopgap) | Cost | Impact | Risk |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **Primary Scope** | Workspace & item lifecycle provisioning (`fabric_workspace`, `fabric_warehouse`, `fabric_lakehouse`, `fabric_sql_database`, `fabric_workspace_role_assignment`). | Declarative item-level sharing (`fabricext_warehouse_permission`, `fabricext_sql_database_permission`, `fabricext_lakehouse_permission`). | Low | High — fills upstream item-sharing gap for Warehouses and SQL Databases, and provides OneLake Data Access Roles for Lakehouses (clarifying [Issue #425](https://github.com/microsoft/terraform-provider-fabric/issues/425) where Lakehouse item-level sharing has no public API). | Low — zero resource-name collision (`fabricext_*` prefix). |
-| **SDK & API Layer** | 100% bound to generated `microsoft/fabric-sdk-go` service clients. Cannot call REST endpoints absent from `microsoft/fabric-rest-api-specs`. | Uses `microsoft/fabric-sdk-go` models + `azidentity` with a targeted REST/RPC client (`internal/client/fabric_client.go`) for item permission and OneLake ETag RMW operations. | Low | High — unblocks `/permissions`, `/grantPermissions`, and `/revokePermissions` before upstream SDK generation lands. | Low — validated against vendored OpenAPI specs + overlay (`specs/openapi/`). |
-| **OneLake Data Access Roles** | `fabric_onelake_data_access_security` (Preview-only, requires `preview = true`; affected by `object_type` drift in [Issue #1044](https://github.com/microsoft/terraform-provider-fabric/issues/1044)). | `fabricext_lakehouse_permission` (GA `GET`/`PUT /dataAccessRoles` with per-Lakehouse mutex, `If-Match` ETag RMW, dual-mode simple/advanced RLS & CLS, and direct ID support). | Low | High — safe under parallel `for_each` without preview-mode gating. | Low — shares identical `{workspace_id}/{lakehouse_id}/{role_name}` import ID for zero-destroy migration. |
-| **Contract & Acceptance Testing** | Unit tests use compile-time `fabcore/fake` Go struct stubs; acceptance tests require live Azure/Fabric capacities. | All API client tests and `TF_ACC=1` acceptance tests communicating with Fabric endpoints validate wire payloads at runtime through `kin-openapi` (`openapi3filter`) against `specs/openapi/`. | Low | High — catches wire-level schema regressions offline in < 10s. | Low — `mise run specs:sync` detects upstream Swagger drift. |
+| Dimension | `microsoft/fabric` (Official) | `jambazid/fabricext` (Community) |
+| :--- | :--- | :--- |
+| **Scope** | Workspace and item lifecycle provisioning | Declarative item-level sharing & OneLake roles |
+| **API Layer** | Bound to generated `fabric-sdk-go` client | Targeted REST/RPC client unblocking item permissions |
+| **OneLake Roles** | Preview-only, affected by `objectType` drift | GA endpoints, mutex + ETag RMW, dual-mode RLS/CLS |
+| **Testing** | Struct stubs; live cloud required for acceptance | Hermetic `fabricmock` + runtime `kin-openapi` validation |
+
+### Architectural Trade-Off Analysis
+
+| Dimension | Cost | Impact | Risk |
+| :--- | :--- | :--- | :--- |
+| **Item Sharing Scope** | Low | High: Unblocks item-level sharing and OneLake roles | Low: Distinct `fabricext_*` prefix |
+| **Targeted REST Client** | Low | High: Enables endpoints absent from upstream Swagger | Low: OpenAPI contract validation |
+| **OneLake Concurrency** | Low | High: Race-safe updates under parallel `for_each` | Low: Identical import ID format |
+| **Offline Test Suite** | Low | High: Sub-10s hermetic `TF_ACC=1` acceptance testing | Low: Continuous Swagger sync checks |
 
 ---
 
@@ -62,14 +71,14 @@ Terraform (jambazid/fabricext)                     Fabric REST API (/permissions
 
 | Aspect | `microsoft/fabric` (`fabric_onelake_data_access_security`) | `jambazid/fabricext` (`fabricext_lakehouse_permission`) |
 | :--- | :--- | :--- |
-| **Maturity Gate** | Preview-only; fails at plan/apply unless `provider "fabric" { preview = true }` is set. | Available by default using the GA `GET` and `PUT /dataAccessRoles` endpoints (`platform/swagger.json`). |
-| **Resource Granularity & Modes** | Single-mode nested `decision_rules` and `members` blocks. | Dual-mode: simple flat mode (`paths`, `actions`, `principal_ids`, `principal_type`) or advanced structured mode (`decision_rule`, `row_constraint`, `column_constraint`, `entra_member`, `fabric_item_member`). |
-| **Item Identification** | Accepts `item_id` (UUID). | Accepts either `lakehouse_id` (UUID) or `lakehouse_name` (display name resolved via type-isolated cache). |
-| **Row & Column Level Security (RLS/CLS)** | Supported via `row_constraints` and `column_constraints` in `decision_rules`. | Supported via `row_constraint` and `column_constraint` in `decision_rule` blocks (100% parity). |
-| **Mixed Entra Members & Shortcuts** | Supported via `members.microsoft_entra_members` and `fabric_item_members`. | Supported via `entra_member` (heterogeneous types/tenants) and `fabric_item_member` (shortcut inheritance). |
-| **Concurrent `for_each` Safety** | Direct API calls without cross-resource in-process mutex coordination. | Keyed per-Lakehouse `sync.Mutex` (`workspaceID + "/" + lakehouseID`) + `If-Match` ETag optimistic concurrency with bounded `412 Precondition Failed` retry. |
-| **Read-Back `objectType` Bug ([Issue #1044](https://github.com/microsoft/terraform-provider-fabric/issues/1044))** | Fails with `Provider produced inconsistent result after apply` when the Fabric `GET /dataAccessRoles` API omits `objectType` in `microsoftEntraMembers`. | Preserves `state.PrincipalType` when the API response omits `objectType` on read-back (`internal/provider/lakehouse_permission_resource.go`). |
-| **Import ID Format** | `{workspace_id}/{item_id}/{role_name}` | `{workspace_id}/{lakehouse_id}/{role_name}` (100% compatible). |
+| **Maturity Gate** | Preview-only (`preview = true`) | GA endpoints by default |
+| **Resource Modes** | Single-mode nested blocks | Dual-mode: simple flat or advanced structured |
+| **Item Identification** | UUID only (`item_id`) | UUID (`lakehouse_id`) or display name (`lakehouse_name`) |
+| **RLS & CLS** | Supported in `decision_rules` | Supported in `decision_rule` blocks (100% parity) |
+| **Members & Shortcuts** | Entra members and shortcut items | Entra members and shortcut items (`fabric_item_member`) |
+| **Concurrency** | Direct uncoordinated API calls | Per-Lakehouse mutex + `If-Match` ETag RMW retry |
+| **Read-Back Drift** | Fails on omitted `objectType` ([#1044](https://github.com/microsoft/terraform-provider-fabric/issues/1044)) | Preserves `PrincipalType` on empty API read-back |
+| **Import ID** | `{workspace_id}/{item_id}/{role_name}` | `{workspace_id}/{lakehouse_id}/{role_name}` (100% parity) |
 
 #### OneLake Roles vs Item Sharing
 
@@ -105,9 +114,9 @@ Practitioners frequently run `microsoft/fabric` (to provision workspaces and ite
 
 Because `jambazid/fabricext` resources accept human-readable item names (`warehouse_name`, `sql_database_name`, `lakehouse_name`) and resolve them via a paginated, type-isolated `(workspaceID, itemType, displayName)` cache, referencing `display_name` from a `microsoft/fabric` resource automatically establishes the Terraform dependency graph edge:
 
-```hcl
+```terraform
 terraform {
-  required_version = ">= 1.7.0"
+  required_version = ">= 1.6.0"
   required_providers {
     fabric = {
       source  = "microsoft/fabric"
@@ -120,21 +129,34 @@ terraform {
   }
 }
 
+# Both providers authenticate against the same tenant using shared environment variables
+# (FABRIC_CLIENT_ID, FABRIC_CLIENT_SECRET, FABRIC_TENANT_ID) or native Azure CLI sessions.
 provider "fabric" {}
 provider "fabricext" {}
 
+# Provision the Warehouse using Microsoft's official provider:
 resource "fabric_warehouse" "sales" {
   workspace_id = var.workspace_id
   display_name = "sales_wh"
 }
 
+# Declaratively manage item-level sharing using fabricext:
 resource "fabricext_warehouse_permission" "analysts" {
-  provider       = fabricext
   workspace_id   = fabric_warehouse.sales.workspace_id
   warehouse_name = fabric_warehouse.sales.display_name
-  principal_id   = var.analysts_group_oid
+  principal_id   = var.analysts_group_id
   principal_type = "Group"
   role_type      = "read"
+}
+
+variable "workspace_id" {
+  type        = string
+  description = "Microsoft Fabric workspace UUID."
+}
+
+variable "analysts_group_id" {
+  type        = string
+  description = "Microsoft Entra ID group UUID."
 }
 ```
 
@@ -144,11 +166,11 @@ resource "fabricext_warehouse_permission" "analysts" {
 
 | Pattern | `microsoft/fabric` Convention | `jambazid/fabricext` Convention | Trade-Off & Rationale |
 | :--- | :--- | :--- | :--- |
-| **Principal Modeling** | Single nested attribute: `principal = { id = "...", type = "Group" }`. | Flat attributes: `principal_id = "..."` and `principal_type = "Group"` (default `"Group"`). | **Cost**: None. **Impact**: Flat attributes simplify `for_each` matrix mapping (`modules/permissions`) and default to Entra Security Groups (`"Group"`). **Risk**: Documented in migration playbook below. |
-| **Item Identification** | Requires `item_id` / `warehouse_id` UUID on every resource. | Accepts `warehouse_name` / `sql_database_name` / `lakehouse_name` (`Required`) and populates `*_id` (`Computed`, `UseStateForUnknown`). | **Cost**: 1 cached `GET /items?type={type}` call per workspace/type. **Impact**: Eliminates extra data-source boilerplate when sharing existing items by name. **Risk**: Item renames outside Terraform are detected on `Read` and trigger resource replacement (`RequiresReplace`). |
-| **UUID Validation** | Custom Framework type `customtypes.UUID` (`google/uuid`). | `stringvalidator.RegexMatches` canonical UUID regex (`^[0-9a-fA-F]{8}-...$`). | **Cost**: Low. **Impact**: Equivalent plan-time validation with zero third-party custom-type coupling. **Risk**: Case-insensitive comparison handled via `strings.EqualFold` in `FabricClient`. |
-| **404 Drift Recovery** | Calls `resp.State.RemoveResource(ctx)` when `Read` returns HTTP `404`. | Calls `resp.State.RemoveResource(ctx)` when `Read` returns HTTP 404 (`client.IsNotFound(err)`). | **100% Aligned** — both providers cleanly plan recreation when an item or role is deleted outside Terraform. |
-| **Import State IDs** | Slash-delimited composite UUIDs (`workspace_id/item_id/...`). | Slash-delimited composite IDs (`{workspace_id}/{item_id}/{principal_type}/{principal_id}` and `{workspace_id}/{lakehouse_id}/{role_name}`). | **100% Aligned** — both `ImportState` and `Read` call `GetItemByID` to resolve and refresh the human-readable `*_name` attribute from the Fabric item's `displayName`. |
+| **Principal Modeling** | Nested attribute `principal = { id, type }` | Flat `principal_id` and `principal_type` | Flat attributes simplify `for_each` mapping and module flattening |
+| **Item Identification** | Requires `item_id` UUID | Accepts display name or UUID | Eliminates data source boilerplate; resolves via type-isolated cache |
+| **UUID Validation** | Custom `customtypes.UUID` type | `stringvalidator.RegexMatches` regex | Plan-time validation without third-party type coupling |
+| **404 Drift Recovery** | `resp.State.RemoveResource(ctx)` | `resp.State.RemoveResource(ctx)` | 100% aligned: both cleanly plan recreation on external deletion |
+| **Import State IDs** | Slash-delimited composite UUIDs | Slash-delimited composite IDs | 100% aligned: identical IDs enable zero-downtime state migration |
 
 ---
 

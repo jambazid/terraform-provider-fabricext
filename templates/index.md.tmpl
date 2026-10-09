@@ -6,151 +6,48 @@ description: |-
 
 # Fabric Extensions Provider
 
-~> **Warning:** **Pre-Alpha & Community Extension Notice**: `fabricext` (`v0.x`) is a purpose-built community provider for declaratively managing Microsoft Fabric item-level sharing and OneLake Data Access Roles (`fabricext_warehouse_permission`, `fabricext_sql_database_permission`, `fabricext_lakehouse_permission`, and `fabricext_item`) until equivalent resources land in Microsoft's official [`microsoft/fabric`](https://registry.terraform.io/providers/microsoft/fabric/latest) provider. Workspace provisioning and item lifecycles should be managed via `microsoft/fabric`.
+~> **Warning:** **Community Extension Notice**: `fabricext` (`v0.x`) is a community provider for declaratively managing Microsoft Fabric item-level sharing and OneLake Data Access Roles (`fabricext_warehouse_permission`, `fabricext_sql_database_permission`, `fabricext_lakehouse_permission`, and `fabricext_item`) until equivalent resources are available in Microsoft's official [`microsoft/fabric`](https://registry.terraform.io/providers/microsoft/fabric/latest) provider. Workspace provisioning and item lifecycles should be managed via `microsoft/fabric`.
 
 {{ .Description | trimspace }}
 
 ## Example Usage
 
-### Automatic Credential Chain
-
 {{ tffile "examples/provider/provider.tf" }}
 
-### Azure CLI (Default Interactive)
+## Authentication
 
-{{ tffile "examples/provider/azure_cli.tf" }}
+The provider supports Microsoft Entra ID authentication via the official Azure Go SDK (`azidentity`). Authentication methods are evaluated automatically in priority order. Sensitive credentials should always be supplied via environment variables or workload identity rather than embedded in configuration files.
 
-### Azure Developer CLI (`azd`)
+For setup instructions and credential evaluation details, see the dedicated authentication guides:
 
-{{ tffile "examples/provider/azure_dev_cli.tf" }}
+- **[Authentication Overview & Credential Chain](guides/authentication.md)**: Full evaluation order table (Priority 1–8), sovereign cloud audience scopes, and local CLI workflows.
+- **[Azure CLI](guides/authentication.md#azure-cli)**: Default interactive developer workstation login.
+- **[Azure Developer CLI (`azd`)](guides/authentication.md#azure-developer-cli)**: Developer CLI login integration.
+- **[Service Principal with Secret](guides/auth_spn_secret.md)**: Standard Entra ID app registration authentication.
+- **[Service Principal with Certificate](guides/auth_spn_cert.md)**: PKCS#12 / PFX certificate authentication.
+- **[Workload Identity Federation (OIDC)](guides/auth_spn_oidc.md)**: Passwordless federation for GitHub Actions and external CI/CD.
+- **[Azure DevOps Workload Identity](guides/auth_azure_devops.md)**: Passwordless Azure DevOps service connections.
+- **[Managed Identity (MSI)](guides/auth_msi.md)**: System-Assigned and User-Assigned Managed Identity on Azure compute.
 
-### Service Principal with Client Secret
+## Permissions Management
 
-{{ tffile "examples/provider/service_principal_secret.tf" }}
+The provider resources (`fabricext_warehouse_permission`, `fabricext_sql_database_permission`, `fabricext_lakehouse_permission`) manage individual, atomic permission bindings per HashiCorp Provider Design Principles.
 
-### Service Principal with Client Certificate
+To manage permissions across an entire workspace, you can compose them using native Terraform `for_each` maps or use the in-repo [`modules/permissions`](https://github.com/jambazid/terraform-provider-fabricext/tree/main/modules/permissions) wrapper module.
 
-{{ tffile "examples/provider/service_principal_certificate.tf" }}
+For architectural patterns, in-place lifecycle keying invariants, and code examples, see the **[Declarative Matrix Composition Guide](guides/matrix_composition.md)**.
 
-### Workload Identity Federation
+## Guides & Documentation
 
-{{ tffile "examples/provider/service_principal_oidc.tf" }}
+For comprehensive guides on access control architecture, cross-engine identity propagation, and official provider coexistence:
 
-### Managed Identity (System-Assigned)
-
-{{ tffile "examples/provider/managed_identity_system.tf" }}
-
-### Managed Identity (User-Assigned)
-
-{{ tffile "examples/provider/managed_identity_user.tf" }}
-
-### Azure DevOps Workload Identity Federation
-
-{{ tffile "examples/provider/azure_devops_oidc.tf" }}
-
-### Dual-Provider Coexistence (`microsoft/fabric` + `fabricext`)
-
-{{ tffile "examples/provider/dual_provider.tf" }}
-
-### Sovereign Cloud Environments
-
-{{ tffile "examples/provider/sovereign_cloud.tf" }}
-
-## Authentication and Credential Chain
-
-The provider implements the complete Microsoft Entra ID authentication credential chain using Microsoft's official Go authentication SDK (`github.com/Azure/azure-sdk-for-go/sdk/azidentity`). Credentials are evaluated in the following deterministic order:
-
-| Priority | Credential Source | Configuration Attributes / Environment Variables | Guide |
-| :--- | :--- | :--- | :--- |
-| **1** | **Static Access Token** | `access_token` attribute or `FABRIC_ACCESS_TOKEN` | *Testing / Pre-minted* |
-| **2** | **Client Certificate** | `client_certificate`, `client_certificate_file_path`, `client_certificate_password` or `FABRIC_CLIENT_CERTIFICATE_*` | [Guide](guides/auth_spn_cert.md) |
-| **3** | **Client Secret** | `client_id`, `client_secret`, `tenant_id` (plus `*_file_path` variants) or `FABRIC_*` / `AZURE_*` / `ARM_*` | [Guide](guides/auth_spn_secret.md) |
-| **4** | **Azure DevOps OIDC** | `azure_devops_service_connection_id`, `oidc_request_token` or `SYSTEM_ACCESSTOKEN` | [Guide](guides/auth_azure_devops.md) |
-| **5** | **Workload Identity (OIDC)** | `use_oidc = true`, `oidc_token`, `oidc_token_file_path` or `AZURE_FEDERATED_TOKEN_FILE` | [Guide](guides/auth_spn_oidc.md) |
-| **6** | **Managed Identity (MSI)** | `use_msi = true`, optional `client_id` for User-Assigned MSI or `FABRIC_USE_MSI` | [Guide](guides/auth_msi.md) |
-| **7** | **Azure Developer CLI** | `use_dev_cli = true` or `FABRIC_USE_DEV_CLI=true` | *Local `azd`* |
-| **8** | **Azure CLI (`az login`)** | `use_cli = true` (default) or `FABRIC_USE_CLI` | *Interactive `az`* |
-
-### Sovereign Clouds & Token Scopes
-
-| Cloud Environment | `environment` Attribute | Microsoft Fabric Audience Scope | Default Endpoint |
-| :--- | :--- | :--- | :--- |
-| **Public** (Default) | `"public"` | `https://api.fabric.microsoft.com/.default` | `https://api.fabric.microsoft.com` |
-| **US Government** | `"usgovernment"` | `https://api.fabric.microsoft.us/.default` | `https://api.fabric.microsoft.us` |
-| **China** | `"china"` | `https://api.fabric.microsoft.cn/.default` | `https://api.fabric.microsoft.cn` |
-
-## Declarative Matrix Composition
-
-~> **Important:** **Workspace Role Prerequisites**: The executing identity (user, service principal, or managed identity) must have **Admin** or **Member** permissions on the target Microsoft Fabric workspace to manage item-level permissions and OneLake Data Access Roles. Principals with only **Contributor** or **Viewer** workspace roles cannot grant or revoke item permissions.
-
-Following HashiCorp Provider Design Principles, each `fabricext_*` resource manages a single atomic permission binding or OneLake role. Keying `for_each` by `{item_name}/{principal_type}/{principal_id}` (omitting `role_type` from the map key) ensures that role changes update the existing resource in-place rather than causing Terraform to destroy and recreate the permission. You can declaratively manage an entire workspace's permissions matrix either with **Zero-Module Native HCL (`for_each`)** or with the in-repo **`modules/permissions`** wrapper module:
-
-```hcl
-locals {
-  workspace_id = "00000000-0000-0000-0000-000000000001"
-
-  warehouse_grants = {
-    "sales_analytics_wh/Group/11111111-1111-1111-1111-111111111111" = {
-      warehouse_name = "sales_analytics_wh"
-      role_type      = "read"
-      principal_id   = "11111111-1111-1111-1111-111111111111"
-      principal_type = "Group"
-    }
-  }
-}
-
-resource "fabricext_warehouse_permission" "grants" {
-  for_each = local.warehouse_grants
-
-  workspace_id   = local.workspace_id
-  warehouse_name = each.value.warehouse_name
-  principal_id   = each.value.principal_id
-  principal_type = each.value.principal_type
-  role_type      = each.value.role_type
-}
-```
-
-### Reusable Permissions Module
-
-You can also use the in-repo companion HCL module to flatten matrices across Warehouses, SQL Databases, and Lakehouses in one place:
-
-```hcl
-module "workspace_permissions" {
-  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=v0.2.1"
-
-  fabric_permissions_matrix = {
-    workspace_id = "00000000-0000-0000-0000-000000000001"
-
-    warehouses = {
-      sales_analytics_wh = {
-        read = [
-          {
-            id   = "11111111-1111-1111-1111-111111111111"
-            type = "Group"
-          }
-        ]
-      }
-    }
-  }
-}
-```
-
-*(Note: In local or monorepo development checkouts, you can also use `source = "./modules/permissions"`).*
-
-~> **Note:** **Lakehouse Member Type Uniformity**: In simple mode (`principal_ids`), Microsoft Fabric OneLake Data Access Roles require uniform `principal_type` per role resource. In advanced mode (`entra_member` blocks), heterogeneous member types (Users, Groups, Service Principals, and Managed Identities) are natively supported on the same role.
-
-## Use Cases & Security Architecture
-
-For detailed architectural deep dives on enterprise security perimeters, schema isolation, and cross-engine identity flows, refer to the **Use Cases** guides:
-
-- **[Use Cases Overview](guides/use_case_overview.md)**: Master comparison matrix and 6-tier perimeter overview.
-- **[Security Controls & Interactions](guides/use_case_controls_and_interactions.md)**: Controls inventory, evaluation precedence, and conflict resolution rules.
-- **[Warehouse Schema Isolation](guides/use_case_warehouse_schema_isolation.md)**: Granular schema isolation via `role_type = "read"` and T-SQL, Microsoft Entra ID Display Name resolution, and declarative schema-as-code integration.
-- **[Lakehouse OneLake Security](guides/use_case_lakehouse_onelake_security.md)**: OneLake Data Access Roles, path filters, storage RLS/CLS, and shortcut delegation.
-- **[Power BI Identity Flow](guides/use_case_powerbi_identity_propagation.md)**: DirectQuery TDS vs Direct Lake Parquet SSO identity propagation.
-
-## Migration & Official Provider Coexistence
-
-For detailed architectural trade-offs, state migration instructions, and resource mapping between `fabricext` and `microsoft/fabric`, see the [Official Provider Comparison Guide](guides/official_provider_comparison.md).
+| Guide | Core Focus |
+| :--- | :--- |
+| **[Use Cases Overview](guides/use_case_overview.md)** | Master comparison matrix and 6-tier security perimeter stack. |
+| **[Security Controls & Interactions](guides/use_case_controls_and_interactions.md)** | Tier inventory, precedence rules, and workspace role bypass rules. |
+| **[Warehouse Schema Isolation](guides/use_case_warehouse_schema_isolation.md)** | Least-privilege `read` connectivity, Entra ID naming, and SQL RBAC. |
+| **[Lakehouse OneLake Security](guides/use_case_lakehouse_onelake_security.md)** | Data Access Roles, path filters, storage RLS/CLS, and shortcuts. |
+| **[Power BI Identity Flow](guides/use_case_powerbi_identity_propagation.md)** | DirectQuery TDS vs Direct Lake Parquet SSO token propagation and fallback. |
+| **[Official Provider Comparison](guides/official_provider_comparison.md)** | Architectural differences, dual-provider coexistence, and state migration. |
 
 {{ .SchemaMarkdown | trimspace }}
