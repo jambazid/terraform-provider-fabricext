@@ -1,13 +1,3 @@
-terraform {
-  required_version = ">= 1.6.0"
-  required_providers {
-    fabricext = {
-      source  = "jambazid/fabricext"
-      version = "~> 0.2.0"
-    }
-  }
-}
-
 # Authenticate using an interactive Azure CLI session (`az login`).
 # The provider automatically uses credentials from the active az CLI session.
 provider "fabricext" {

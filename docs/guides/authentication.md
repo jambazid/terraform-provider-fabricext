@@ -1,0 +1,107 @@
+---
+page_title: "Authentication Overview & Credential Chain"
+subcategory: "Authentication Guides"
+description: |-
+  Overview of Microsoft Entra ID authentication in the fabricext provider, deterministic credential chain priority, sovereign cloud scopes, and CLI workflows.
+---
+
+# Authentication and Credential Chain
+
+The `fabricext` provider implements the complete Microsoft Entra ID credential chain using Microsoft's official Go authentication SDK (`github.com/Azure/azure-sdk-for-go/sdk/azidentity`).
+
+Authentication credentials are evaluated deterministically in priority order. For production and CI/CD pipelines, sensitive credentials should always be supplied via environment variables or workload identity rather than embedded in `.tf` configuration files.
+
+---
+
+## Deterministic Evaluation Order
+
+When no static token is configured, the provider evaluates credentials in the following order:
+
+| Priority | Credential Source | Configuration Attributes / Environment Variables | Guide |
+| :--- | :--- | :--- | :--- |
+| **1** | **Static Access Token** | `access_token` attribute or `FABRIC_ACCESS_TOKEN` | *Testing / Pre-minted* |
+| **2** | **Client Certificate** | `client_certificate`, `client_certificate_file_path`, `client_certificate_password` or `FABRIC_CLIENT_CERTIFICATE_*` | [Guide](auth_spn_cert.md) |
+| **3** | **Client Secret** | `client_id`, `client_secret`, `tenant_id` (plus `*_file_path` variants) or `FABRIC_*` / `AZURE_*` / `ARM_*` | [Guide](auth_spn_secret.md) |
+| **4** | **Azure DevOps OIDC** | `azure_devops_service_connection_id`, `oidc_request_token` or `SYSTEM_ACCESSTOKEN` | [Guide](auth_azure_devops.md) |
+| **5** | **Workload Identity (OIDC)** | `use_oidc = true` (requires `client_id`, `tenant_id`, plus `oidc_token`, `oidc_token_file_path` or `AZURE_FEDERATED_TOKEN_FILE`) | [Guide](auth_spn_oidc.md) |
+| **6** | **Managed Identity (MSI)** | `use_msi = true`, optional `client_id` for User-Assigned MSI or `FABRIC_USE_MSI` | [Guide](auth_msi.md) |
+| **7** | **Azure Developer CLI** | `use_dev_cli = true` or `FABRIC_USE_DEV_CLI=true` | *Local `azd`* |
+| **8** | **Azure CLI (`az login`)** | `use_cli = true` (default) or `FABRIC_USE_CLI` | *Interactive `az`* |
+
+---
+
+## Sovereign Cloud Environments
+
+The provider automatically routes token acquisition and API calls to Microsoft Fabric endpoints across sovereign cloud environments:
+
+| Cloud Environment | `environment` Attribute | Microsoft Fabric Audience Scope | Default Endpoint |
+| :--- | :--- | :--- | :--- |
+| **Public** (Default) | `"public"` | `https://api.fabric.microsoft.com/.default` | `https://api.fabric.microsoft.com` |
+| **US Government** | `"usgovernment"` | `https://api.fabric.microsoft.us/.default` | `https://api.fabric.microsoft.us` |
+| **China** | `"china"` | `https://api.fabric.microsoft.cn/.default` | `https://api.fabric.microsoft.cn` |
+
+### Sovereign Cloud Configuration
+
+```terraform
+# Configure for Microsoft Azure Government (US Government) or China cloud.
+provider "fabricext" {
+  environment = "usgovernment" # Options: "public" (default), "usgovernment", "china"
+  use_cli     = true
+}
+```
+
+---
+
+## Interactive Local Workflows
+
+For local development and workstation execution, the provider seamlessly reuses credentials from existing CLI login sessions.
+
+### Azure CLI
+
+The provider defaults to reusing active Azure CLI sessions (`az login`) when no explicit service principal or token configuration is detected:
+
+```terraform
+# Authenticate using an interactive Azure CLI session (`az login`).
+# The provider automatically uses credentials from the active az CLI session.
+provider "fabricext" {
+  use_cli = true
+
+  # Optional tenant ID filter
+  # tenant_id = "00000000-0000-0000-0000-000000000000"
+}
+```
+
+### Azure Developer CLI
+
+To authenticate using the Azure Developer CLI (`azd auth login`), set `use_dev_cli = true`:
+
+```terraform
+# Authenticate using Azure Developer CLI (`azd auth login`).
+provider "fabricext" {
+  use_dev_cli = true
+}
+```
+
+---
+
+## Automated CI/CD Authentication
+
+For automated execution in CI/CD pipelines, we strongly recommend passwordless OpenID Connect (Workload Identity Federation) or Managed Identity over static credentials.
+
+Refer to the dedicated guides for configuration details:
+
+- **[Service Principal with Client Secret](auth_spn_secret.md)**: Standard Entra ID app registration authentication.
+- **[Service Principal with Client Certificate](auth_spn_cert.md)**: PKCS#12 / PFX certificate authentication.
+- **[Workload Identity Federation (OIDC)](auth_spn_oidc.md)**: Passwordless federation in GitHub Actions and external CI/CD.
+- **[Azure DevOps Workload Identity](auth_azure_devops.md)**: Passwordless Azure DevOps service connection integration.
+- **[Managed Identity (MSI)](auth_msi.md)**: System-Assigned and User-Assigned Managed Identity on Azure compute.
+
+---
+
+## Related Guides
+
+| Guide | Core Focus |
+| :--- | :--- |
+| **[Use Cases Overview](use_case_overview.md)** | Master comparison matrix and 6-tier perimeter overview. |
+| **[Security Controls & Interactions](use_case_controls_and_interactions.md)** | Precedence rules and override behaviors across tiers. |
+| **[Official Provider Comparison](official_provider_comparison.md)** | Architectural differences, dual-provider coexistence, and state migration. |

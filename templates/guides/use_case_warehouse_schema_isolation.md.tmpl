@@ -1,11 +1,11 @@
 ---
-page_title: "Use Cases: Warehouse Schema Isolation & Declarative RBAC"
+page_title: "Use Cases: Warehouse Schema Isolation"
 subcategory: "Use Cases"
 description: |-
-  Technical guide to implementing granular schema isolation in Microsoft Fabric Warehouses using fabricext for item-level connectivity and T-SQL for database RBAC, including Entra ID Object ID binding and declarative schema-as-code automation.
+  Technical guide to implementing granular schema isolation in Microsoft Fabric Warehouses using fabricext for item connectivity and T-SQL for database RBAC, including Entra ID identity binding and declarative schema-as-code automation.
 ---
 
-# Use Cases: Warehouse Schema Isolation & Declarative RBAC
+# Warehouse Schema Isolation
 
 In enterprise data platforms, multi-tenant databases frequently host datasets across confidential business domains—such as `finance`, `hr`, and `sales`—within the same data warehouse.
 
@@ -13,7 +13,7 @@ This guide demonstrates how to achieve strict schema isolation in Microsoft Fabr
 
 ---
 
-## The Schema Isolation Problem
+## Schema Isolation Problem
 
 By default in Microsoft Fabric:
 - Assigning a user or group to a workspace role (`Admin`, `Member`, `Contributor`) confers `db_owner` on all Warehouses in the workspace, bypassing internal database permissions.
@@ -23,7 +23,7 @@ To restrict a group to schema `finance` only, you must decouple **item connectiv
 
 ---
 
-## Technical Mechanics: Role Types in `fabricext`
+## Role Types Mechanics
 
 The `fabricext_warehouse_permission` resource manages item-level sharing for Warehouses:
 
@@ -35,7 +35,7 @@ The `fabricext_warehouse_permission` resource manages item-level sharing for War
 
 ~> **Important:** **Decoupling Connectivity from Data Access**: Specifying `role_type = "read"` in `fabricext_warehouse_permission` is the foundation of schema-level security. It grants database connectivity (`CONNECT`) while leaving the database engine's default-deny security model intact. If updating an existing grant in Terraform from `"write"` to `"read"`, `fabricext` automatically revokes the excess permissions, safely locking down the warehouse in-place.
 
-*(Note: The broad `read_data` item token applies exclusively to Fabric SQL Databases via `fabricext_sql_database_permission`, not Warehouses).*
+~> **Note:** **Warehouse Permission Tokens**: Microsoft Fabric Warehouses natively support `ReadData` (`db_datareader`) and `ReadAll` at the platform level. `fabricext_warehouse_permission` intentionally restricts `role_type` to `read`, `write`, and `reshare` as an opinionated design choice to prevent accidental database-wide access grants and preserve fine-grained T-SQL schema isolation.
 
 ---
 
@@ -65,11 +65,11 @@ Analyst (Entra Group)       Fabric Portal / Hub         Fabric Item Security    
 
 ---
 
-## Microsoft Entra ID Identity Binding: Display Names vs. Object IDs
+## Entra ID Identity Binding
 
 A frequent practitioner question is how Microsoft Entra ID identities map between Terraform configurations and T-SQL database statements.
 
-### 1. In Terraform (`fabricext` Provider)
+### In Terraform Providers
 
 `fabricext_warehouse_permission` strictly requires the **36-character Microsoft Entra Object ID (UUID)**:
 
@@ -85,32 +85,44 @@ resource "fabricext_warehouse_permission" "finance_access" {
 
 The Microsoft Fabric REST API expects the Entra Object ID. Passing display names in `principal_id` will fail UUID validation.
 
-### 2. In the T-SQL Engine
+### In T-SQL Engine
 
 When provisioning database users over the TDS connection endpoint:
 
 ```sql
+-- For Microsoft Entra Security Groups: Use the exact Display Name
 CREATE USER [SEC-Fabric-Finance-Analysts] FROM EXTERNAL PROVIDER;
+
+-- For Individual Users: Strictly require the UserPrincipalName (UPN)
+CREATE USER [bob@contoso.com] FROM EXTERNAL PROVIDER;
+
+-- For B2B Guest Users: Use the transformed external UPN
+CREATE USER [external_user#EXT#@tenant.onmicrosoft.com] FROM EXTERNAL PROVIDER;
 ```
 
-`[SEC-Fabric-Finance-Analysts]` is the **Microsoft Entra Security Group display name** (or UserPrincipalName for individual users). Upon execution, the SQL engine queries Microsoft Graph to resolve the display name to its internal Entra Object ID and binary Security Identifier (SID).
-
-~> **Note:** **T-SQL Name Resolution**: In T-SQL `CREATE USER [name] FROM EXTERNAL PROVIDER`, `name` must match the Microsoft Entra Display Name or UPN. Passing a raw UUID string inside brackets `[<guid>]` will fail unless the Entra principal's display name literally matches that UUID string.
+**Identity Resolution Rules & Caveats**:
+- **Display Names vs. UPNs**: Microsoft Entra Security Groups and Enterprise Applications resolve by `displayName`. Individual user accounts **strictly require the UserPrincipalName (UPN)**. Passing a user's display name (`CREATE USER [Bob Smith] FROM EXTERNAL PROVIDER`) fails with `Msg 33130` ("*Principal 'Bob Smith' could not be found or this principal type is not supported.*").
+- **Why Bracketed UUIDs Fail**: When `CREATE USER [name] FROM EXTERNAL PROVIDER` runs, the SQL engine queries Microsoft Graph filtering strictly on `displayName eq '<name>'` (for groups) or `userPrincipalName eq '<name>'` (for users). It does not query `id eq '<guid>'`. Passing a raw UUID `[00000000-0000-...]` fails unless the directory object's display name or UPN literally matches that UUID string.
+- **Duplicate Display Names & `WITH OBJECT_ID`**: Microsoft Entra ID permits duplicate group display names. If ambiguous display names exist in a tenant, SQL fails with `Msg 33131` ("*Principal 'SEC-Fabric-Finance-Analysts' has a duplicate display name.*"). Resolve this ambiguity by supplying the object UUID using the official syntax:
+  ```sql
+  CREATE USER [Finance-Analysts-Alias] FROM EXTERNAL PROVIDER WITH OBJECT_ID = '11111111-1111-1111-1111-111111111111';
+  ```
+- **Identifier Escaping**: Group display names containing closing brackets (e.g. `SG-Data[Finance]-US`) must escape the bracket as `]]` in T-SQL (`CREATE USER [SG-Data[Finance]]-US] FROM EXTERNAL PROVIDER;`).
 
 ### Recommended Dual-Plane Pattern
 
 | Plane | Tool | Identity Identifier | Rationale |
 | :--- | :--- | :--- | :--- |
 | **Item Gate** | Terraform (`fabricext`) | Microsoft Entra **Object ID (UUID)** | Immutable; impervious to Entra group renames in Azure Portal. |
-| **SQL Engine** | T-SQL / Schema Operator | Microsoft Entra **Display Name** | Human-readable in DBA query plans, SSMS Object Explorer, and audit logs. |
+| **SQL Engine** | T-SQL / Schema Operator | Microsoft Entra **Display Name / UPN** | Human-readable in DBA query plans, SSMS Object Explorer, and audit logs. |
 
 ---
 
-## Enterprise RBAC Automation: Integrating Terraform with Schema Operators
+## Declarative RBAC Automation
 
 While `fabricext` manages the Fabric item boundary (`CONNECT`), managing internal database schemas, tables, roles, and `GRANT SELECT` statements across dozens of Warehouses is typically automated using a declarative database schema management tool or migration framework (such as [Atlas](https://atlasgo.io/), Flyway, Liquibase, or the Terraform `mssql` provider).
 
-### The End-to-End Governance Model
+### End-to-End Governance Model
 
 ```text
 +-------------------------------------------------------------------------------+
@@ -123,15 +135,17 @@ While `fabricext` manages the Fabric item boundary (`CONNECT`), managing interna
                                       ▼ TDS Connection Endpoint (Port 1433)
 +-------------------------------------------------------------------------------+
 | 2. Declarative Schema & RBAC Management (Atlas / Schema Operator)             |
+| - Authenticates via Microsoft Entra token (TDS does not support SQL logins)   |
+| - CI/CD Identity holds db_owner / workspace Contributor rights                |
 | - CREATE USER [SEC-Fabric-Finance-Analysts] FROM EXTERNAL PROVIDER             |
 | - CREATE SCHEMA finance; CREATE SCHEMA hr; CREATE SCHEMA sales;               |
 | - GRANT SELECT ON SCHEMA::finance TO [SEC-Fabric-Finance-Analysts];            |
 +-------------------------------------------------------------------------------+
 ```
 
-### Conceptual Blueprint: Terraform + `fabricext` + Atlas
+### Architecture Blueprint
 
-In this architecture, Terraform provisions the Entra group, Fabric workspace, and warehouse item. `fabricext` grants item connectivity to the Entra group, and a declarative schema operator configures internal database security:
+~> **Important:** **TDS Authentication & Privileges**: Fabric Warehouse TDS endpoints (port 1433) **only support Microsoft Entra ID authentication**; standard SQL username/password logins are unsupported. The CI/CD identity running the schema operator must authenticate via Entra ID (CLI session, service principal, or workload identity) and hold administrative privileges (`db_owner` / workspace Contributor or Admin) to create users, schemas, and grant permissions. Fabric Warehouse operates as a Massively Parallel Processing (MPP) distributed query engine with a specific T-SQL subset.
 
 ```hcl
 # --- 1. Identity & Workspace Provisioning ---
@@ -159,35 +173,39 @@ resource "fabricext_warehouse_permission" "finance_access" {
   role_type      = "read"
 }
 
-# --- 3. Declarative SQL RBAC via Atlas (Conceptual Pseudocode) ---
-# Note: This is generic conceptual pseudocode representing a database
-# schema-as-code operator managing SQL objects over the TDS endpoint.
-resource "atlas_resource" "warehouse_rbac" {
-  target_database = fabric_warehouse.corporate_dw.display_name
-  schema_file     = "./schemas/warehouse_security.hcl"
+# --- 3. Declarative SQL RBAC via Schema Operator (Conceptual Example) ---
+# Note: Generic conceptual pseudocode representing a database
+# schema-as-code operator (e.g. Atlas, Flyway) managing SQL objects over TDS.
+# The schema operator authenticates via Microsoft Entra token.
+resource "atlas_schema" "warehouse_rbac" {
+  # Connects over TDS (port 1433) using Microsoft Entra authentication
+  url = "sqlserver://${fabric_warehouse.corporate_dw.properties.connection_info.endpoint_fqdn}:1433?database=${fabric_warehouse.corporate_dw.display_name}&fedauth=ActiveDirectoryDefault"
+  src = file("${path.module}/schemas/warehouse_security.hcl")
 
   depends_on = [
-    fabricext_warehouse_permission.finance_access
+    fabric_warehouse.corporate_dw
   ]
 }
 ```
 
 ---
 
-## Fabric Console Experience for Non-Workspace Members
+## Non-Member Console Experience
 
 When an Entra security group receives `read` via `fabricext_warehouse_permission` without workspace membership:
 
 1. **OneLake Data Hub**: The Warehouse appears under the **"Shared with me"** tab and in the OneLake Data Hub catalog.
 2. **Workspace Navigation**: The user **cannot** see the parent workspace in the workspace flyout menu.
 3. **Web Query Editor**: Clicking the Warehouse opens the Web Query Editor. The object explorer renders only the schemas and tables that the user's Entra credentials have SQL permissions to view (metadata hiding). Schemas without `GRANT` permissions do not appear in the tree.
-4. **Connection Endpoints**: The user can copy the TDS connection string (`*.datawarehouse.fabric.microsoft.com`) and connect via SSMS, Azure Data Studio, VS Code, Python, or DBeaver.
+4. **Connection Endpoints**: The user can copy the TDS connection string (`*.datawarehouse.fabric.microsoft.com`) and connect via SQL Server Management Studio (SSMS), Azure Data Studio, VS Code, Python, or DBeaver.
 
 ---
 
 ## Related Guides
 
-- **[Use Cases Overview](https://registry.terraform.io/providers/jambazid/fabricext/latest/docs/guides/use_case_overview)**: Master comparison matrix and 5-layer perimeter overview.
-- **[Security Controls Inventory & Interaction Matrix](https://registry.terraform.io/providers/jambazid/fabricext/latest/docs/guides/use_case_controls_and_interactions)**: Precedence rules and override behaviors across tiers.
-- **[Lakehouse OneLake Security & Data Access Roles](https://registry.terraform.io/providers/jambazid/fabricext/latest/docs/guides/use_case_lakehouse_onelake_security)**: Granular path filters and storage-level RLS/CLS.
-- **[Power BI Identity Flow: Direct Lake vs. DirectQuery](https://registry.terraform.io/providers/jambazid/fabricext/latest/docs/guides/use_case_powerbi_identity_propagation)**: End-to-end token flow to semantic models.
+| Guide | Core Focus |
+| :--- | :--- |
+| **[Use Cases Overview](./use_case_overview.md)** | Master comparison matrix and 6-tier perimeter overview. |
+| **[Security Controls & Interactions](./use_case_controls_and_interactions.md)** | Precedence rules and override behaviors across tiers. |
+| **[Lakehouse OneLake Security](./use_case_lakehouse_onelake_security.md)** | Granular path filters and storage-level RLS/CLS. |
+| **[Power BI Identity Flow](./use_case_powerbi_identity_propagation.md)** | End-to-end token flow to semantic models. |

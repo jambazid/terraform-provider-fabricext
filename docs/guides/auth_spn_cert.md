@@ -5,7 +5,7 @@ description: |-
   How to configure the fabricext provider using a Microsoft Entra ID Service Principal with a Client Certificate (.pfx / .p12).
 ---
 
-# Authenticating with a Service Principal and Client Certificate
+# Service Principal Certificate Authentication
 
 This guide explains how to authenticate the `fabricext` provider using a Microsoft Entra ID Service Principal with an X.509 Client Certificate bundle (PKCS#12 format: `.pfx` or `.p12`).
 
@@ -17,42 +17,12 @@ This guide explains how to authenticate the `fabricext` provider using a Microso
 ## Example Configuration
 
 ```terraform
-terraform {
-  required_version = ">= 1.6.0"
-  required_providers {
-    fabricext = {
-      source  = "jambazid/fabricext"
-      version = "~> 0.2.0"
-    }
-  }
-}
-
-# Authenticate using a Microsoft Entra ID Service Principal with a Client Certificate (.pfx / .p12).
-# Supports base64-encoded certificate strings or filesystem paths.
+# Authenticate using a Microsoft Entra Service Principal with a Client Certificate (PKCS#12 / PFX).
 provider "fabricext" {
-  tenant_id                    = var.tenant_id
-  client_id                    = var.client_id
+  client_id                    = "00000000-0000-0000-0000-000000000001"
+  tenant_id                    = "00000000-0000-0000-0000-000000000000"
   client_certificate_file_path = "/path/to/certificate.pfx"
-  client_certificate_password  = var.client_certificate_password
-
-  # Alternatively, pass base64 encoded certificate data directly:
-  # client_certificate = var.client_certificate_base64
-}
-
-variable "tenant_id" {
-  type        = string
-  description = "Microsoft Entra ID tenant UUID."
-}
-
-variable "client_id" {
-  type        = string
-  description = "Microsoft Entra ID Service Principal application (client) UUID."
-}
-
-variable "client_certificate_password" {
-  type        = string
-  sensitive   = true
-  description = "Password protecting the PKCS#12 certificate file."
+  client_certificate_password  = "cert-password"
 }
 ```
 
