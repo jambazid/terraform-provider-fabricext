@@ -128,6 +128,7 @@ func TestAccPermissionsModule_MatrixFlattening(t *testing.T) {
 		DisplayName: "raw_bronze_lh",
 		Type:        "Lakehouse",
 	})
+	srv.EnableLakehouseSecurity(wsID, lhID)
 
 	modulePath, err := filepath.Abs(filepath.Join("..", "..", "modules", "permissions"))
 	if err != nil {
@@ -211,6 +212,9 @@ func TestAccPermissionsModule_MatrixFlattening(t *testing.T) {
 					statecheck.ExpectKnownOutputValue("lakehouse_permission_ids", knownvalue.MapExact(map[string]knownvalue.Check{
 						"raw_bronze_lh/BronzeReaders": knownvalue.StringExact(wsID + "/" + lhID + "/BronzeReaders"),
 					})),
+					statecheck.ExpectKnownOutputValue("lakehouse_onelake_security_ids", knownvalue.MapExact(map[string]knownvalue.Check{
+						"raw_bronze_lh": knownvalue.StringExact(wsID + "/" + lhID),
+					})),
 				},
 			},
 			// Step 2: Upgrade Group from read -> write in-place (same key) and omit sql_databases & lakehouses
@@ -228,6 +232,7 @@ func TestAccPermissionsModule_MatrixFlattening(t *testing.T) {
 					})),
 					statecheck.ExpectKnownOutputValue("sql_database_permission_ids", knownvalue.MapExact(map[string]knownvalue.Check{})),
 					statecheck.ExpectKnownOutputValue("lakehouse_permission_ids", knownvalue.MapExact(map[string]knownvalue.Check{})),
+					statecheck.ExpectKnownOutputValue("lakehouse_onelake_security_ids", knownvalue.MapExact(map[string]knownvalue.Check{})),
 				},
 			},
 			// Cleanup step so post-test destroy sees an empty state
@@ -469,6 +474,7 @@ func TestAccPermissionsModule_MatrixWithRLSandCLS(t *testing.T) {
 		DisplayName: "raw_bronze_lh",
 		Type:        "Lakehouse",
 	})
+	srv.EnableLakehouseSecurity(wsID, lhID)
 
 	modulePath, err := filepath.Abs(filepath.Join("..", "..", "modules", "permissions"))
 	if err != nil {
@@ -558,6 +564,84 @@ func TestAccPermissionsModule_MatrixWithRLSandCLS(t *testing.T) {
 					statecheck.ExpectKnownOutputValue("lakehouse_permission_ids", knownvalue.MapExact(map[string]knownvalue.Check{
 						lhID + "/EmeaAnalysts": knownvalue.StringExact(wsID + "/" + lhID + "/EmeaAnalysts"),
 					})),
+					statecheck.ExpectKnownOutputValue("lakehouse_onelake_security_ids", knownvalue.MapExact(map[string]knownvalue.Check{
+						lhID: knownvalue.StringExact(wsID + "/" + lhID),
+					})),
+				},
+			},
+			{
+				Config: testAccProviderConfig(srv),
+			},
+		},
+	})
+}
+
+func TestAccPermissionsModule_LakehouseSecurityOptOut(t *testing.T) {
+	t.Parallel()
+
+	srv := fabricmock.NewServer(t)
+	wsID := "11111111-1111-1111-1111-111111111111"
+	lhID := "44444444-4444-4444-4444-444444444444"
+
+	srv.UpsertItem(fabricmock.Item{
+		ID:          lhID,
+		WorkspaceID: wsID,
+		DisplayName: "opt_out_lh",
+		Type:        "Lakehouse",
+	})
+	srv.EnableLakehouseSecurity(wsID, lhID)
+
+	modulePath, err := filepath.Abs(filepath.Join("..", "..", "modules", "permissions"))
+	if err != nil {
+		t.Fatalf("resolve modules/permissions path: %v", err)
+	}
+
+	varsBytes, err := os.ReadFile(filepath.Join(modulePath, "variables.tf"))
+	if err != nil {
+		t.Fatalf("read variables.tf: %v", err)
+	}
+	mainBytes, err := os.ReadFile(filepath.Join(modulePath, "main.tf"))
+	if err != nil {
+		t.Fatalf("read main.tf: %v", err)
+	}
+	outputsBytes, err := os.ReadFile(filepath.Join(modulePath, "outputs.tf"))
+	if err != nil {
+		t.Fatalf("read outputs.tf: %v", err)
+	}
+
+	varsWithDefault := strings.TrimSuffix(strings.TrimSpace(string(varsBytes)), "}") + fmt.Sprintf(`
+  default = {
+    workspace_id              = %q
+    manage_lakehouse_security = false
+    lakehouses = {
+      opt_out_lh = {
+        BronzeReaders = {
+          paths          = ["/Tables/customers"]
+          actions        = ["Read"]
+          principal_ids  = ["55555555-5555-5555-5555-555555555551"]
+          principal_type = "Group"
+        }
+      }
+    }
+  }
+}
+`, wsID)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: strings.Join([]string{
+					testAccProviderConfig(srv),
+					varsWithDefault,
+					string(mainBytes),
+					string(outputsBytes),
+				}, "\n"),
+				ConfigStateChecks: []statecheck.StateCheck{
+					statecheck.ExpectKnownOutputValue("lakehouse_permission_ids", knownvalue.MapExact(map[string]knownvalue.Check{
+						"opt_out_lh/BronzeReaders": knownvalue.StringExact(wsID + "/" + lhID + "/BronzeReaders"),
+					})),
+					statecheck.ExpectKnownOutputValue("lakehouse_onelake_security_ids", knownvalue.MapExact(map[string]knownvalue.Check{})),
 				},
 			},
 			{

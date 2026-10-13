@@ -25,6 +25,7 @@ Without declarative Terraform resources for these APIs, platform engineering tea
 - **`fabricext_warehouse_permission`**: Declarative lifecycle (`Create`, `Read`, `Update` with downgrade revocation, `Delete`, `ImportState`) for Fabric Warehouse item permissions.
 - **`fabricext_sql_database_permission`**: Declarative lifecycle (`Create`, `Read`, `Update` with downgrade revocation, `Delete`, `ImportState`) for Fabric SQL Database item permissions.
 - **`fabricext_lakehouse_permission`**: Declarative lifecycle (`Create`, `Read`, `Update`, `Delete`, `ImportState`) for Lakehouse OneLake Data Access Roles using a per-item mutex and optimistic concurrency (`ETag` / `If-Match`) Read-Modify-Write (RMW) loop.
+- **`fabricext_lakehouse_onelake_security`**: Declarative lifecycle (`Create`, `Read`, `Update`, `Delete`, `ImportState`) verifying OneLake security enablement, purging permissive `DefaultReader` roles, and observing state drift.
 - **`fabricext_item` (Data Source)**: Singular item lookup resolving `(workspace_id, display_name, type)` to its canonical Fabric item `id`.
 - **`modules/permissions` (In-Repo HCL Submodule)**: Optional declarative matrix wrapper that flattens a nested workspace configuration (`warehouses`, `lakehouses`, `sql_databases`) into atomic `for_each` resource instances.
 
@@ -183,7 +184,7 @@ Both `Warehouse` (`/v1/workspaces/{workspaceId}/warehouses/{warehouseId}/...`) a
   2. If `len(toGrant) > 0` (or to ensure target state), calls `POST .../grantPermissions` with `permissions: newPerms`.
 - **`Delete`**: Calls `POST .../revokePermissions` with the full set of granted permissions for the principal. Treats `404 Not Found` as idempotent success.
 
-### 5.4 Lakehouse OneLake Data Access Roles Concurrency & ETag RMW Loop
+### 5.4 Lakehouse Roles Concurrency
 
 Microsoft Fabric's OneLake Data Access Security endpoint (`GET` & `PUT /v1/workspaces/{workspaceId}/items/{itemId}/dataAccessRoles`) operates on the **entire array of roles** for a Lakehouse as a single document guarded by HTTP `ETag` / `If-Match`.
 
@@ -326,7 +327,25 @@ See the embedded Terraform Registry guide [`docs/guides/official_provider_compar
     - `fabric_item_member` (`Set[Block]`, `Optional`): Cross-item shortcut members with `source_path` (`String`, `Required`, `{workspace_id}/{item_id}` UUID pair format) and `item_access` (`Set[String]`, `Optional`, default `["ReadAll"]`).
   - **Identifier Consistency & Replacement Law**: In `Create` across `warehouse`, `sql_database`, and `lakehouse`, the provider determines configured identifiers directly from resource configuration (`req.Config`). If both the item name and item ID are explicitly configured, the provider validates that the fetched display name matches the configured name, returning a diagnostic error on conflict before setting state. On resource replacement where an item identifier changes, `ModifyPlan` resets the unconfigured counterpart identifier in the plan to unknown (`(known after apply)`), preventing stale computed identifiers copied by `UseStateForUnknown` from causing false replacement conflicts or inconsistent plan/apply results.
 
-### 6.5 `fabricext_item` Data Source
+### 6.5 `fabricext_lakehouse_onelake_security` Resource
+
+- **Composite ID & Import Format**: `{workspace_id}/{lakehouse_id}`
+- **Attributes**:
+  - `id` (`String`, `Computed`, `UseStateForUnknown`): Composite key `{workspace_id}/{lakehouse_id}`.
+  - `workspace_id` (`String`, `Required`, `RequiresReplace`, UUID validator): Target Fabric workspace UUID.
+  - `lakehouse_id` (`String`, `Optional` + `Computed`, `RequiresReplace`, UUID validator; at least one of `lakehouse_name` or `lakehouse_id` must be provided).
+  - `lakehouse_name` (`String`, `Optional` + `Computed`, `RequiresReplace`, 1-256 chars; at least one of `lakehouse_name` or `lakehouse_id` must be provided).
+  - `remove_default_reader_role` (`Bool`, `Optional` + `Computed`, default `true`): Whether to purge the built-in `DefaultReader` role during create/apply. `ModifyPlan` blocks reverting from `true` to `false` because Fabric provides no API to restore deleted `DefaultReader` roles.
+  - `default_reader_role_exists` (`Bool`, `Computed`): Reflects remote presence of `DefaultReader` in Fabric for drift observability.
+  - `enabled` (`Bool`, `Computed`): Reflects verified OneLake security enablement status.
+- **Lifecycle Invariants**:
+  - `Create`: Resolves identifiers, verifies enablement via `GET /dataAccessRoles`. If enabled and `remove_default_reader_role = true`, purges `DefaultReader` via `DeleteDataAccessRole`. If unenabled, fails loud with actionable portal instructions.
+  - `Read`: Refreshes roles and updates `default_reader_role_exists`. If item is missing or security is unenabled (`OneLakeSecurityNotEnabledError`), calls `resp.State.RemoveResource(ctx)` so Terraform plans recreation on drift.
+  - `Update`: If `remove_default_reader_role = true` and `DefaultReader` exists remotely (out-of-band drift), purges it.
+  - `Delete`: Emits an informational warning diagnostic stating Fabric does not support disabling security; state is removed cleanly by Terraform core.
+  - `ImportState`: Imports `{workspace_id}/{lakehouse_id}`, verifies enablement, and initializes `remove_default_reader_role` based on remote presence.
+
+### 6.6 `fabricext_item` Data Source
 
 - **Attributes**:
   - `workspace_id` (`String`, `Required`, UUID validator)
@@ -334,7 +353,7 @@ See the embedded Terraform Registry guide [`docs/guides/official_provider_compar
   - `type` (`String`, `Required`, `OneOf("Warehouse", "Lakehouse", "SQLDatabase", "SQLEndpoint", "SemanticModel")`)
   - `id` (`String`, `Computed`): Resolved Fabric item UUID.
 
-### 6.6 Architectural Decision Record (ADR): Atomic Resources vs. Monolithic `fabricext_workspace_permissions_model`
+### 6.7 ADR: Atomic Resources
 
 - **Context**: A single workspace-wide resource (`fabricext_workspace_permissions_model`) accepting a nested map of all item permissions across a workspace was evaluated as an alternative to atomic per-item resources (`fabricext_*_permission`) + HCL composition.
 - **Decision**: Reject the workspace-wide monolithic resource in favor of atomic resources (`fabricext_warehouse_permission`, `fabricext_sql_database_permission`, `fabricext_lakehouse_permission`) paired with both a Zero-Module Native HCL `for_each` pattern and the in-repo `modules/permissions/` submodule.

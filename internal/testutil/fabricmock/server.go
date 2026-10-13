@@ -147,18 +147,19 @@ type Server struct {
 	httpServer *httptest.Server
 	router     routers.Router
 
-	mu                sync.Mutex
-	items             map[string]map[string]Item                     // workspaceID -> itemID -> Item
-	permissions       map[string]map[string]ItemPermissionAssignment // workspaceID/itemType/itemID -> principalID -> assignment
-	lakehouseRoles    map[string]*lakehouseRolesState                // workspaceID/lakehouseID -> state
-	listItemsCalls    map[string]int                                 // workspaceID/itemType -> count
-	itemsPageSize     int                                            // optional pagination page size
-	grantCalls        int                                            // total grantPermissions calls
-	revokeCalls       int                                            // total revokePermissions calls
-	lastRevokedPerms  []string                                       // permissions from most recent revokePermissions call
-	lastGrantedPerms  []string                                       // permissions from most recent grantPermissions call
-	operationSequence []string                                       // ordered log of "grant" / "revoke" operations
-	throttle          *throttleRule                                  // optional fault injection for 429 / 5xx
+	mu                       sync.Mutex
+	items                    map[string]map[string]Item                     // workspaceID -> itemID -> Item
+	permissions              map[string]map[string]ItemPermissionAssignment // workspaceID/itemType/itemID -> principalID -> assignment
+	lakehouseRoles           map[string]*lakehouseRolesState                // workspaceID/lakehouseID -> state
+	lakehouseSecurityEnabled map[string]bool                                // workspaceID/lakehouseID -> bool
+	listItemsCalls           map[string]int                                 // workspaceID/itemType -> count
+	itemsPageSize            int                                            // optional pagination page size
+	grantCalls               int                                            // total grantPermissions calls
+	revokeCalls              int                                            // total revokePermissions calls
+	lastRevokedPerms         []string                                       // permissions from most recent revokePermissions call
+	lastGrantedPerms         []string                                       // permissions from most recent grantPermissions call
+	operationSequence        []string                                       // ordered log of "grant" / "revoke" operations
+	throttle                 *throttleRule                                  // optional fault injection for 429 / 5xx
 }
 
 // NewServer creates and starts a contract-validated Fabric mock server.
@@ -171,11 +172,12 @@ func NewServer(t testing.TB) *Server {
 	}
 
 	s := &Server{
-		router:         router,
-		items:          make(map[string]map[string]Item),
-		permissions:    make(map[string]map[string]ItemPermissionAssignment),
-		lakehouseRoles: make(map[string]*lakehouseRolesState),
-		listItemsCalls: make(map[string]int),
+		router:                   router,
+		items:                    make(map[string]map[string]Item),
+		permissions:              make(map[string]map[string]ItemPermissionAssignment),
+		lakehouseRoles:           make(map[string]*lakehouseRolesState),
+		lakehouseSecurityEnabled: make(map[string]bool),
+		listItemsCalls:           make(map[string]int),
 	}
 
 	s.httpServer = httptest.NewServer(http.HandlerFunc(s.serveHTTP))
@@ -222,11 +224,35 @@ func (s *Server) RemoveItem(workspaceID, itemID string) {
 		delete(ws, itemID)
 	}
 	delete(s.lakehouseRoles, workspaceID+"/"+itemID)
+	delete(s.lakehouseSecurityEnabled, workspaceID+"/"+itemID)
 	for k := range s.permissions {
 		if strings.HasPrefix(k, workspaceID+"/") && strings.HasSuffix(k, "/"+itemID) {
 			delete(s.permissions, k)
 		}
 	}
+}
+
+// EnableLakehouseSecurity simulates an operator enabling OneLake Data Access Security
+// in the Fabric portal, activating role management and auto-seeding the DefaultReader role.
+func (s *Server) EnableLakehouseSecurity(workspaceID, lakehouseID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := workspaceID + "/" + lakehouseID
+	s.lakehouseSecurityEnabled[key] = true
+	if _, ok := s.lakehouseRoles[key]; !ok {
+		s.lakehouseRoles[key] = &lakehouseRolesState{
+			etag:  1,
+			roles: defaultLakehouseRoles(workspaceID, lakehouseID),
+		}
+	}
+}
+
+// SetLakehouseSecurityEnabled explicitly controls the OneLake security enablement flag.
+func (s *Server) SetLakehouseSecurityEnabled(workspaceID, lakehouseID string, enabled bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := workspaceID + "/" + lakehouseID
+	s.lakehouseSecurityEnabled[key] = enabled
 }
 
 // SetItemsPageSize configures the page size for GET /v1/workspaces/{workspaceId}/items.
@@ -743,6 +769,12 @@ func (s *Server) handleListDataAccessRoles(w http.ResponseWriter, workspaceID, i
 	}
 
 	key := workspaceID + "/" + itemID
+	if !s.lakehouseSecurityEnabled[key] {
+		s.mu.Unlock()
+		writeFabricError(w, http.StatusNotFound, "ItemNotFound", fmt.Sprintf("Item %s data access security is not enabled in workspace %s", itemID, workspaceID), false)
+		return
+	}
+
 	state, ok := s.lakehouseRoles[key]
 	if !ok {
 		state = &lakehouseRolesState{
@@ -782,6 +814,12 @@ func (s *Server) handlePutDataAccessRoles(w http.ResponseWriter, r *http.Request
 	}
 
 	key := workspaceID + "/" + itemID
+	if !s.lakehouseSecurityEnabled[key] {
+		s.mu.Unlock()
+		writeFabricError(w, http.StatusNotFound, "ItemNotFound", fmt.Sprintf("Item %s data access security is not enabled in workspace %s", itemID, workspaceID), false)
+		return
+	}
+
 	state, ok := s.lakehouseRoles[key]
 	if !ok {
 		state = &lakehouseRolesState{

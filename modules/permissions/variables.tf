@@ -18,6 +18,10 @@ variable "fabric_permissions_matrix" {
       type = optional(string, "Group")
     })))), {})
 
+    # Lakehouse OneLake Security enablement options
+    manage_lakehouse_security            = optional(bool, true)
+    remove_lakehouse_default_reader_role = optional(bool, true)
+
     # Lakehouses: supports either display name OR UUID as map keys, and both simple and advanced RLS/CLS rules!
     lakehouses = optional(map(map(object({
       # Simple mode attributes

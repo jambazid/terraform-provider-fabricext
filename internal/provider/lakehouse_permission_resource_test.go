@@ -36,6 +36,7 @@ func TestAccLakehousePermissionResource_CRUDAndImport(t *testing.T) {
 		DisplayName: "raw_bronze_lh",
 		Type:        "Lakehouse",
 	})
+	srv.EnableLakehouseSecurity(wsID, lhID)
 
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
@@ -99,6 +100,7 @@ func TestAccLakehousePermissionResource_ParallelForEachAndETagConflict(t *testin
 		DisplayName: "raw_bronze_lh",
 		Type:        "Lakehouse",
 	})
+	srv.EnableLakehouseSecurity(wsID, lhID)
 
 	// Inject 2 ETag 412 Precondition Failed conflicts during the parallel for_each apply.
 	srv.InjectETagConflicts(wsID, lhID, 2)
@@ -194,6 +196,7 @@ func TestAccLakehousePermissionResource_Disappears(t *testing.T) {
 		DisplayName: "raw_bronze_lh",
 		Type:        "Lakehouse",
 	})
+	srv.EnableLakehouseSecurity(wsID, lhID)
 
 	cfg := testAccProviderConfig(srv) + fmt.Sprintf(`
 resource "fabricext_lakehouse_permission" "test" {
@@ -218,6 +221,17 @@ resource "fabricext_lakehouse_permission" "test" {
 				ExpectNonEmptyPlan: true,
 			},
 			{
+				Config: cfg,
+				Check: func(_ *terraform.State) error {
+					srv.SetLakehouseSecurityEnabled(wsID, lhID, false)
+					return nil
+				},
+				ExpectNonEmptyPlan: true,
+			},
+			{
+				PreConfig: func() {
+					srv.EnableLakehouseSecurity(wsID, lhID)
+				},
 				Config: cfg,
 				Check: func(_ *terraform.State) error {
 					srv.RemoveItem(wsID, lhID)
@@ -393,6 +407,7 @@ func TestAccLakehousePermissionResource_SimpleAndAdvancedParity(t *testing.T) {
 		DisplayName: "raw_bronze_lh",
 		Type:        "Lakehouse",
 	})
+	srv.EnableLakehouseSecurity(wsID, lhID)
 
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
@@ -498,6 +513,7 @@ func TestAccLakehousePermissionResource_MixedMembersAndShortcuts(t *testing.T) {
 		DisplayName: "gold_analytics_lh",
 		Type:        "Lakehouse",
 	})
+	srv.EnableLakehouseSecurity(wsID, lhID)
 
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
@@ -614,12 +630,14 @@ func TestAccLakehousePermissionResource_IdentifierReplacement(t *testing.T) {
 		DisplayName: "lakehouse_one",
 		Type:        "Lakehouse",
 	})
+	srv.EnableLakehouseSecurity(wsID, lhID1)
 	srv.UpsertItem(fabricmock.Item{
 		ID:          lhID2,
 		WorkspaceID: wsID,
 		DisplayName: "lakehouse_two",
 		Type:        "Lakehouse",
 	})
+	srv.EnableLakehouseSecurity(wsID, lhID2)
 
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,

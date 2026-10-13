@@ -39,6 +39,7 @@ coverage.html
 # TEMPORARY FILES:
 tmp*
 /.tmp/
+/assets/branding/
 
 # IDEs
 .vscode

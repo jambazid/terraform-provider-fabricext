@@ -13,6 +13,7 @@
 | `fabricext_warehouse_permission` | Resource | `Warehouse` | Item Permissions (`GET /permissions`, `POST /grantPermissions`, `POST /revokePermissions`) | Implemented (`v0.1.x`) |
 | `fabricext_sql_database_permission` | Resource | `SQLDatabase` | Item Permissions (`GET /permissions`, `POST /grantPermissions`, `POST /revokePermissions` supporting `Read`, `ReadData`, `ReadAll` + `SubscribeOneLakeEvents`, `Write`, `Reshare`) | Implemented (`v0.1.x`) |
 | `fabricext_lakehouse_permission` | Resource | `Lakehouse` | OneLake Data Access Security (`GET` & `PUT /dataAccessRoles` with per-item mutex & `If-Match` ETag RMW) | Implemented (`v0.1.x`) |
+| `fabricext_lakehouse_onelake_security` | Resource | `Lakehouse` | OneLake Data Access Security Enablement Verification & `DefaultReader` Purge | Implemented (`v0.3.x`) |
 | `fabricext_item` | Data Source | `Warehouse`, `Lakehouse`, `SQLDatabase`, `SQLEndpoint`, `SemanticModel` | Workspace Items (`GET /v1/workspaces/{workspaceId}/items?type={type}`) | Implemented (`v0.1.x`) |
 | `modules/permissions` | HCL Module | `Warehouse`, `Lakehouse`, `SQLDatabase` | Flattens declarative workspace matrix into `for_each` resource bindings | Implemented (`v0.1.x`) |
 

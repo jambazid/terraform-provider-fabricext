@@ -5,6 +5,7 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -911,6 +912,11 @@ func (r *LakehousePermissionResource) Read(ctx context.Context, req resource.Rea
 	role, err := r.client.GetDataAccessRole(ctx, wsID, lhID, roleName)
 	if err != nil {
 		if client.IsNotFound(err) {
+			resp.State.RemoveResource(ctx)
+			return
+		}
+		var notEnabledErr *client.OneLakeSecurityNotEnabledError
+		if errors.As(err, &notEnabledErr) {
 			resp.State.RemoveResource(ctx)
 			return
 		}

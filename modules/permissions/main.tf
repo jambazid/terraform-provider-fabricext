@@ -58,6 +58,14 @@ locals {
       ]
     ]) : entry.key => entry
   }
+
+  unique_lakehouses = coalesce(var.fabric_permissions_matrix.manage_lakehouse_security, true) ? {
+    for lh_key in keys(coalesce(var.fabric_permissions_matrix.lakehouses, {})) : lh_key => {
+      key            = lh_key
+      lakehouse_name = can(regex(local.uuid_regex, lh_key)) ? null : lh_key
+      lakehouse_id   = can(regex(local.uuid_regex, lh_key)) ? lh_key : null
+    }
+  } : {}
 }
 
 resource "fabricext_warehouse_permission" "this" {
@@ -82,12 +90,21 @@ resource "fabricext_sql_database_permission" "this" {
   role_type         = each.value.role_type
 }
 
+resource "fabricext_lakehouse_onelake_security" "this" {
+  for_each = local.unique_lakehouses
+
+  workspace_id               = var.fabric_permissions_matrix.workspace_id
+  lakehouse_name             = each.value.lakehouse_name
+  lakehouse_id               = each.value.lakehouse_id
+  remove_default_reader_role = coalesce(var.fabric_permissions_matrix.remove_lakehouse_default_reader_role, true)
+}
+
 resource "fabricext_lakehouse_permission" "this" {
   for_each = local.lakehouse_permissions
 
   workspace_id   = var.fabric_permissions_matrix.workspace_id
-  lakehouse_name = each.value.lakehouse_name
-  lakehouse_id   = each.value.lakehouse_id
+  lakehouse_name = each.value.lakehouse_name != null ? try(fabricext_lakehouse_onelake_security.this[each.value.lakehouse_name].lakehouse_name, each.value.lakehouse_name) : null
+  lakehouse_id   = each.value.lakehouse_id != null ? try(fabricext_lakehouse_onelake_security.this[each.value.lakehouse_id].lakehouse_id, each.value.lakehouse_id) : null
   role_name      = each.value.role_name
   kind           = each.value.kind
 
