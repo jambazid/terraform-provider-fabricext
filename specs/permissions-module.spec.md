@@ -8,7 +8,7 @@ targets:
   - ../modules/permissions/outputs.tf
 ---
 
-# Declarative Workspace Permissions Wrapper Module (`modules/permissions`)
+# Declarative Permissions Wrapper Module
 
 ## Module Interface
 

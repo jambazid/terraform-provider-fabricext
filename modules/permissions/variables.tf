@@ -9,10 +9,10 @@ Object Attributes:
 - `workspace_id` - (Required, string) The 36-character UUID of the target Microsoft Fabric workspace.
 - `warehouses` - (Optional, map of maps) Map of Warehouse identifier (display name or UUID) to role maps (`read`, `write`, `reshare`), where each role maps to a list of principal objects:
   - `id` - (Required, string) Microsoft Entra ID Object ID of the principal.
-  - `type` - (Optional, string) Principal type: `User`, `Group`, `ServicePrincipal`, or `ManagedIdentity`. Default: `Group`.
+  - `type` - (Optional, string) Principal type: `User`, `Group`, `ServicePrincipal`, or `ServicePrincipalProfile`. Default: `Group`.
 - `sql_databases` - (Optional, map of maps) Map of SQL Database identifier (display name or UUID) to role maps (`read`, `read_data`, `read_spark`, `write`, `reshare`), where each role maps to a list of principal objects:
   - `id` - (Required, string) Microsoft Entra ID Object ID of the principal.
-  - `type` - (Optional, string) Principal type: `User`, `Group`, `ServicePrincipal`, or `ManagedIdentity`. Default: `Group`.
+  - `type` - (Optional, string) Principal type: `User`, `Group`, `ServicePrincipal`, or `ServicePrincipalProfile`. Default: `Group`.
 - `manage_lakehouse_security` - (Optional, bool) Whether to manage OneLake Data Access Security enablement verification for Lakehouses in the matrix. Default: `true`.
 - `remove_lakehouse_default_reader_role` - (Optional, bool) Whether to purge the default `DefaultReader` role created by Fabric upon enabling OneLake security. Default: `true`.
 - `lakehouses` - (Optional, map of maps) Map of Lakehouse identifier (display name or UUID) to role definitions. Each role supports either Simple Mode or Advanced Mode:

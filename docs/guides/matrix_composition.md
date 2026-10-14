@@ -295,7 +295,7 @@ module "workspace_permissions" {
           ]
           fabric_item_members = [
             {
-              source_path = "/workspaces/99999999-9999-9999-9999-999999999999/items/88888888-8888-8888-8888-888888888888"
+              source_path = "99999999-9999-9999-9999-999999999999/88888888-8888-8888-8888-888888888888"
               item_access = ["ReadAll"]
             }
           ]
@@ -361,7 +361,7 @@ Each principal entry in `warehouses` and `sql_databases` role lists supports:
 | Field | Type | Required | Default | Description |
 | :--- | :--- | :--- | :--- | :--- |
 | `id` | `string` | yes | - | Microsoft Entra ID Object ID of the principal. |
-| `type` | `string` | no | `"Group"` | Entra ID principal type: `User`, `Group`, `ServicePrincipal`, or `ManagedIdentity`. |
+| `type` | `string` | no | `"Group"` | Entra ID principal type: `User`, `Group`, `ServicePrincipal`, or `ServicePrincipalProfile`. |
 
 ### Simple Mode Attributes
 
@@ -429,7 +429,7 @@ Entries within `fabric_item_members` support:
 
 | Field | Type | Required | Default | Description |
 | :--- | :--- | :--- | :--- | :--- |
-| `source_path` | `string` | yes | - | Source path of the referencing Fabric item (e.g. `"/workspaces/{wsID}/items/{itemID}"`). |
+| `source_path` | `string` | yes | - | Source path of the referencing Fabric item in format `{workspace_id}/{item_id}`. |
 | `item_access` | `set(string)` | no | `["ReadAll"]` | Delegated item access permissions: `ReadAll`. |
 
 ---
