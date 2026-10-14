@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.4.0 - October 14, 2026
+
+### ⚰️ Deprecated
+
+* Purge active item-sharing implications for Warehouse and SQL Database across documentation, guides, matrix composition, permissions module, and runnable HCL examples in preparation for v0.4.0 tombstoning
+
+### 📚 Documentation
+
+* Document honest technical comparison narrative against official provider, highlighting automated OneLake DefaultReader zero-trust purging, RFC 9110 ETag concurrency, and hermetic offline contract testing
+
 ## v0.3.0 - October 14, 2026
 
 ### ✨ Added
