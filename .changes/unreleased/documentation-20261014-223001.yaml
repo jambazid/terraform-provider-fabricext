@@ -1,0 +1,6 @@
+kind: documentation
+body: >-
+  Document honest technical comparison narrative against official provider,
+  highlighting automated OneLake DefaultReader zero-trust purging, RFC 9110
+  ETag concurrency, and hermetic offline contract testing
+time: 2026-10-14T22:30:01.000000000+01:00

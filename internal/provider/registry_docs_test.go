@@ -139,3 +139,87 @@ func TestRegistryDocs_HeadingLengthBound(t *testing.T) {
 		t.Fatalf("failed to walk templates directory: %v", err)
 	}
 }
+
+// TestRegistryDocs_NoActiveItemSharingClaims verifies that templates and documentation
+// contain zero claims of nonexistent REST item sharing or fake overlays.
+func TestRegistryDocs_NoActiveItemSharingClaims(t *testing.T) {
+	filesToCheck := []string{
+		"../../templates/guides/official_provider_comparison.md.tmpl",
+		"../../guides/official_provider_comparison.md",
+		"../../README.md",
+		"../../templates/index.md.tmpl",
+		"../../templates/guides/use_case_overview.md.tmpl",
+		"../../templates/guides/use_case_controls_and_interactions.md.tmpl",
+		"../../templates/guides/use_case_powerbi_identity_propagation.md.tmpl",
+		"../../templates/guides/matrix_composition.md.tmpl",
+	}
+
+	bannedSubstrings := []string{
+		"specs/openapi/overlays/item-permissions.json",
+		"POST /grantPermissions",
+		"POST /revokePermissions",
+		"grantPermissions` endpoint",
+		"revokePermissions` endpoint",
+	}
+
+	for _, file := range filesToCheck {
+		content, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatalf("failed to read file %s: %v", file, err)
+		}
+		str := string(content)
+
+		for _, banned := range bannedSubstrings {
+			if strings.Contains(str, banned) {
+				t.Errorf("file %s contains banned claim: %q", file, banned)
+			}
+		}
+	}
+
+	// Verify README Quick Start does not configure deprecated resources
+	readmeContent, err := os.ReadFile("../../README.md")
+	if err != nil {
+		t.Fatalf("failed to read README.md: %v", err)
+	}
+	readmeStr := string(readmeContent)
+	if strings.Contains(readmeStr, `resource "fabricext_warehouse_permission" "analytics_readers"`) {
+		t.Errorf("README.md Quick Start still declares active warehouse_permission resource")
+	}
+	if strings.Contains(readmeStr, `resource "fabricext_sql_database_permission" "orders_readers"`) {
+		t.Errorf("README.md Quick Start still declares active sql_database_permission resource")
+	}
+}
+
+// TestRegistryDocs_HonestComparisonNarrative verifies that the comparison guides contain
+// genuine technical differentiators and no nonexistent REST sequence diagrams.
+func TestRegistryDocs_HonestComparisonNarrative(t *testing.T) {
+	guides := []string{
+		"../../templates/guides/official_provider_comparison.md.tmpl",
+		"../../guides/official_provider_comparison.md",
+	}
+
+	requiredTerms := []string{
+		"DefaultReader",
+		"If-Match",
+		"kin-openapi",
+		"fabricmock",
+	}
+
+	for _, guide := range guides {
+		content, err := os.ReadFile(guide)
+		if err != nil {
+			t.Fatalf("failed to read guide %s: %v", guide, err)
+		}
+		str := string(content)
+
+		for _, term := range requiredTerms {
+			if !strings.Contains(str, term) {
+				t.Errorf("guide %s missing required honest comparison term: %q", guide, term)
+			}
+		}
+
+		if strings.Contains(str, "revokePermissions (permissions:") {
+			t.Errorf("guide %s contains nonexistent REST sequence diagram", guide)
+		}
+	}
+}

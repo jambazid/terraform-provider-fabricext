@@ -2,12 +2,12 @@
 page_title: "fabricext_sql_database_permission Resource - Fabric Extensions (fabricext)"
 subcategory: ""
 description: |-
-  (Deprecated) Manages item-level permissions on a Microsoft Fabric SQL Database. Deprecated in v0.3.0 and will be removed in v0.4.0.
+  (Deprecated) Manages item-level permissions on a Microsoft Fabric SQL Database. Tombstoned in v0.3.0 and scheduled for removal in v0.4.0.
 ---
 
 # fabricext_sql_database_permission (Resource)
 
-!> **Deprecated:** This resource is deprecated and will be removed in v0.4.0. Microsoft Fabric does not offer public item-sharing REST endpoints for SQL Databases. Item-level sharing must be performed using the Share quick action in the Fabric web portal, and fine-grained data access should be implemented using in-database SQL roles or Microsoft Purview policies. Creating or updating this resource fails without making network calls. Removing it from Terraform configuration is safe and makes no API calls.
+!> **Deprecated:** This resource was tombstoned in v0.3.0 and is scheduled for removal in v0.4.0. Microsoft Fabric does not offer public item-sharing REST endpoints for SQL Databases. Item-level sharing must be performed using the Share quick action in the Fabric web portal, and fine-grained data access should be implemented using in-database SQL roles or Microsoft Purview policies. Creating or updating this resource fails without making network calls. Removing it from Terraform configuration is safe and makes no API calls.
 
 !> **Warning:** **Experimental Provider**: The `fabricext` provider is published in a pre-`v1.0.0` experimental state to facilitate automated packaging and supply-chain verification. For core workspace and item management, use the official Microsoft [`microsoft/fabric`](https://registry.terraform.io/providers/microsoft/fabric/latest) provider.
 
@@ -44,22 +44,22 @@ removed {
 
 ## Example Usage
 ```terraform
-# Referencing SQL Database by display name
-resource "fabricext_sql_database_permission" "orders_readers" {
-  workspace_id      = "00000000-0000-0000-0000-000000000001"
-  sql_database_name = "operational_orders_db"
-  principal_id      = "11111111-1111-1111-1111-111111111111"
-  principal_type    = "Group"
-  role_type         = "read_data"
+# To safely remove existing fabricext_sql_database_permission resources from Terraform state
+# without attempting external API calls or deleting Fabric resources, use Terraform 1.7+ removed blocks:
+removed {
+  from = fabricext_sql_database_permission.orders_readers
+
+  lifecycle {
+    destroy = false
+  }
 }
 
-# Referencing SQL Database by direct UUID (ideal for upstream resource chaining)
-resource "fabricext_sql_database_permission" "direct_id_readers" {
-  workspace_id    = "00000000-0000-0000-0000-000000000001"
-  sql_database_id = "33333333-3333-3333-3333-333333333333"
-  principal_id    = "11111111-1111-1111-1111-111111111111"
-  principal_type  = "Group"
-  role_type       = "read_spark"
+removed {
+  from = fabricext_sql_database_permission.direct_id_readers
+
+  lifecycle {
+    destroy = false
+  }
 }
 ```
 

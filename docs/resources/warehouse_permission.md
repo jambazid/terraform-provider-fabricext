@@ -2,12 +2,12 @@
 page_title: "fabricext_warehouse_permission Resource - Fabric Extensions (fabricext)"
 subcategory: ""
 description: |-
-  (Deprecated) Manages item-level permissions on a Microsoft Fabric Warehouse. Deprecated in v0.3.0 and will be removed in v0.4.0.
+  (Deprecated) Manages item-level permissions on a Microsoft Fabric Warehouse. Tombstoned in v0.3.0 and scheduled for removal in v0.4.0.
 ---
 
 # fabricext_warehouse_permission (Resource)
 
-!> **Deprecated:** This resource is deprecated and will be removed in v0.4.0. Microsoft Fabric does not offer public item-sharing REST endpoints for Warehouses. Item-level sharing must be configured using the Fabric web portal interface, and fine-grained data access should be implemented using in-database T-SQL permissions (`GRANT`/`REVOKE`/`DENY`). Creating or updating this resource fails without making network calls. Removing it from Terraform configuration is safe and makes no API calls.
+!> **Deprecated:** This resource was tombstoned in v0.3.0 and is scheduled for removal in v0.4.0. Microsoft Fabric does not offer public item-sharing REST endpoints for Warehouses. Item-level sharing must be configured using the Fabric web portal interface, and fine-grained data access should be implemented using in-database T-SQL permissions (`GRANT`/`REVOKE`/`DENY`). Creating or updating this resource fails without making network calls. Removing it from Terraform configuration is safe and makes no API calls.
 
 !> **Warning:** **Experimental Provider**: The `fabricext` provider is published in a pre-`v1.0.0` experimental state to facilitate automated packaging and supply-chain verification. For core workspace and item management, use the official Microsoft [`microsoft/fabric`](https://registry.terraform.io/providers/microsoft/fabric/latest) provider.
 
@@ -15,7 +15,7 @@ Manages item-level sharing and permissions on a Microsoft Fabric **Warehouse** (
 
 ## Deprecation & Migration Guide
 
-Microsoft Fabric does not expose public REST routes (`/permissions`, `/grantPermissions`, `/revokePermissions`) for Warehouses. Consequently, item-level sharing cannot be managed declaratively through the Fabric REST API at this time.
+Microsoft Fabric does not expose public REST routes for declarative Warehouse item sharing. Consequently, item-level sharing cannot be managed declaratively through the Fabric REST API at this time.
 
 ### Recommended Access Architecture
 
@@ -44,22 +44,22 @@ removed {
 
 ## Example Usage
 ```terraform
-# Referencing Warehouse by display name
-resource "fabricext_warehouse_permission" "analytics_readers" {
-  workspace_id   = "00000000-0000-0000-0000-000000000001"
-  warehouse_name = "sales_analytics_wh"
-  principal_id   = "11111111-1111-1111-1111-111111111111"
-  principal_type = "Group"
-  role_type      = "read"
+# To safely remove existing fabricext_warehouse_permission resources from Terraform state
+# without attempting external API calls or deleting Fabric resources, use Terraform 1.7+ removed blocks:
+removed {
+  from = fabricext_warehouse_permission.analytics_readers
+
+  lifecycle {
+    destroy = false
+  }
 }
 
-# Referencing Warehouse by direct UUID (ideal for upstream resource chaining)
-resource "fabricext_warehouse_permission" "direct_id_writers" {
-  workspace_id   = "00000000-0000-0000-0000-000000000001"
-  warehouse_id   = "22222222-2222-2222-2222-222222222222"
-  principal_id   = "11111111-1111-1111-1111-111111111111"
-  principal_type = "Group"
-  role_type      = "write"
+removed {
+  from = fabricext_warehouse_permission.direct_id_writers
+
+  lifecycle {
+    destroy = false
+  }
 }
 ```
 

@@ -7,10 +7,10 @@ Declarative permission matrix mapping Microsoft Fabric Warehouses, SQL Databases
 
 Object Attributes:
 - `workspace_id` - (Required, string) The 36-character UUID of the target Microsoft Fabric workspace.
-- `warehouses` - (Optional, map of maps) Map of Warehouse identifier (display name or UUID) to role maps (`read`, `write`, `reshare`), where each role maps to a list of principal objects:
+- `warehouses` - (Optional, map of maps) (Deprecated) Map of Warehouse identifier (display name or UUID) to role maps (`read`, `write`, `reshare`). Retained as a no-op returning an empty map `{}` for interface backwards-compatibility; declarative item sharing was tombstoned in v0.3.0 and scheduled for removal in v0.4.0:
   - `id` - (Required, string) Microsoft Entra ID Object ID of the principal.
   - `type` - (Optional, string) Principal type: `User`, `Group`, `ServicePrincipal`, or `ServicePrincipalProfile`. Default: `Group`.
-- `sql_databases` - (Optional, map of maps) Map of SQL Database identifier (display name or UUID) to role maps (`read`, `read_data`, `read_spark`, `write`, `reshare`), where each role maps to a list of principal objects:
+- `sql_databases` - (Optional, map of maps) (Deprecated) Map of SQL Database identifier (display name or UUID) to role maps (`read`, `read_data`, `read_spark`, `write`, `reshare`). Retained as a no-op returning an empty map `{}` for interface backwards-compatibility; declarative item sharing was tombstoned in v0.3.0 and scheduled for removal in v0.4.0:
   - `id` - (Required, string) Microsoft Entra ID Object ID of the principal.
   - `type` - (Optional, string) Principal type: `User`, `Group`, `ServicePrincipal`, or `ServicePrincipalProfile`. Default: `Group`.
 - `manage_lakehouse_security` - (Optional, bool) Whether to manage OneLake Data Access Security enablement verification for Lakehouses in the matrix. Default: `true`.

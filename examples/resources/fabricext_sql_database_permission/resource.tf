@@ -1,17 +1,17 @@
-# Referencing SQL Database by display name
-resource "fabricext_sql_database_permission" "orders_readers" {
-  workspace_id      = "00000000-0000-0000-0000-000000000001"
-  sql_database_name = "operational_orders_db"
-  principal_id      = "11111111-1111-1111-1111-111111111111"
-  principal_type    = "Group"
-  role_type         = "read_data"
+# To safely remove existing fabricext_sql_database_permission resources from Terraform state
+# without attempting external API calls or deleting Fabric resources, use Terraform 1.7+ removed blocks:
+removed {
+  from = fabricext_sql_database_permission.orders_readers
+
+  lifecycle {
+    destroy = false
+  }
 }
 
-# Referencing SQL Database by direct UUID (ideal for upstream resource chaining)
-resource "fabricext_sql_database_permission" "direct_id_readers" {
-  workspace_id    = "00000000-0000-0000-0000-000000000001"
-  sql_database_id = "33333333-3333-3333-3333-333333333333"
-  principal_id    = "11111111-1111-1111-1111-111111111111"
-  principal_type  = "Group"
-  role_type       = "read_spark"
+removed {
+  from = fabricext_sql_database_permission.direct_id_readers
+
+  lifecycle {
+    destroy = false
+  }
 }
