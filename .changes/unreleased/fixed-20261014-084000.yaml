@@ -1,0 +1,7 @@
+---
+kind: fixed
+body: >-
+  Implement OneLake Data Access Role pagination via continuationToken, enforce
+  RFC 9110 ETag quoting normalisation, and add client-side and mock validation
+  rejecting write actions combined with row or column constraints.
+time: 2026-10-14T08:40:00.000000000+01:00

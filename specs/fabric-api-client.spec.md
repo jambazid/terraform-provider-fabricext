@@ -35,9 +35,13 @@ func (c *FabricClient) DeleteDataAccessRole(ctx context.Context, workspaceID, la
 - On a cache miss for a previously cached `(workspaceID, itemType)`, the client evicts the cached entry once and re-fetches from the API before returning `*NotFoundError`
   `[@test] ../internal/client/fabric_client_test.go::TestGetItemIDByName_PaginationTypeIsolationAndCacheRefresh`
 
-## Lakehouse Roles Concurrency
+## Lakehouse Roles Concurrency & Pagination
 
-- `UpsertDataAccessRole` and `DeleteDataAccessRole` acquire a per-Lakehouse mutex (`workspaceID + "/" + lakehouseID`), `GET` the current `/dataAccessRoles` slice and `ETag` header, mutate only the target `role_name` (preserving `DefaultReader` and sibling roles), and `PUT` the updated document with `If-Match: <ETag>`
+- `ListDataAccessRoles` traverses all pages using `continuationToken` query parameters across the client's configured base URL until `continuationToken` is empty, asserting that the response header `ETag` remains identical across all pages; if an ETag change is detected between pages, the scan aborts as a concurrency conflict and triggers a full retry
+  `[@test] ../internal/client/fabric_client_test.go::TestLakehouseDataAccessRoles_PaginationAndETagConsistency`
+- `normalizeETag` normalizes HTTP `ETag` headers for strong comparison in `If-Match`, rejecting empty strings, weak tags (`W/"..."`), and malformed quotes, while quoting unquoted tokens (`etag-v1` $\rightarrow$ `"etag-v1"`)
+  `[@test] ../internal/client/fabric_client_test.go::TestNormalizeETag_Invariants`
+- `UpsertDataAccessRole` and `DeleteDataAccessRole` acquire a per-Lakehouse mutex (`workspaceID + "/" + lakehouseID`), `GET` the current `/dataAccessRoles` slice and `ETag` header across all pages, mutate only the target `role_name` (preserving `DefaultReader` and sibling roles), and `PUT` the updated document with normalized `If-Match: <ETag>`
   `[@test] ../internal/client/fabric_client_test.go::TestLakehouseDataAccessRoles_ConcurrentRMWAndETagConflictRetry`
 - When a concurrent modification causes HTTP `412 Precondition Failed` or `409 Conflict`, the client retries the `GET` $\rightarrow$ mutate $\rightarrow$ `PUT` cycle up to `MaxETagRetries` without losing sibling roles
   `[@test] ../internal/client/fabric_client_test.go::TestLakehouseDataAccessRoles_ConcurrentRMWAndETagConflictRetry`

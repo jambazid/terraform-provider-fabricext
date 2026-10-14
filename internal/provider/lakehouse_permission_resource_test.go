@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
@@ -389,6 +390,68 @@ resource "fabricext_lakehouse_permission" "mixing_actions_advanced" {
 `,
 				ExpectError: regexp.MustCompile(`Conflicting Role Definition`),
 			},
+			{
+				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
+resource "fabricext_lakehouse_permission" "role_name_too_long" {
+  workspace_id   = "11111111-1111-1111-1111-111111111111"
+  lakehouse_name = "raw_bronze_lh"
+  role_name      = "%s"
+  paths          = ["/Tables/customers"]
+  principal_ids  = ["77777777-7777-7777-7777-777777777771"]
+}
+`, strings.Repeat("A", 129)),
+				ExpectError: regexp.MustCompile(`Attribute role_name string length must be at most 128`),
+			},
+			{
+				Config: testAccProviderConfig(srv) + `
+resource "fabricext_lakehouse_permission" "readwrite_with_row_constraint" {
+  workspace_id   = "11111111-1111-1111-1111-111111111111"
+  lakehouse_name = "raw_bronze_lh"
+  role_name      = "BronzeWriters"
+
+  decision_rule {
+    paths   = ["/Tables/sales"]
+    actions = ["ReadWrite"]
+
+    row_constraint {
+      table_path = "/Tables/sales"
+      predicate  = "Region = 'EMEA'"
+    }
+  }
+
+  entra_member {
+    object_id   = "77777777-7777-7777-7777-777777777771"
+    object_type = "User"
+  }
+}
+`,
+				ExpectError: regexp.MustCompile(`combines "ReadWrite" action with row or column constraints`),
+			},
+			{
+				Config: testAccProviderConfig(srv) + `
+resource "fabricext_lakehouse_permission" "readwrite_with_col_constraint" {
+  workspace_id   = "11111111-1111-1111-1111-111111111111"
+  lakehouse_name = "raw_bronze_lh"
+  role_name      = "BronzeWriters"
+
+  decision_rule {
+    paths   = ["/Tables/sales"]
+    actions = ["ReadWrite"]
+
+    column_constraint {
+      table_path = "/Tables/sales"
+      columns    = ["OrderID", "CustomerName"]
+    }
+  }
+
+  entra_member {
+    object_id   = "77777777-7777-7777-7777-777777777771"
+    object_type = "User"
+  }
+}
+`,
+				ExpectError: regexp.MustCompile(`combines "ReadWrite" action with row or column constraints`),
+			},
 		},
 	})
 }
@@ -446,7 +509,7 @@ resource "fabricext_lakehouse_permission" "parity" {
 
   decision_rule {
     paths   = ["/Tables/customers"]
-    actions = ["Read", "Write"]
+    actions = ["Read"]
     effect  = "Permit"
 
     row_constraint {
@@ -473,7 +536,7 @@ resource "fabricext_lakehouse_permission" "parity" {
 					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.parity", "kind", "Policy"),
 					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.parity", "decision_rule.#", "1"),
 					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.parity", "decision_rule.0.paths.#", "1"),
-					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.parity", "decision_rule.0.actions.#", "2"),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.parity", "decision_rule.0.actions.#", "1"),
 					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.parity", "decision_rule.0.row_constraint.#", "1"),
 					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.parity", "decision_rule.0.row_constraint.0.table_path", "/Tables/customers"),
 					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.parity", "decision_rule.0.row_constraint.0.predicate", "Region = 'EMEA'"),

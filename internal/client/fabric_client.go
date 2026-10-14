@@ -673,49 +673,137 @@ func (c *FabricClient) getLakehouseMutex(workspaceID, lakehouseID string) *sync.
 	return mu
 }
 
-// ListDataAccessRoles returns all OneLake Data Access Roles and the current ETag for a Lakehouse.
+// normalizeETag normalizes an HTTP entity tag for use with If-Match (RFC 9110 §13.1.1).
+// Weak entity tags (W/"..."), empty tags, or tags with malformed quotes are rejected with an error.
+// Unquoted tags are enclosed in double quotes. Already quoted tags are passed through.
+func normalizeETag(raw string) (string, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", errors.New("ETag cannot be empty")
+	}
+	if strings.HasPrefix(trimmed, "W/") || strings.HasPrefix(trimmed, "w/") {
+		return "", fmt.Errorf("weak ETag %q is not supported for optimistic concurrency with If-Match", raw)
+	}
+	if trimmed == "*" {
+		return "", errors.New("wildcard ETag '*' is not allowed for OneLake role mutation")
+	}
+	if strings.HasPrefix(trimmed, `"`) && strings.HasSuffix(trimmed, `"`) && len(trimmed) >= 2 {
+		inner := trimmed[1 : len(trimmed)-1]
+		if inner == "" {
+			return "", errors.New("ETag cannot be empty")
+		}
+		if strings.Contains(inner, `"`) {
+			return "", fmt.Errorf("malformed ETag %q contains embedded quotes", raw)
+		}
+		return trimmed, nil
+	}
+	if strings.Contains(trimmed, `"`) {
+		return "", fmt.Errorf("malformed ETag %q contains quotes", raw)
+	}
+	return `"` + trimmed + `"`, nil
+}
+
+// ListDataAccessRoles returns all OneLake Data Access Roles and the current ETag for a Lakehouse,
+// traversing all result pages using continuationToken.
 func (c *FabricClient) ListDataAccessRoles(ctx context.Context, workspaceID, lakehouseID string) ([]DataAccessRole, string, error) {
 	return c.listDataAccessRolesWithETag(ctx, workspaceID, lakehouseID)
 }
 
 func (c *FabricClient) listDataAccessRolesWithETag(ctx context.Context, workspaceID, lakehouseID string) ([]DataAccessRole, string, error) {
-	path := fmt.Sprintf("/v1/workspaces/%s/items/%s/dataAccessRoles", workspaceID, lakehouseID)
-	var resp struct {
-		Value []DataAccessRole `json:"value"`
-	}
-	headers, err := c.doJSON(ctx, http.MethodGet, path, nil, nil, &resp)
-	if err != nil {
-		if IsNotFound(err) {
-			item, itemErr := c.GetItemByID(ctx, workspaceID, lakehouseID, "")
-			if itemErr != nil {
-				if IsNotFound(itemErr) {
-					return nil, "", &NotFoundError{
-						ResourceType: "Lakehouse",
-						ResourceID:   lakehouseID,
-						WorkspaceID:  workspaceID,
+	const maxPages = 100 // safety cap against runaway pagination loops
+
+	for attempt := 0; attempt < c.maxETagRetries; attempt++ {
+		var allRoles []DataAccessRole
+		var canonicalETag string
+		seenTokens := make(map[string]bool)
+		continuationToken := ""
+		pageCount := 0
+		etagConflict := false
+
+		for {
+			pageCount++
+			if pageCount > maxPages {
+				return nil, "", fmt.Errorf("exceeded maximum pagination page cap (%d) for Lakehouse %s dataAccessRoles", maxPages, lakehouseID)
+			}
+
+			path := fmt.Sprintf("/v1/workspaces/%s/items/%s/dataAccessRoles", workspaceID, lakehouseID)
+			if continuationToken != "" {
+				path += "?continuationToken=" + url.QueryEscape(continuationToken)
+			}
+
+			var resp struct {
+				Value             []DataAccessRole `json:"value"`
+				ContinuationToken string           `json:"continuationToken,omitempty"`
+			}
+			headers, err := c.doJSON(ctx, http.MethodGet, path, nil, nil, &resp)
+			if err != nil {
+				if pageCount == 1 && IsNotFound(err) {
+					item, itemErr := c.GetItemByID(ctx, workspaceID, lakehouseID, "")
+					if itemErr != nil {
+						if IsNotFound(itemErr) {
+							return nil, "", &NotFoundError{
+								ResourceType: "Lakehouse",
+								ResourceID:   lakehouseID,
+								WorkspaceID:  workspaceID,
+							}
+						}
+						return nil, "", itemErr
+					}
+					if !strings.EqualFold(item.Type, "Lakehouse") {
+						return nil, "", &UnsupportedItemTypeError{
+							WorkspaceID: workspaceID,
+							ItemID:      lakehouseID,
+							ActualType:  item.Type,
+						}
+					}
+					return nil, "", &OneLakeSecurityNotEnabledError{
+						WorkspaceID: workspaceID,
+						LakehouseID: lakehouseID,
 					}
 				}
-				return nil, "", itemErr
+				return nil, "", err
 			}
-			if !strings.EqualFold(item.Type, "Lakehouse") {
-				return nil, "", &UnsupportedItemTypeError{
-					WorkspaceID: workspaceID,
-					ItemID:      lakehouseID,
-					ActualType:  item.Type,
-				}
+
+			rawETag := headers.Get("ETag")
+			if rawETag == "" {
+				rawETag = headers.Get("Etag")
 			}
-			return nil, "", &OneLakeSecurityNotEnabledError{
-				WorkspaceID: workspaceID,
-				LakehouseID: lakehouseID,
+			normETag, err := normalizeETag(rawETag)
+			if err != nil {
+				return nil, "", fmt.Errorf("invalid ETag header on page %d for Lakehouse %s: %w", pageCount, lakehouseID, err)
 			}
+
+			if pageCount == 1 {
+				canonicalETag = normETag
+			} else if normETag != canonicalETag {
+				// Header ETag mismatch across pages indicates an external concurrent mutation.
+				etagConflict = true
+				break
+			}
+
+			allRoles = append(allRoles, resp.Value...)
+
+			if resp.ContinuationToken == "" {
+				break
+			}
+			if seenTokens[resp.ContinuationToken] {
+				return nil, "", fmt.Errorf("detected cycle in pagination continuationToken %q for Lakehouse %s", resp.ContinuationToken, lakehouseID)
+			}
+			seenTokens[resp.ContinuationToken] = true
+			continuationToken = resp.ContinuationToken
 		}
-		return nil, "", err
+
+		if etagConflict {
+			if err := sleepWithContext(ctx, c.retryDelay("", attempt)); err != nil {
+				return nil, "", err
+			}
+			continue
+		}
+
+		return allRoles, canonicalETag, nil
 	}
-	etag := headers.Get("ETag")
-	if etag == "" {
-		etag = headers.Get("Etag")
-	}
-	return resp.Value, etag, nil
+
+	return nil, "", fmt.Errorf("exceeded maximum ETag retries (%d) resolving paginated OneLake Data Access Roles for Lakehouse %s", c.maxETagRetries, lakehouseID)
 }
 
 // UpsertDataAccessRole performs a mutex-serialized, ETag-guarded Read-Modify-Write on a Lakehouse's
@@ -757,7 +845,11 @@ func (c *FabricClient) UpsertDataAccessRole(ctx context.Context, workspaceID, la
 
 		reqHeaders := make(http.Header)
 		if etag != "" {
-			reqHeaders.Set("If-Match", etag)
+			normETag, err := normalizeETag(etag)
+			if err != nil {
+				return fmt.Errorf("invalid ETag received from service: %w", err)
+			}
+			reqHeaders.Set("If-Match", normETag)
 		}
 
 		body := map[string]any{
@@ -834,7 +926,11 @@ func (c *FabricClient) DeleteDataAccessRole(ctx context.Context, workspaceID, la
 
 		reqHeaders := make(http.Header)
 		if etag != "" {
-			reqHeaders.Set("If-Match", etag)
+			normETag, err := normalizeETag(etag)
+			if err != nil {
+				return fmt.Errorf("invalid ETag received from service: %w", err)
+			}
+			reqHeaders.Set("If-Match", normETag)
 		}
 
 		body := map[string]any{
