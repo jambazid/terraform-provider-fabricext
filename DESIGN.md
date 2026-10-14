@@ -474,3 +474,17 @@ flowchart LR
    - `.golangci.yaml` enforces `depguard` rules banning `github.com/hashicorp/terraform-plugin-sdk/v2` imports alongside `usetesting`, `govet`, `staticcheck`, `errcheck`, `gosec`, and `revive`.
 4. **Continuous Vulnerability, Secret & Misconfiguration Scanning**:
    - `trivy fs` (vulnerabilities, secrets, misconfigurations) and `trivy config` (Terraform HCL scanning) + `zizmor` (GitHub Actions static analysis) run with identical configurations both locally in `prek` hooks and in CI (`trivy | scan` and `provider | lint`).
+
+---
+
+## 10. Registry Documentation & Playbook Architecture
+
+1. **Pre-Stable Experimental Positioning**:
+   - The provider is explicitly documented as pre-`v1.0.0` experimental software published to validate automated packaging, supply-chain provenance, and early Fabric permission architectures.
+   - All Registry landing pages and resource documents link to the official [`microsoft/fabric`](https://registry.terraform.io/providers/microsoft/fabric/latest) provider for core workspace infrastructure.
+2. **Access Control Playbook**:
+   - `templates/guides/access_control_playbook.md.tmpl` serves as the primary practitioner guide for least-privilege Fabric access.
+   - Provides a comprehensive "Start Here" routing table across personas, items, and tooling.
+   - Structured scenario cards include concrete `sqlcmd` and notebook verification commands and explicit least-privilege rationales.
+3. **Primary-Source Citation Binding**:
+   - All factual assertions regarding Fabric access controls, SQL endpoint modes, TDS connectivity, and OneLake role semantics bind to verifiable Microsoft Learn documentation cataloged in `specs/citations.md`.
