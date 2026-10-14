@@ -1,18 +1,38 @@
+# Verify OneLake security enablement and purge DefaultReader
+resource "fabricext_lakehouse_onelake_security" "raw_bronze" {
+  workspace_id   = "00000000-0000-0000-0000-000000000001"
+  lakehouse_name = "raw_bronze_lh"
+
+  remove_default_reader_role = true
+}
+
 # Simple flat mode (basic table and folder path access)
 resource "fabricext_lakehouse_permission" "bronze_readers" {
   workspace_id   = "00000000-0000-0000-0000-000000000001"
-  lakehouse_name = "raw_bronze_lh"
+  lakehouse_name = fabricext_lakehouse_onelake_security.raw_bronze.lakehouse_name
   role_name      = "BronzeReaders"
   paths          = ["/Tables/customers", "/Files/landing"]
   actions        = ["Read"]
   principal_ids  = ["11111111-1111-1111-1111-111111111111"]
   principal_type = "Group"
+
+  depends_on = [
+    fabricext_lakehouse_onelake_security.raw_bronze,
+  ]
+}
+
+# Verify OneLake security enablement on silver lakehouse
+resource "fabricext_lakehouse_onelake_security" "silver" {
+  workspace_id = "00000000-0000-0000-0000-000000000001"
+  lakehouse_id = "22222222-2222-2222-2222-222222222222"
+
+  remove_default_reader_role = true
 }
 
 # Advanced structured mode (Row-Level Security, Column-Level Security, and heterogeneous members)
 resource "fabricext_lakehouse_permission" "emea_analysts" {
   workspace_id = "00000000-0000-0000-0000-000000000001"
-  lakehouse_id = "22222222-2222-2222-2222-222222222222"
+  lakehouse_id = fabricext_lakehouse_onelake_security.silver.lakehouse_id
   role_name    = "EmeaAnalysts"
 
   decision_rule {
@@ -42,4 +62,8 @@ resource "fabricext_lakehouse_permission" "emea_analysts" {
     object_id   = "33333333-3333-3333-3333-333333333333"
     object_type = "User"
   }
+
+  depends_on = [
+    fabricext_lakehouse_onelake_security.silver,
+  ]
 }

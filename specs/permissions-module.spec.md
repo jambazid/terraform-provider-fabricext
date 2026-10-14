@@ -51,5 +51,7 @@ module "fabric_permissions" {
   `[@test] ../internal/provider/provider_test.go::TestAccPermissionsModule_MatrixFlattening`
 - Supports direct item UUID keys as well as display names across `warehouses`, `sql_databases`, and `lakehouses`, and maps advanced Lakehouse `decision_rules` (with `row_constraints` and `column_constraints`), `entra_members`, and `fabric_item_members` cleanly to underlying resources
   `[@test] ../internal/provider/provider_test.go::TestAccPermissionsModule_MatrixWithRLSandCLS`
+- Enforces explicit `depends_on = [fabricext_lakehouse_onelake_security.this]` on `fabricext_lakehouse_permission.this` across all configured Lakehouses so that OneLake security verification and `DefaultReader` role purging complete before any role is provisioned
+  `[@test] ../internal/provider/provider_test.go::TestAccPermissionsModule_MatrixFlattening`
 - Exports `warehouse_permission_ids`, `sql_database_permission_ids`, and `lakehouse_permission_ids` outputs
   `[@test] ../internal/provider/provider_test.go::TestAccPermissionsModule_MatrixFlattening`

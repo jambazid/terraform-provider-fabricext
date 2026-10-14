@@ -114,6 +114,11 @@ resource "fabricext_lakehouse_permission" "this" {
   principal_ids  = each.value.principal_ids
   principal_type = each.value.principal_type
 
+  depends_on = [
+    fabricext_lakehouse_onelake_security.this,
+  ]
+
+
   # Advanced mode blocks
   dynamic "decision_rule" {
     for_each = each.value.decision_rules

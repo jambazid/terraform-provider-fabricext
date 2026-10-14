@@ -132,6 +132,13 @@ module "workspace_permissions" {
 
 ---
 
+## Lakehouse Security Sequencing
+
+~> **Note:** **Explicit Dependency Ordering**: When managing Lakehouses, `fabricext_lakehouse_permission` resources depend on `fabricext_lakehouse_onelake_security` to ensure enablement verification and `DefaultReader` purging execute before role mutations. Inside `modules/permissions`, this is enforced automatically via an explicit `depends_on = [fabricext_lakehouse_onelake_security.this]` block across all Lakehouses.
+
+---
+
+
 ## Related Guides
 
 | Guide | Core Focus |

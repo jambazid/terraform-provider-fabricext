@@ -65,3 +65,8 @@ resource "fabricext_lakehouse_onelake_security" "example" {
 
 - `ImportState` imports `{workspace_id}/{lakehouse_id}`, validates enablement, and sets `remove_default_reader_role = false` if `DefaultReader` exists, or `true` if absent
   `[@test] ../internal/provider/lakehouse_onelake_security_resource_test.go::TestAccLakehouseOnelakeSecurity_import`
+
+## Dependency Ordering
+
+- Downstream `fabricext_lakehouse_permission` resources declare an explicit `depends_on` referencing `fabricext_lakehouse_onelake_security` across all Lakehouses to ensure enablement verification and `DefaultReader` purging execute before role mutations
+  `[@test] ../internal/provider/lakehouse_onelake_security_resource_test.go::TestAccLakehouseOnelakeSecurity_basic`

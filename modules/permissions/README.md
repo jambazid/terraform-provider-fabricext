@@ -14,6 +14,8 @@ This module flattens and declaratively provisions workspace-wide item permission
 
 ~> **Note:** **Simple Mode vs. Advanced Mode Member Types**: In simple mode (`principal_ids`), Microsoft Fabric OneLake Data Access Roles apply a single uniform `principal_type` (`Group`, `User`, or `ServicePrincipal`). In advanced mode (`entra_members`), heterogeneous principal types (Users, Groups, ServicePrincipals, and ManagedIdentities) and cross-item shortcut members (`fabric_item_members`) can be freely combined within the same role.
 
+~> **Note:** **Lakehouse Security Sequencing**: When managing Lakehouses, the module automatically coordinates `fabricext_lakehouse_onelake_security` to verify security enablement and purge `DefaultReader` before creating OneLake Data Access Roles, enforcing execution order via an explicit `depends_on` across all Lakehouses.
+
 ## Usage
 
 ```hcl

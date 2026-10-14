@@ -396,6 +396,7 @@ In the v0.2.0 uplift, `modules/permissions/` expands to:
 
 1. Support direct item UUIDs as map keys (in addition to item display names) across `warehouses`, `sql_databases`, and `lakehouses`.
 2. Support advanced Lakehouse OneLake Data Access Roles: repeatable `decision_rules` with Row-Level Security (`row_constraints`), Column-Level Security (`column_constraints`), heterogeneous `entra_members`, and `fabric_item_members` alongside the standard simple flat role configuration.
+3. Enforce strict dependency ordering across the security enablement boundary: `fabricext_lakehouse_permission.this` declares an explicit `depends_on = [fabricext_lakehouse_onelake_security.this]` so that OneLake security verification and `DefaultReader` purging complete before role mutations across all Lakehouses.
 
 ---
 
