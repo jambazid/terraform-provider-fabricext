@@ -1,0 +1,54 @@
+---
+page_title: "{{.Name}} {{.Type}} - {{.RenderedProviderName}}"
+subcategory: ""
+description: |-
+  (Deprecated) Manages item-level permissions on a Microsoft Fabric SQL Database. Deprecated in v0.3.0 and will be removed in v0.4.0.
+---
+
+# {{.Name}} ({{.Type}})
+
+!> **Deprecated:** This resource is deprecated and will be removed in v0.4.0. Microsoft Fabric does not offer public item-sharing REST endpoints for SQL Databases. Item-level sharing must be performed using the Share quick action in the Fabric web portal, and fine-grained data access should be implemented using in-database SQL roles or Microsoft Purview policies. Creating or updating this resource fails without making network calls. Removing it from Terraform configuration is safe and makes no API calls.
+
+!> **Warning:** **Experimental Provider**: The `fabricext` provider is published in a pre-`v1.0.0` experimental state to facilitate automated packaging and supply-chain verification. For core workspace and item management, use the official Microsoft [`microsoft/fabric`](https://registry.terraform.io/providers/microsoft/fabric/latest) provider.
+
+{{ .Description | trimspace }}
+
+## Deprecation & Migration Guide
+
+Microsoft Fabric does not expose public REST routes for declarative item sharing on Fabric SQL Databases.
+
+### Recommended Access Architecture
+
+1. **Item Connectivity**: In the Microsoft Fabric web portal, locate the SQL Database and select the **Share** quick action, granting minimum read access.
+2. **Database Roles**: Connect over TDS to the database endpoint and assign users to native database roles:
+   ```sql
+   CREATE USER [app-backend-spn] FROM EXTERNAL PROVIDER;
+   ALTER ROLE db_datareader ADD MEMBER [app-backend-spn];
+   ```
+
+Refer to the [Access Control Playbook](../guides/access_control_playbook.md) for full scenario walkthroughs.
+
+### Removing Deprecated Resources
+
+Existing state can be safely decommissioned without destroying cloud infrastructure using Terraform 1.7+ `removed` blocks:
+
+```hcl
+removed {
+  from = fabricext_sql_database_permission.example
+
+  lifecycle {
+    destroy = false
+  }
+}
+```
+
+{{ if .HasExamples -}}
+## Example Usage
+
+{{- range .ExampleFiles }}
+{{ tffile . }}
+{{- end }}
+{{- end }}
+
+{{ .SchemaMarkdown | trimspace }}
+

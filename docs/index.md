@@ -10,9 +10,9 @@ description: |-
   <img src="https://raw.githubusercontent.com/jambazid/terraform-provider-fabricext/main/assets/fabric-logo.svg" width="72" height="72" alt="Microsoft Fabric Logo" />
 </p>
 
-!> **Warning:** **Community Extension Notice**: This provider is a community extension for item-level permissions and OneLake Data Access Roles. Manage workspace provisioning and core item lifecycles via the official [`microsoft/fabric`](https://registry.terraform.io/providers/microsoft/fabric/latest) provider.
+!> **Warning:** `fabricext` is an experimental, pre-stable provider published to validate automated packaging, supply-chain provenance, and early Fabric permission architectures. Resources, attributes, and behaviour may change in any minor release prior to `v1.0.0`. Test every configuration in a non-production workspace first. For standard Microsoft Fabric production infrastructure, use the official [`microsoft/fabric`](https://registry.terraform.io/providers/microsoft/fabric/latest) provider.
 
-The **Fabric Extensions (fabricext)** provider (`registry.terraform.io/jambazid/fabricext`) is a purpose-built provider for declaratively managing Microsoft Fabric item-level sharing and data-access permissions (`fabricext_*`) across Warehouses, SQL Databases, and Lakehouses until equivalent resources are available in Microsoft's official `microsoft/fabric` provider.
+The **Fabric Extensions (fabricext)** provider (`registry.terraform.io/jambazid/fabricext`) is an experimental community provider for declaratively managing Microsoft Fabric OneLake Data Access Roles and security governance (`fabricext_*`). Published pre-v1.0.0 for automated packaging and supply-chain verification.
 
 ## Example Usage
 
@@ -61,6 +61,7 @@ For comprehensive guides on access control architecture, cross-engine identity p
 
 | Guide | Core Focus |
 | :--- | :--- |
+| **[Access Control Playbook](guides/access_control_playbook.md)** | Start Here routing matrix and 11 least-privilege scenario cards. |
 | **[Use Cases Overview](guides/use_case_overview.md)** | Master comparison matrix and 6-tier security perimeter stack. |
 | **[Security Controls & Interactions](guides/use_case_controls_and_interactions.md)** | Tier inventory, precedence rules, and workspace role bypass rules. |
 | **[Warehouse Schema Isolation](guides/use_case_warehouse_schema_isolation.md)** | Least-privilege `read` connectivity, Entra ID naming, and SQL RBAC. |

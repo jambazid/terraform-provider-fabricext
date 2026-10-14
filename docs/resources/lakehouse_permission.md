@@ -8,6 +8,10 @@ description: |-
 
 # fabricext_lakehouse_permission (Resource)
 
+!> **Warning:** **Experimental Provider**: The `fabricext` provider is published in a pre-`v1.0.0` experimental state to facilitate automated packaging and supply-chain verification. For core workspace and item management, use the official Microsoft [`microsoft/fabric`](https://registry.terraform.io/providers/microsoft/fabric/latest) provider.
+
+~> **Note:** For end-to-end guidance and real-world multi-persona security configurations, see the [Access Control Playbook](../guides/access_control_playbook.md).
+
 Manages a OneLake Data Access Role on a Microsoft Fabric **Lakehouse** to grant fine-grained folder, table, row-level (RLS), and column-level (CLS) access control to Microsoft Entra users, groups, service principals, or managed identities.
 
 ~> **Note:** Microsoft's official provider (`registry.terraform.io/microsoft/fabric`) provides the [`fabric_onelake_data_access_security`](https://registry.terraform.io/providers/microsoft/fabric/latest/docs/resources/onelake_data_access_security) resource (preview) for managing OneLake Data Access Roles. If consolidating on the official provider with `preview = true`, consider using upstream.
