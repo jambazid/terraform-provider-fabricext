@@ -17,19 +17,31 @@ terraform {
 provider "fabric" {}
 provider "fabricext" {}
 
-# Provision the Warehouse using Microsoft's official provider:
-resource "fabric_warehouse" "sales" {
+# Provision the Lakehouse using Microsoft's official provider:
+resource "fabric_lakehouse" "sales" {
   workspace_id = var.workspace_id
-  display_name = "sales_wh"
+  display_name = "sales_lh"
 }
 
-# Declaratively manage item-level sharing using fabricext:
-resource "fabricext_warehouse_permission" "analysts" {
-  workspace_id   = fabric_warehouse.sales.workspace_id
-  warehouse_name = fabric_warehouse.sales.display_name
-  principal_id   = var.analysts_group_id
+# Declaratively manage OneLake security lifecycle and Data Access Roles using fabricext:
+resource "fabricext_lakehouse_onelake_security" "sales" {
+  workspace_id               = fabric_lakehouse.sales.workspace_id
+  lakehouse_id               = fabric_lakehouse.sales.id
+  remove_default_reader_role = true
+}
+
+resource "fabricext_lakehouse_permission" "analysts" {
+  workspace_id   = fabric_lakehouse.sales.workspace_id
+  lakehouse_id   = fabric_lakehouse.sales.id
+  role_name      = "SalesAnalysts"
+  paths          = ["/Tables/sales"]
+  actions        = ["Read"]
+  principal_ids  = [var.analysts_group_id]
   principal_type = "Group"
-  role_type      = "read"
+
+  depends_on = [
+    fabricext_lakehouse_onelake_security.sales,
+  ]
 }
 
 variable "workspace_id" {

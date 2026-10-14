@@ -35,36 +35,30 @@ terraform {
 provider "fabricext" {}
 
 # Discover existing Fabric items by display name:
-data "fabricext_item" "sales_wh" {
+data "fabricext_item" "bronze_lh" {
   workspace_id = "00000000-0000-0000-0000-000000000001"
-  display_name = "sales_analytics_wh"
-  type         = "Warehouse"
+  display_name = "raw_bronze_lh"
+  type         = "Lakehouse"
 }
 
-resource "fabricext_warehouse_permission" "analytics_readers" {
-  workspace_id   = data.fabricext_item.sales_wh.workspace_id
-  warehouse_name = data.fabricext_item.sales_wh.display_name
-  principal_id   = "11111111-1111-1111-1111-111111111111"
-  principal_type = "Group"
-  role_type      = "read"
+# Verify OneLake security enablement and purge open DefaultReader role:
+resource "fabricext_lakehouse_onelake_security" "bronze_lh" {
+  workspace_id                = data.fabricext_item.bronze_lh.workspace_id
+  lakehouse_id                = data.fabricext_item.bronze_lh.id
+  remove_default_reader_role = true
 }
 
-resource "fabricext_sql_database_permission" "orders_readers" {
-  workspace_id      = "00000000-0000-0000-0000-000000000001"
-  sql_database_name = "operational_orders_db"
-  principal_id      = "11111111-1111-1111-1111-111111111111"
-  principal_type    = "Group"
-  role_type         = "read_data"
-}
-
+# Declaratively provision fine-grained OneLake Data Access Role:
 resource "fabricext_lakehouse_permission" "bronze_readers" {
-  workspace_id   = "00000000-0000-0000-0000-000000000001"
-  lakehouse_name = "raw_bronze_lh"
+  workspace_id   = data.fabricext_item.bronze_lh.workspace_id
+  lakehouse_name = data.fabricext_item.bronze_lh.display_name
   role_name      = "BronzeReaders"
   paths          = ["/Tables/customers", "/Files/landing"]
   actions        = ["Read"]
   principal_ids  = ["11111111-1111-1111-1111-111111111111"]
   principal_type = "Group"
+
+  depends_on = [fabricext_lakehouse_onelake_security.bronze_lh]
 }
 ```
 
@@ -85,7 +79,7 @@ See the [Provider Documentation](docs/index.md) for full authentication examples
 
 ## Permissions Module
 
-An in-repo reusable HCL module (`modules/permissions`) is provided to declaratively manage workspace permission matrices across Warehouses, Lakehouses, and SQL Databases in a single invocation. See [modules/permissions/README.md](modules/permissions/README.md) for documentation and examples.
+An in-repo reusable HCL module (`modules/permissions`) is provided to declaratively manage Lakehouse OneLake Data Access Roles and security lifecycles across workspaces in a single invocation. See [modules/permissions/README.md](modules/permissions/README.md) for documentation and examples.
 
 ## Development and Verification
 

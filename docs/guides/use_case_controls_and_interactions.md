@@ -53,9 +53,9 @@ When multiple controls apply to a principal simultaneously, Microsoft Fabric eva
 
 To enforce granular object-level or schema-level security:
 
-1. **Keep Data Consumers Out of Workspace Roles**: Data analysts and reporting users should have **no role assignment** on the parent workspace. Grant access exclusively at the item level using `fabricext_warehouse_permission` (`role_type = "read"`) or `fabricext_lakehouse_permission`.
+1. **Keep Data Consumers Out of Workspace Roles**: Data analysts and reporting users should have **no role assignment** on the parent workspace. Grant access at the item level (via Fabric web portal for Warehouses and SQL Databases, or `fabricext_lakehouse_permission` for Lakehouse OneLake Data Access Roles).
 2. **Workspace-Wide Scope of the `Viewer` Role**: While assigning the **Viewer** role respects T-SQL permissions on a specific Warehouse, it grants read and enumeration access across **all** items in that workspace (including other Warehouses, notebooks, pipelines, and unconfigured Lakehouses). To maintain strict cross-item isolation, principals should have **no workspace role** (pure item share).
-3. **Split-Workspace Topology for Data Engineers**: If engineers require Contributor permissions to build Extract, Transform, Load (ETL) pipelines or notebooks, separate the ETL authoring workspace from the production storage workspace. Grant pipeline identities access to the warehouse item via `fabricext`, leaving the developers without administrative roles on the data-bearing workspace.
+3. **Split-Workspace Topology for Data Engineers**: If engineers require Contributor permissions to build Extract, Transform, Load (ETL) pipelines or notebooks, separate the ETL authoring workspace from the production storage workspace. Grant pipeline identities access to the production items directly, leaving developers without administrative roles on the data-bearing workspace.
 
 ---
 
@@ -63,15 +63,15 @@ To enforce granular object-level or schema-level security:
 
 Microsoft Fabric enforces distinct principal type rules depending on the target resource:
 
-| Principal Type | Warehouse (`fabricext_warehouse_permission`) | SQL Database (`fabricext_sql_database_permission`) | Lakehouse (`fabricext_lakehouse_permission`) |
+| Principal Type | Lakehouse OneLake Roles (`fabricext_lakehouse_permission`) | Warehouse (Portal Share) | SQL Database (Portal Share) |
 | :--- | :--- | :--- | :--- |
-| **User** | Supported (`"User"`) | Supported (`"User"`) | Supported (`"User"`) |
-| **Group** *(Recommended)* | Supported (`"Group"`) | Supported (`"Group"`) | Supported (`"Group"`) |
-| **ServicePrincipal** | Supported (`"ServicePrincipal"`) | Supported (`"ServicePrincipal"`) | Supported (`"ServicePrincipal"`) |
-| **ManagedIdentity** | Supported via Group | Supported via Group | Supported (`"ManagedIdentity"`) |
-| **ServicePrincipalProfile** | Supported (`"ServicePrincipalProfile"`) | Supported (`"ServicePrincipalProfile"`) | Not Supported by Lakehouse API |
+| **User** | Supported (`"User"`) | Supported | Supported |
+| **Group** *(Recommended)* | Supported (`"Group"`) | Supported | Supported |
+| **ServicePrincipal** | Supported (`"ServicePrincipal"`) | Supported | Supported |
+| **ManagedIdentity** | Supported (`"ManagedIdentity"`) | Supported via Group | Supported via Group |
+| **ServicePrincipalProfile** | Not Supported by Lakehouse API | Supported | Supported |
 
-~> **Note:** **Managed Identities in Warehouse & SQL Database**: The Microsoft Fabric Item Permissions API does not support direct assignment to Managed Identity principals. To grant access to a Managed Identity, add the Managed Identity to a Microsoft Entra ID Security Group and grant permissions to that Group.
+~> **Note:** **Warehouse & SQL Database Deprecation**: Prototype resources `fabricext_warehouse_permission` and `fabricext_sql_database_permission` were tombstoned in v0.3.0 and are scheduled for removal in v0.4.0 because Microsoft Fabric does not offer public item-sharing REST endpoints for Warehouses or SQL Databases. Item sharing must be configured using the Fabric web portal.
 
 ~> **Note:** **OneLake Role Member Type Uniformity**: In simple mode (`principal_ids`), OneLake Data Access Roles require uniform member types within each role resource. In advanced mode (`entra_member` blocks), heterogeneous member types (Users, Groups, Service Principals, and Managed Identities) are natively supported on the same role.
 

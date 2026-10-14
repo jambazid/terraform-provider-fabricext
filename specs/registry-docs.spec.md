@@ -31,6 +31,8 @@ Because `fabricext` is a community extension operating in a pre-`v1.0.0` state t
   - Warehouses: In-database T-SQL permissions (`GRANT`/`DENY`/`REVOKE`).
   - SQL Databases: In-database T-SQL roles and permissions or Purview policies.
   - Lakehouses: OneLake Data Access Roles (`fabricext_lakehouse_permission`, `fabricext_lakehouse_onelake_security`).
+- **REQ-DOCS-008 (No Active Item-Sharing Claims)**: Documentation, templates, guides, and README must contain zero claims that `/permissions`, `/grantPermissions`, or `/revokePermissions` exist via REST or that `fabricext` bridges them via an overlay.
+- **REQ-DOCS-009 (Honest Technical Comparison Narrative)**: Official provider comparison documentation must present an honest technical comparison focusing on OneLake security `DefaultReader` purging, RFC 9110 ETag Read-Modify-Write concurrency, multi-page pagination, and offline contract testing, with zero nonexistent REST sequence diagrams.
 
 ## 4. Verification Requirements & Falsifiers
 
@@ -45,3 +47,9 @@ Because `fabricext` is a community extension operating in a pre-`v1.0.0` state t
 
 - `[@test] ../internal/provider/registry_docs_test.go::TestRegistryDocs_HeadingLengthBound`
   Verifies that every markdown heading across `templates/**` does not exceed 5 words.
+
+- `[@test] ../internal/provider/registry_docs_test.go::TestRegistryDocs_NoActiveItemSharingClaims`
+  [REQ-DOCS-008] Verifies that zero occurrences of fake overlay or nonexistent REST sharing claims exist across templates and README.
+
+- `[@test] ../internal/provider/registry_docs_test.go::TestRegistryDocs_HonestComparisonNarrative`
+  [REQ-DOCS-009] Verifies that the comparison guide details honest differentiators (DefaultReader lifecycle, ETag concurrency, offline testing) without fake REST sequence diagrams.

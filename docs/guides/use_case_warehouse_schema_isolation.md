@@ -2,7 +2,7 @@
 page_title: "Use Cases: Warehouse Schema Isolation"
 subcategory: "Use Cases"
 description: |-
-  Technical guide to implementing granular schema isolation in Microsoft Fabric Warehouses using fabricext for item connectivity and T-SQL for database RBAC, including Entra ID identity binding and declarative schema-as-code automation.
+  Technical guide to implementing granular schema isolation in Microsoft Fabric Warehouses using Fabric web portal for item connectivity and T-SQL for database RBAC, including Entra ID identity binding and declarative schema-as-code automation.
 ---
 
 # Warehouse Schema Isolation
@@ -29,7 +29,7 @@ To restrict a group to schema `finance` only, you must decouple **item connectiv
 
 Item-level sharing for Warehouses provides the connectivity gate:
 
-| Role Type (`role_type`) | Fabric Action | SQL Engine Effect | Schema Visibility |
+| Portal Permission Option | Fabric Action | SQL Engine Effect | Schema Visibility |
 | :--- | :--- | :--- | :--- |
 | **`Read`** *(Recommended)* | `Read` | Grants database connectivity (`CONNECT`) over Tabular Data Stream (TDS, port 1433). | **Strictly Restricted**: User sees only schemas and objects explicitly granted in T-SQL. |
 | **`ReadData`** | `ReadData` | Confers `db_datareader` across all tables and schemas. | Full table read access across database. |
@@ -73,7 +73,7 @@ A frequent practitioner question is how Microsoft Entra ID identities map betwee
 
 ### In Terraform Providers
 
-~> **Important:** Declarative management via `fabricext_warehouse_permission` is deprecated in v0.3.0 and will be removed in v0.4.0. For existing state, the resource can be safely detached using Terraform 1.7+ `removed` blocks:
+~> **Important:** Declarative management via `fabricext_warehouse_permission` was tombstoned in v0.3.0 and is scheduled for removal in v0.4.0. For existing state, the resource can be safely detached using Terraform 1.7+ `removed` blocks:
 
 ```hcl
 removed {
@@ -113,14 +113,14 @@ GRANT SELECT ON SCHEMA::finance TO [external_user#EXT#@tenant.onmicrosoft.com];
 
 | Plane | Tool | Identity Identifier | Rationale |
 | :--- | :--- | :--- | :--- |
-| **Item Gate** | Terraform (`fabricext`) | Microsoft Entra **Object ID (UUID)** | Immutable; impervious to Entra group renames in Azure Portal. |
+| **Item Gate** | Fabric Web Portal (REST unsupported) | Microsoft Entra **Display Name / UPN** | Interactive share dialog in Fabric Portal grants item connectivity (`CONNECT`). |
 | **SQL Engine** | T-SQL / Schema Operator | Microsoft Entra **Display Name / UPN** | Human-readable in DBA query plans, SSMS Object Explorer, and audit logs. |
 
 ---
 
 ## Declarative RBAC Automation
 
-While `fabricext` manages the Fabric item boundary (`CONNECT`), managing internal database schemas, tables, roles, and `GRANT SELECT` statements across dozens of Warehouses is typically automated using a declarative database schema management tool or migration framework (such as [Atlas](https://atlasgo.io/), Flyway, Liquibase, or the Terraform `mssql` provider).
+While item connectivity is established via the Fabric web portal share dialog, managing internal database schemas, tables, roles, and `GRANT SELECT` statements across dozens of Warehouses is typically automated using a declarative database schema management tool or migration framework (such as [Atlas](https://atlasgo.io/), Flyway, Liquibase, or the Terraform `mssql` provider).
 
 ### End-to-End Governance Model
 
