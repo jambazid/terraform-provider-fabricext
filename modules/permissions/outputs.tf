@@ -15,3 +15,8 @@ output "lakehouse_permission_ids" {
   description = "Map of flattened Lakehouse Data Access Role keys to composite resource IDs."
   value       = { for k, v in fabricext_lakehouse_permission.this : k => v.id }
 }
+
+output "lakehouse_onelake_security_ids" {
+  description = "Map of unique Lakehouse keys to composite OneLake security resource IDs."
+  value       = { for k, v in fabricext_lakehouse_onelake_security.this : k => v.id }
+}

@@ -190,9 +190,18 @@ A frequent practitioner question is how Microsoft Entra ID identities map betwee
 Microsoft Fabric Lakehouses store data in OneLake in open Delta Parquet format. Security is enforced directly through **OneLake Data Access Roles** operating on a centralized policy, distributed enforcement model:
 
 ```hcl
-resource "fabricext_lakehouse_permission" "sales_analysts_advanced" {
+# 1. Verify OneLake security enablement and purge DefaultReader
+resource "fabricext_lakehouse_onelake_security" "sales" {
   workspace_id = "00000000-0000-0000-0000-000000000001"
   lakehouse_id = "00000000-0000-0000-0000-000000000002"
+
+  remove_default_reader_role = true
+}
+
+# 2. Configure fine-grained Lakehouse OneLake Data Access Role
+resource "fabricext_lakehouse_permission" "sales_analysts_advanced" {
+  workspace_id = "00000000-0000-0000-0000-000000000001"
+  lakehouse_id = fabricext_lakehouse_onelake_security.sales.lakehouse_id
   role_name    = "SalesRegionalAuditors"
 
   entra_member {
@@ -217,6 +226,10 @@ resource "fabricext_lakehouse_permission" "sales_analysts_advanced" {
       effect     = "Permit"
     }
   }
+
+  depends_on = [
+    fabricext_lakehouse_onelake_security.sales,
+  ]
 }
 ```
 

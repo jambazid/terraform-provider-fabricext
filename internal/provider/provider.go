@@ -486,6 +486,7 @@ func (p *FabricProvider) Resources(_ context.Context) []func() resource.Resource
 		NewWarehousePermissionResource,
 		NewSQLDatabasePermissionResource,
 		NewLakehousePermissionResource,
+		NewLakehouseOnelakeSecurityResource,
 	}
 }
 

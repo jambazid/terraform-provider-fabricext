@@ -65,6 +65,41 @@ The `fabricext_lakehouse_permission` resource supports two operational modes:
 
 ---
 
+## Security Enablement & Purging
+
+Before OneLake Data Access Roles take effect, security must be initialized on the Lakehouse:
+
+1. **Portal Enablement**: In the Microsoft Fabric web portal, open the Lakehouse ribbon and select **Manage OneLake security**.
+2. **Resource Verification**: Declare [`fabricext_lakehouse_onelake_security`](../resources/lakehouse_onelake_security.md) in Terraform to confirm enablement.
+3. **Purging DefaultReader**: When OneLake security is enabled, Fabric auto-creates a `DefaultReader` role granting read access across all tables to anyone with workspace `ReadAll`. Leaving this role active undermines fine-grained RLS and CLS permissions. By default, `remove_default_reader_role = true` automatically removes this role.
+
+```hcl
+# 1. Initialize OneLake security and purge DefaultReader
+resource "fabricext_lakehouse_onelake_security" "bronze" {
+  workspace_id   = "00000000-0000-0000-0000-000000000001"
+  lakehouse_name = "raw_bronze_lh"
+
+  remove_default_reader_role = true
+}
+
+# 2. Grant explicit fine-grained roles
+resource "fabricext_lakehouse_permission" "bronze_readers" {
+  workspace_id   = "00000000-0000-0000-0000-000000000001"
+  lakehouse_name = fabricext_lakehouse_onelake_security.bronze.lakehouse_name
+  role_name      = "BronzeReaders"
+  paths          = ["/Tables/customers"]
+  actions        = ["Read"]
+  principal_ids  = ["11111111-1111-1111-1111-111111111111"]
+  principal_type = "Group"
+
+  depends_on = [
+    fabricext_lakehouse_onelake_security.bronze,
+  ]
+}
+```
+
+---
+
 ## Authoring Lakehouse Permissions
 
 ### Simple Mode Example
@@ -72,14 +107,25 @@ The `fabricext_lakehouse_permission` resource supports two operational modes:
 For straightforward table access assigned to an Entra security group:
 
 ```hcl
+resource "fabricext_lakehouse_onelake_security" "sales" {
+  workspace_id = "00000000-0000-0000-0000-000000000001"
+  lakehouse_id = "00000000-0000-0000-0000-000000000002"
+
+  remove_default_reader_role = true
+}
+
 resource "fabricext_lakehouse_permission" "sales_analysts_simple" {
   workspace_id   = "00000000-0000-0000-0000-000000000001"
-  lakehouse_id   = "00000000-0000-0000-0000-000000000002"
+  lakehouse_id   = fabricext_lakehouse_onelake_security.sales.lakehouse_id
   role_name      = "SalesTableReaders"
   paths          = ["/Tables/sales"]
   actions        = ["Read"]
   principal_ids  = ["11111111-1111-1111-1111-111111111111"]
   principal_type = "Group"
+
+  depends_on = [
+    fabricext_lakehouse_onelake_security.sales,
+  ]
 }
 ```
 
@@ -88,9 +134,16 @@ resource "fabricext_lakehouse_permission" "sales_analysts_simple" {
 For granular security restricting access to `/Tables/sales` with regional row filtering and explicit column restrictions:
 
 ```hcl
-resource "fabricext_lakehouse_permission" "sales_analysts_advanced" {
+resource "fabricext_lakehouse_onelake_security" "sales" {
   workspace_id = "00000000-0000-0000-0000-000000000001"
   lakehouse_id = "00000000-0000-0000-0000-000000000002"
+
+  remove_default_reader_role = true
+}
+
+resource "fabricext_lakehouse_permission" "sales_analysts_advanced" {
+  workspace_id = "00000000-0000-0000-0000-000000000001"
+  lakehouse_id = fabricext_lakehouse_onelake_security.sales.lakehouse_id
   role_name    = "SalesRegionalAuditors"
 
   entra_member {
@@ -115,6 +168,10 @@ resource "fabricext_lakehouse_permission" "sales_analysts_advanced" {
       effect     = "Permit"
     }
   }
+
+  depends_on = [
+    fabricext_lakehouse_onelake_security.sales,
+  ]
 }
 ```
 
@@ -123,9 +180,16 @@ resource "fabricext_lakehouse_permission" "sales_analysts_advanced" {
 When a Lakehouse contains OneLake shortcuts referencing data in another workspace or item, use `fabric_item_member` to dynamically inherit access:
 
 ```hcl
-resource "fabricext_lakehouse_permission" "cross_workspace_readers" {
+resource "fabricext_lakehouse_onelake_security" "shared" {
   workspace_id = "00000000-0000-0000-0000-000000000001"
   lakehouse_id = "00000000-0000-0000-0000-000000000002"
+
+  remove_default_reader_role = true
+}
+
+resource "fabricext_lakehouse_permission" "cross_workspace_readers" {
+  workspace_id = "00000000-0000-0000-0000-000000000001"
+  lakehouse_id = fabricext_lakehouse_onelake_security.shared.lakehouse_id
   role_name    = "ShortcutDelegatedAccess"
 
   # Dynamically inherits role membership from principals holding
@@ -141,7 +205,12 @@ resource "fabricext_lakehouse_permission" "cross_workspace_readers" {
     paths   = ["/Tables/shared_sales"]
     actions = ["Read"]
   }
+
+  depends_on = [
+    fabricext_lakehouse_onelake_security.shared,
+  ]
 }
+
 ```
 
 ---

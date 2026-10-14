@@ -5,8 +5,10 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -190,6 +192,7 @@ func TestLakehouseDataAccessRoles_ConcurrentRMWAndETagConflictRetry(t *testing.T
 		DisplayName: "bronze_lh",
 		Type:        "Lakehouse",
 	})
+	srv.EnableLakehouseSecurity(wsID, lhID)
 
 	// Inject 2 ETag 412 Precondition Failed conflicts to verify retry + sibling preservation.
 	srv.InjectETagConflicts(wsID, lhID, 2)
@@ -524,4 +527,139 @@ func TestGetLakehouseMutex_Concurrency(t *testing.T) {
 			t.Errorf("expected non-zero count for %s", key)
 		}
 	}
+}
+
+func TestLakehouseDataAccessRoles_ErrorDisambiguation(t *testing.T) {
+	t.Parallel()
+
+	wsID := "11111111-1111-1111-1111-111111111111"
+	nonExistentID := "99999999-9999-9999-9999-999999999999"
+	unenabledLHID := "22222222-2222-2222-2222-222222222222"
+	warehouseID := "33333333-3333-3333-3333-333333333333"
+	enabledLHID := "44444444-4444-4444-4444-444444444444"
+
+	srv := fabricmock.NewServer(t)
+
+	// Register unenabled Lakehouse (default lakehouseSecurityEnabled is false)
+	srv.UpsertItem(fabricmock.Item{
+		ID:          unenabledLHID,
+		WorkspaceID: wsID,
+		DisplayName: "unenabled_lakehouse",
+		Type:        "Lakehouse",
+	})
+
+	// Register a Warehouse
+	srv.UpsertItem(fabricmock.Item{
+		ID:          warehouseID,
+		WorkspaceID: wsID,
+		DisplayName: "some_warehouse",
+		Type:        "Warehouse",
+	})
+
+	// Register an enabled Lakehouse
+	srv.UpsertItem(fabricmock.Item{
+		ID:          enabledLHID,
+		WorkspaceID: wsID,
+		DisplayName: "enabled_lakehouse",
+		Type:        "Lakehouse",
+	})
+	srv.EnableLakehouseSecurity(wsID, enabledLHID)
+
+	c := newTestClient(t, srv)
+	ctx := context.Background()
+
+	t.Run("non-existent item returns NotFoundError", func(t *testing.T) {
+		_, _, err := c.ListDataAccessRoles(ctx, wsID, nonExistentID)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		var nfErr *NotFoundError
+		if !errors.As(err, &nfErr) {
+			t.Fatalf("expected *NotFoundError, got %T: %v", err, err)
+		}
+		if nfErr.ResourceType != "Lakehouse" || nfErr.ResourceID != nonExistentID {
+			t.Errorf("unexpected NotFoundError fields: %+v", nfErr)
+		}
+	})
+
+	t.Run("unenabled lakehouse returns OneLakeSecurityNotEnabledError", func(t *testing.T) {
+		_, _, err := c.ListDataAccessRoles(ctx, wsID, unenabledLHID)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		var secErr *OneLakeSecurityNotEnabledError
+		if !errors.As(err, &secErr) {
+			t.Fatalf("expected *OneLakeSecurityNotEnabledError, got %T: %v", err, err)
+		}
+		if secErr.LakehouseID != unenabledLHID || secErr.WorkspaceID != wsID {
+			t.Errorf("unexpected OneLakeSecurityNotEnabledError fields: %+v", secErr)
+		}
+	})
+
+	t.Run("non-lakehouse item returns UnsupportedItemTypeError", func(t *testing.T) {
+		_, _, err := c.ListDataAccessRoles(ctx, wsID, warehouseID)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		var typeErr *UnsupportedItemTypeError
+		if !errors.As(err, &typeErr) {
+			t.Fatalf("expected *UnsupportedItemTypeError, got %T: %v", err, err)
+		}
+		if typeErr.ItemID != warehouseID || typeErr.ActualType != "Warehouse" {
+			t.Errorf("unexpected UnsupportedItemTypeError fields: %+v", typeErr)
+		}
+	})
+
+	t.Run("enabled lakehouse succeeds", func(t *testing.T) {
+		roles, etag, err := c.ListDataAccessRoles(ctx, wsID, enabledLHID)
+		if err != nil {
+			t.Fatalf("expected success, got error: %v", err)
+		}
+		if etag == "" {
+			t.Error("expected non-empty etag")
+		}
+		_ = roles
+	})
+
+	t.Run("fallback probe error is propagated directly", func(t *testing.T) {
+		transientSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == fmt.Sprintf("/v1/workspaces/%s/items/%s/dataAccessRoles", wsID, "transient-id") {
+				w.WriteHeader(http.StatusNotFound)
+				_, _ = w.Write([]byte(`{"errorCode":"ItemNotFound","message":"Item not found"}`))
+				return
+			}
+			if r.URL.Path == fmt.Sprintf("/v1/workspaces/%s/items/%s", wsID, "transient-id") {
+				w.Header().Set("Retry-After", "0")
+				w.WriteHeader(http.StatusTooManyRequests)
+				_, _ = w.Write([]byte(`{"errorCode":"RateLimitExceeded","message":"Too many requests"}`))
+				return
+			}
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		defer transientSrv.Close()
+
+		transientClient, err := NewFabricClient(Config{
+			Endpoint: transientSrv.URL,
+			TokenProvider: func(_ context.Context) (string, error) {
+				return "token", nil
+			},
+			MaxRetries:  0,
+			BaseBackoff: 1 * time.Millisecond,
+		})
+		if err != nil {
+			t.Fatalf("create transient client: %v", err)
+		}
+
+		_, _, err = transientClient.ListDataAccessRoles(ctx, wsID, "transient-id")
+		if err == nil {
+			t.Fatal("expected rate limit error, got nil")
+		}
+		var apiErr *APIError
+		if !errors.As(err, &apiErr) {
+			t.Fatalf("expected *APIError, got %T: %v", err, err)
+		}
+		if apiErr.StatusCode != http.StatusTooManyRequests {
+			t.Errorf("expected status 429, got %d", apiErr.StatusCode)
+		}
+	})
 }

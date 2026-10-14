@@ -213,6 +213,21 @@ func TestResource_ConfigureUnexpectedTypes(t *testing.T) {
 		}
 	})
 
+	t.Run("LakehouseOnelakeSecurityResource with invalid provider data type", func(t *testing.T) {
+		t.Parallel()
+		r, ok := NewLakehouseOnelakeSecurityResource().(tfsdkresource.ResourceWithConfigure)
+		if !ok {
+			t.Fatal("expected ResourceWithConfigure")
+		}
+		var resp tfsdkresource.ConfigureResponse
+		r.Configure(ctx, tfsdkresource.ConfigureRequest{
+			ProviderData: "invalid-string-data",
+		}, &resp)
+		if !resp.Diagnostics.HasError() {
+			t.Fatal("expected diagnostic error for invalid provider data")
+		}
+	})
+
 	t.Run("Resources and DataSource with nil provider data", func(t *testing.T) {
 		t.Parallel()
 		wh, ok := NewWarehousePermissionResource().(tfsdkresource.ResourceWithConfigure)
@@ -242,6 +257,16 @@ func TestResource_ConfigureUnexpectedTypes(t *testing.T) {
 		var lhResp tfsdkresource.ConfigureResponse
 		lh.Configure(ctx, tfsdkresource.ConfigureRequest{ProviderData: nil}, &lhResp)
 		if lhResp.Diagnostics.HasError() {
+			t.Fatal("unexpected diagnostic error when provider data is nil")
+		}
+
+		lhSec, ok := NewLakehouseOnelakeSecurityResource().(tfsdkresource.ResourceWithConfigure)
+		if !ok {
+			t.Fatal("expected LakehouseOnelakeSecurityResource to implement ResourceWithConfigure")
+		}
+		var lhSecResp tfsdkresource.ConfigureResponse
+		lhSec.Configure(ctx, tfsdkresource.ConfigureRequest{ProviderData: nil}, &lhSecResp)
+		if lhSecResp.Diagnostics.HasError() {
 			t.Fatal("unexpected diagnostic error when provider data is nil")
 		}
 
@@ -287,6 +312,13 @@ resource "fabricext_sql_database_permission" "sql" {
   sql_database_name = "sqldb"
   principal_id      = "22222222-2222-2222-2222-222222222222"
   role_type         = "read"
+}
+`
+
+	lhSecCfg := testAccProviderConfig(srv) + `
+resource "fabricext_lakehouse_onelake_security" "sec" {
+  workspace_id = "11111111-1111-1111-1111-111111111111"
+  lakehouse_id = "22222222-2222-2222-2222-222222222222"
 }
 `
 
@@ -415,6 +447,35 @@ resource "fabricext_sql_database_permission" "sql" {
 				ImportStateId: "11111111-1111-1111-1111-111111111111/44444444-4444-4444-4444-444444444444/custom_role",
 				ExpectError:   regexp.MustCompile(`Unable to Resolve Imported Lakehouse`),
 			},
+			// Lakehouse OneLake Security import errors
+			{
+				Config:        lhSecCfg,
+				ResourceName:  "fabricext_lakehouse_onelake_security.sec",
+				ImportState:   true,
+				ImportStateId: "too/many/parts/here",
+				ExpectError:   regexp.MustCompile(`Expected composite identifier in format`),
+			},
+			{
+				Config:        lhSecCfg,
+				ResourceName:  "fabricext_lakehouse_onelake_security.sec",
+				ImportState:   true,
+				ImportStateId: "bad-ws/22222222-2222-2222-2222-222222222222",
+				ExpectError:   regexp.MustCompile(`workspace_id .* must be a valid UUID`),
+			},
+			{
+				Config:        lhSecCfg,
+				ResourceName:  "fabricext_lakehouse_onelake_security.sec",
+				ImportState:   true,
+				ImportStateId: "11111111-1111-1111-1111-111111111111/bad-lh",
+				ExpectError:   regexp.MustCompile(`lakehouse_id .* must be a valid UUID`),
+			},
+			{
+				Config:        lhSecCfg,
+				ResourceName:  "fabricext_lakehouse_onelake_security.sec",
+				ImportState:   true,
+				ImportStateId: "11111111-1111-1111-1111-111111111111/99999999-9999-9999-9999-999999999999",
+				ExpectError:   regexp.MustCompile(`Unable to Resolve Imported Lakehouse`),
+			},
 		},
 	})
 }
@@ -521,6 +582,7 @@ func TestAccPermissions_UpdateInPlaceEdge(t *testing.T) {
 		DisplayName: "lh_edge",
 		Type:        "Lakehouse",
 	})
+	srv.EnableLakehouseSecurity(wsID, lhID)
 
 	rtest.UnitTest(t, rtest.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
@@ -834,6 +896,64 @@ func TestResource_UpdateAndDeleteErrors(t *testing.T) {
 		r.Delete(ctx, tfsdkresource.DeleteRequest{State: state}, &delResp)
 		if !delResp.Diagnostics.HasError() {
 			t.Fatal("expected error deleting lakehouse with failing client")
+		}
+	})
+
+	t.Run("LakehouseOnelakeSecurity Update and nil client errors", func(t *testing.T) {
+		t.Parallel()
+		rNil := &LakehouseOnelakeSecurityResource{client: nil}
+		var schemaResp tfsdkresource.SchemaResponse
+		rNil.Schema(ctx, tfsdkresource.SchemaRequest{}, &schemaResp)
+
+		planModel := LakehouseOnelakeSecurityResourceModel{
+			WorkspaceID:             types.StringValue("11111111-1111-1111-1111-111111111111"),
+			LakehouseName:           types.StringValue("lh"),
+			LakehouseID:             types.StringValue("33333333-3333-3333-3333-333333333333"),
+			RemoveDefaultReaderRole: types.BoolValue(true),
+		}
+		stateModel := LakehouseOnelakeSecurityResourceModel{
+			ID:                      types.StringValue("11111111-1111-1111-1111-111111111111/33333333-3333-3333-3333-333333333333"),
+			WorkspaceID:             types.StringValue("11111111-1111-1111-1111-111111111111"),
+			LakehouseName:           types.StringValue("lh"),
+			LakehouseID:             types.StringValue("33333333-3333-3333-3333-333333333333"),
+			RemoveDefaultReaderRole: types.BoolValue(false),
+			DefaultReaderRoleExists: types.BoolValue(true),
+			Enabled:                 types.BoolValue(true),
+		}
+
+		plan := tfsdk.Plan{Schema: schemaResp.Schema}
+		if diags := plan.Set(ctx, &planModel); diags.HasError() {
+			t.Fatalf("failed to set plan: %v", diags)
+		}
+		state := tfsdk.State{Schema: schemaResp.Schema}
+		if diags := state.Set(ctx, &stateModel); diags.HasError() {
+			t.Fatalf("failed to set state: %v", diags)
+		}
+
+		var updateResp tfsdkresource.UpdateResponse
+		rNil.Update(ctx, tfsdkresource.UpdateRequest{Plan: plan, State: state}, &updateResp)
+		if !updateResp.Diagnostics.HasError() {
+			t.Fatal("expected error updating lakehouse security with nil client")
+		}
+
+		var createResp tfsdkresource.CreateResponse
+		rNil.Create(ctx, tfsdkresource.CreateRequest{Plan: plan}, &createResp)
+		if !createResp.Diagnostics.HasError() {
+			t.Fatal("expected error creating lakehouse security with nil client")
+		}
+
+		var readResp tfsdkresource.ReadResponse
+		rNil.Read(ctx, tfsdkresource.ReadRequest{State: state}, &readResp)
+		if !readResp.Diagnostics.HasError() {
+			t.Fatal("expected error reading lakehouse security with nil client")
+		}
+
+		// Test with failing client
+		rBad := &LakehouseOnelakeSecurityResource{client: badClient}
+		var updateBadResp tfsdkresource.UpdateResponse
+		rBad.Update(ctx, tfsdkresource.UpdateRequest{Plan: plan, State: state}, &updateBadResp)
+		if !updateBadResp.Diagnostics.HasError() {
+			t.Fatal("expected error updating lakehouse security with failing client")
 		}
 	})
 

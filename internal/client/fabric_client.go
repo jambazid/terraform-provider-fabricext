@@ -136,7 +136,32 @@ func IsNotFound(err error) bool {
 	return false
 }
 
-// APIError represents a structured error response returned by the Microsoft Fabric REST API.
+// OneLakeSecurityNotEnabledError indicates that OneLake Data Access Security has not been enabled for a Lakehouse.
+type OneLakeSecurityNotEnabledError struct {
+	WorkspaceID string
+	LakehouseID string
+	Message     string
+}
+
+func (e *OneLakeSecurityNotEnabledError) Error() string {
+	if e.Message != "" {
+		return e.Message
+	}
+	return fmt.Sprintf("OneLake Data Access Security is not enabled for Lakehouse %q in workspace %q: navigate to the Fabric portal, open the Lakehouse ribbon, and select 'Manage OneLake security' to enable data access roles", e.LakehouseID, e.WorkspaceID)
+}
+
+// UnsupportedItemTypeError indicates that OneLake Data Access Security was invoked on an unsupported item type.
+type UnsupportedItemTypeError struct {
+	WorkspaceID string
+	ItemID      string
+	ActualType  string
+}
+
+func (e *UnsupportedItemTypeError) Error() string {
+	return fmt.Sprintf("OneLake Data Access Security is only supported on Lakehouses; item %q in workspace %q has type %q", e.ItemID, e.WorkspaceID, e.ActualType)
+}
+
+// APIError represents an HTTP error response returned by the Microsoft Fabric API.
 type APIError struct {
 	StatusCode  int
 	ErrorCode   string `json:"errorCode"`
@@ -648,6 +673,11 @@ func (c *FabricClient) getLakehouseMutex(workspaceID, lakehouseID string) *sync.
 	return mu
 }
 
+// ListDataAccessRoles returns all OneLake Data Access Roles and the current ETag for a Lakehouse.
+func (c *FabricClient) ListDataAccessRoles(ctx context.Context, workspaceID, lakehouseID string) ([]DataAccessRole, string, error) {
+	return c.listDataAccessRolesWithETag(ctx, workspaceID, lakehouseID)
+}
+
 func (c *FabricClient) listDataAccessRolesWithETag(ctx context.Context, workspaceID, lakehouseID string) ([]DataAccessRole, string, error) {
 	path := fmt.Sprintf("/v1/workspaces/%s/items/%s/dataAccessRoles", workspaceID, lakehouseID)
 	var resp struct {
@@ -656,10 +686,27 @@ func (c *FabricClient) listDataAccessRolesWithETag(ctx context.Context, workspac
 	headers, err := c.doJSON(ctx, http.MethodGet, path, nil, nil, &resp)
 	if err != nil {
 		if IsNotFound(err) {
-			return nil, "", &NotFoundError{
-				ResourceType: "Lakehouse",
-				ResourceID:   lakehouseID,
-				WorkspaceID:  workspaceID,
+			item, itemErr := c.GetItemByID(ctx, workspaceID, lakehouseID, "")
+			if itemErr != nil {
+				if IsNotFound(itemErr) {
+					return nil, "", &NotFoundError{
+						ResourceType: "Lakehouse",
+						ResourceID:   lakehouseID,
+						WorkspaceID:  workspaceID,
+					}
+				}
+				return nil, "", itemErr
+			}
+			if !strings.EqualFold(item.Type, "Lakehouse") {
+				return nil, "", &UnsupportedItemTypeError{
+					WorkspaceID: workspaceID,
+					ItemID:      lakehouseID,
+					ActualType:  item.Type,
+				}
+			}
+			return nil, "", &OneLakeSecurityNotEnabledError{
+				WorkspaceID: workspaceID,
+				LakehouseID: lakehouseID,
 			}
 		}
 		return nil, "", err
