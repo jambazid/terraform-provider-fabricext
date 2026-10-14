@@ -273,9 +273,9 @@ module "workspace_permissions" {
 }
 ```
 
-### Stage 5: Shortcut Delegation
+### Stage 5: Item Membership
 
-Delegates access to downstream Fabric items referencing tables via OneLake shortcuts using `fabric_item_members`:
+Dynamically derives role membership from users holding item permissions on another Fabric item (member virtualization) using `fabric_item_members`:
 
 ```hcl
 module "workspace_permissions" {
@@ -285,16 +285,19 @@ module "workspace_permissions" {
     workspace_id = "00000000-0000-0000-0000-000000000001"
 
     lakehouses = {
-      downstream_lakehouse = {
-        ShortcutReaders = {
+      curated_lakehouse = {
+        SharedDimensionReaders = {
           decision_rules = [
             {
+              # Storage-plane access granted on this curated Lakehouse:
               paths   = ["/Tables/shared_dimension"]
               actions = ["Read"]
             }
           ]
           fabric_item_members = [
             {
+              # Prerequisite Fabric item permission required for role membership:
+              # Users holding "ReadAll" on the consumer item are dynamically included.
               source_path = "99999999-9999-9999-9999-999999999999/88888888-8888-8888-8888-888888888888"
               item_access = ["ReadAll"]
             }
@@ -305,6 +308,8 @@ module "workspace_permissions" {
   }
 }
 ```
+
+~> **Note:** **Storage Actions vs. Item Access**: `decision_rules.actions` (`Read`, `Write`) defines the **storage-plane access granted** on the Lakehouse files. In contrast, `fabric_item_members.item_access` (`ReadAll`, `Read`) defines the **prerequisite control-plane permission** a user must hold on `source_path` to qualify for role membership.
 
 ### Stage 6: Security Lifecycle
 
@@ -383,7 +388,7 @@ Used for granular RLS, CLS, and mixed membership (mutually exclusive with Simple
 | `kind` | `string` | no | `"Policy"` | Role kind. Microsoft Fabric currently supports `Policy`. |
 | `decision_rules` | `list(object)` | yes | `[]` | Granular storage path rules with optional RLS and CLS constraints. |
 | `entra_members` | `list(object)` | no | `[]` | Heterogeneous Microsoft Entra ID principal members. |
-| `fabric_item_members` | `list(object)` | no | `[]` | Cross-item shortcut delegation members. |
+| `fabric_item_members` | `list(object)` | no | `[]` | Dynamic item-permission members (member virtualization). |
 
 ### Decision Rule Schema
 
@@ -429,8 +434,8 @@ Entries within `fabric_item_members` support:
 
 | Field | Type | Required | Default | Description |
 | :--- | :--- | :--- | :--- | :--- |
-| `source_path` | `string` | yes | - | Source path of the referencing Fabric item in format `{workspace_id}/{item_id}`. |
-| `item_access` | `set(string)` | no | `["ReadAll"]` | Delegated item access permissions: `ReadAll`. |
+| `source_path` | `string` | yes | - | Source path of the Fabric item holding permissions in format `{workspace_id}/{item_id}`. |
+| `item_access` | `set(string)` | no | `["ReadAll"]` | Required item access permissions: `ReadAll`. |
 
 ---
 

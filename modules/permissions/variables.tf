@@ -39,9 +39,9 @@ Object Attributes:
       - `object_id` - (Required, string) Microsoft Entra ID Object ID.
       - `object_type` - (Optional, string) Principal type: `User`, `Group`, `ServicePrincipal`, or `ManagedIdentity`. Default: `Group`.
       - `tenant_id` - (Optional, string) Entra ID Tenant ID for cross-tenant principals.
-    - `fabric_item_members` - (Optional, list of objects) Cross-item shortcut delegation members:
-      - `source_path` - (Required, string) Source path of the delegated Fabric item.
-      - `item_access` - (Optional, set of string) Delegated item access permissions (`ReadAll`). Default: `["ReadAll"]`.
+    - `fabric_item_members` - (Optional, list of objects) Dynamic item-permission members (member virtualization):
+      - `source_path` - (Required, string) Source path of the Fabric item holding the permissions in format `{workspace_id}/{item_id}`.
+      - `item_access` - (Optional, set of string) Required item access permissions (`ReadAll`). Default: `["ReadAll"]`.
 EOT
   type = object({
     workspace_id = string

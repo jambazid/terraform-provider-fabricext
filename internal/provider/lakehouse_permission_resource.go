@@ -381,12 +381,12 @@ func (r *LakehousePermissionResource) Schema(_ context.Context, _ resource.Schem
 				},
 			},
 			"fabric_item_member": schema.SetNestedBlock{
-				MarkdownDescription: "Workspace item members granted access through Fabric item inheritance or shortcuts in advanced mode.",
+				MarkdownDescription: "Fabric item members whose users dynamically inherit role access based on item-level permissions (member virtualization).",
 				NestedObject: schema.NestedBlockObject{
 					Attributes: map[string]schema.Attribute{
 						"source_path": schema.StringAttribute{
 							Required:            true,
-							MarkdownDescription: "Workspace item source path in the format `{workspace_id}/{item_id}`.",
+							MarkdownDescription: "Fabric item source path in the format `{workspace_id}/{item_id}`.",
 							Validators: []validator.String{
 								sourcePathValidator(),
 							},
