@@ -1,6 +1,0 @@
-kind: deprecated
-body: >-
-  Purge active item-sharing implications for Warehouse and SQL Database across
-  documentation, guides, matrix composition, permissions module, and runnable
-  HCL examples in preparation for v0.4.0 tombstoning
-time: 2026-10-14T22:30:00.000000000+01:00
