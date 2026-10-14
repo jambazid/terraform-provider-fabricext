@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## v0.3.0 - October 14, 2026
+
+### ✨ Added
+
+* Add fabricext_lakehouse_onelake_security resource for OneLake Data Access Security enablement verification and DefaultReader role management
+
+### 💫 Changed
+
+* Add explicit depends_on ordering for all lakehouses in permissions module and examples
+
+### ⚰️ Deprecated
+
+* Tombstone fabricext_warehouse_permission and fabricext_sql_database_permission resources due to non-existent Fabric REST endpoints, and remove repository-authored OpenAPI overlay.
+
+### 🪲 Fixed
+
+* Implement OneLake Data Access Role pagination via continuationToken, enforce RFC 9110 ETag quoting normalisation, and add client-side and mock validation rejecting write actions combined with row or column constraints.
+
+### 📚 Documentation
+
+* Document permissions module staged features, RLS/CLS, and full matrix geometry; add Registry Fabric logo and filter semantic PR body edits
+* Add enterprise Access Control Playbook, Registry citations register, experimental provider notice, and deprecation documentation for warehouse and sql database item sharing
+
 ## v0.2.1 - October 09, 2026
 
 ### 📚 Documentation

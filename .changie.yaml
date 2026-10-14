@@ -92,9 +92,9 @@ replacements:
   - path: ./templates/index.md.tmpl
     find: '(\?ref=)[^"]*'
     replace: '${1}{{.Version}}'
-  - path: ./templates/guides/official_provider_comparison.md.tmpl
-    find: '(?s)(fabricext\s*=\s*\{[^}]*version\s*=\s*")[^"]*(")'
-    replace: '${1}~> {{.VersionNoPrefix}}${2}'
+  - path: ./templates/guides/matrix_composition.md.tmpl
+    find: '(\?ref=)[^"]*'
+    replace: '${1}{{.Version}}'
   - path: ./guides/official_provider_comparison.md
     find: '(?s)(fabricext\s*=\s*\{[^}]*version\s*=\s*")[^"]*(")'
     replace: '${1}~> {{.VersionNoPrefix}}${2}'

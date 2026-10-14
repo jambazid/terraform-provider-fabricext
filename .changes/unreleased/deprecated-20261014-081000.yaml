@@ -1,7 +1,0 @@
----
-kind: deprecated
-body: >-
-  Tombstone fabricext_warehouse_permission and fabricext_sql_database_permission
-  resources due to non-existent Fabric REST endpoints, and remove repository-authored
-  OpenAPI overlay.
-time: 2026-10-14T08:10:00.000000000+01:00
