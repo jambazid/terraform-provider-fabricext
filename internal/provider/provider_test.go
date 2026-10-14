@@ -537,6 +537,12 @@ func TestAccPermissionsModule_MatrixWithRLSandCLS(t *testing.T) {
               object_type = "Group"
             }
           ]
+          fabric_item_members = [
+            {
+              source_path = "99999999-9999-9999-9999-999999999999/88888888-8888-8888-8888-888888888888"
+              item_access = ["ReadAll"]
+            }
+          ]
         }
       }
     }

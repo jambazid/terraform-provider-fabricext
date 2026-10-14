@@ -397,6 +397,7 @@ In the v0.2.0 uplift, `modules/permissions/` expands to:
 1. Support direct item UUIDs as map keys (in addition to item display names) across `warehouses`, `sql_databases`, and `lakehouses`.
 2. Support advanced Lakehouse OneLake Data Access Roles: repeatable `decision_rules` with Row-Level Security (`row_constraints`), Column-Level Security (`column_constraints`), heterogeneous `entra_members`, and `fabric_item_members` alongside the standard simple flat role configuration.
 3. Enforce strict dependency ordering across the security enablement boundary: `fabricext_lakehouse_permission.this` declares an explicit `depends_on = [fabricext_lakehouse_onelake_security.this]` so that OneLake security verification and `DefaultReader` purging complete before role mutations across all Lakehouses.
+4. Document the complete object geometry and nested child fields (`decision_rules`, `row_constraints`, `column_constraints`, `entra_members`, `fabric_item_members`, `manage_lakehouse_security`, `remove_lakehouse_default_reader_role`) using contemporary `terraform-docs` variable description conventions and structured reference tables.
 
 ---
 
@@ -435,6 +436,9 @@ flowchart LR
    - Generates `${ProjectName}_${Version}_SHA256SUMS`, signs it with GPG (`--batch --local-user {{ .Env.GPG_FINGERPRINT }} --detach-sign`), and attaches `terraform-registry-manifest.json` (`protocol_versions: ["6.0"]`).
 3. **Air-Gapped / Local Filesystem Mirror (`mise run install-local`)**:
    - Installs the compiled binary into `~/.terraform.d/plugins/registry.terraform.io/jambazid/fabricext/<version>/${GOOS}_${GOARCH}/terraform-provider-fabricext_v<version>` for offline runners or local testing.
+4. **Semantic Pull Request Title Validation (`.github/workflows/semantic-pr.yaml`)**:
+   - Validates pull request titles against Conventional Commits specifications.
+   - Evaluates on `opened`, `synchronize`, `reopened`, and title-specific edits (`if: github.event_name != 'pull_request' || github.event.action != 'edited' || github.event.changes.title != null`), preventing redundant workflow runs when only the PR body is modified (e.g. updating task checklists).
 
 ---
 

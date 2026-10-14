@@ -58,7 +58,7 @@ The `fabricext_lakehouse_permission` resource supports two operational modes:
 | **Member Assignment** | `principal_ids` (Set of UUIDs) + uniform `principal_type`. | `entra_member` blocks (`object_id`, `object_type`, `tenant_id`). Supports mixed Microsoft Entra ID types. |
 | **Row-Level Security** | Not supported. | Configurable via `decision_rule.row_constraint` (`table_path`, `predicate`). |
 | **Column Security** | Not supported. | Configurable via `decision_rule.column_constraint` (`table_path`, `columns`, `action`, `effect`). |
-| **Shortcut Delegation** | Not supported. | Dynamic membership inheritance via `fabric_item_member` (`source_path`, `item_access`). |
+| **Item Membership** | Not supported. | Dynamic member virtualization via `fabric_item_member` (`source_path`, `item_access`). |
 | **Mutual Exclusivity** | Must specify `paths` and `principal_ids`; omit advanced blocks. | Must omit simple attributes; specify `decision_rule` and member blocks. |
 
 ~> **Note:** **Member Type Uniformity**: In simple mode (`principal_ids`), Microsoft Fabric OneLake Data Access Roles apply a single uniform `principal_type` (`Group`, `User`, or `ServicePrincipal`) per resource. In advanced mode (`entra_member`), heterogeneous member types (Users, Groups, Service Principals, and Managed Identities) are natively supported within the same role.
@@ -175,9 +175,9 @@ resource "fabricext_lakehouse_permission" "sales_analysts_advanced" {
 }
 ```
 
-### Shortcut Delegation Example
+### Item Membership Example
 
-When a Lakehouse contains OneLake shortcuts referencing data in another workspace or item, use `fabric_item_member` to dynamically inherit access:
+To dynamically grant role membership to users who hold permissions on another Fabric item (such as a downstream consumer Lakehouse or shortcut container), configure `fabric_item_member` on the data provider Lakehouse:
 
 ```hcl
 resource "fabricext_lakehouse_onelake_security" "shared" {
@@ -190,12 +190,12 @@ resource "fabricext_lakehouse_onelake_security" "shared" {
 resource "fabricext_lakehouse_permission" "cross_workspace_readers" {
   workspace_id = "00000000-0000-0000-0000-000000000001"
   lakehouse_id = fabricext_lakehouse_onelake_security.shared.lakehouse_id
-  role_name    = "ShortcutDelegatedAccess"
+  role_name    = "CrossWorkspaceAccess"
 
   # Dynamically inherits role membership from principals holding
-  # "ReadAll" permissions on source Lakehouse B in Workspace B:
+  # "ReadAll" permissions on consumer Lakehouse in Workspace B:
   fabric_item_member {
-    # Format: "<source_workspace_id>/<source_item_id>"
+    # Format: "<consumer_workspace_id>/<consumer_item_id>"
     source_path = "00000000-0000-0000-0000-000000000002/33333333-3333-3333-3333-333333333333"
     item_access = ["ReadAll"]
   }
@@ -210,8 +210,9 @@ resource "fabricext_lakehouse_permission" "cross_workspace_readers" {
     fabricext_lakehouse_onelake_security.shared,
   ]
 }
-
 ```
+
+~> **Note:** **Storage Actions vs. Item Access**: `decision_rules.actions` (`Read`, `Write`) defines the **storage-plane access granted** on the Lakehouse files. In contrast, `fabric_item_members.item_access` (`ReadAll`, `Read`) defines the **prerequisite control-plane permission** a user must hold on `source_path` to qualify for role membership.
 
 ---
 

@@ -2,7 +2,47 @@
 # SPDX-License-Identifier: MPL-2.0
 
 variable "fabric_permissions_matrix" {
-  description = "Declarative permission matrix mapping Microsoft Fabric Warehouses, SQL Databases, and Lakehouse OneLake Data Access Roles to Microsoft Entra principals within a workspace."
+  description = <<-EOT
+Declarative permission matrix mapping Microsoft Fabric Warehouses, SQL Databases, and Lakehouse OneLake Data Access Roles to Microsoft Entra principals within a workspace.
+
+Object Attributes:
+- `workspace_id` - (Required, string) The 36-character UUID of the target Microsoft Fabric workspace.
+- `warehouses` - (Optional, map of maps) Map of Warehouse identifier (display name or UUID) to role maps (`read`, `write`, `reshare`), where each role maps to a list of principal objects:
+  - `id` - (Required, string) Microsoft Entra ID Object ID of the principal.
+  - `type` - (Optional, string) Principal type: `User`, `Group`, `ServicePrincipal`, or `ServicePrincipalProfile`. Default: `Group`.
+- `sql_databases` - (Optional, map of maps) Map of SQL Database identifier (display name or UUID) to role maps (`read`, `read_data`, `read_spark`, `write`, `reshare`), where each role maps to a list of principal objects:
+  - `id` - (Required, string) Microsoft Entra ID Object ID of the principal.
+  - `type` - (Optional, string) Principal type: `User`, `Group`, `ServicePrincipal`, or `ServicePrincipalProfile`. Default: `Group`.
+- `manage_lakehouse_security` - (Optional, bool) Whether to manage OneLake Data Access Security enablement verification for Lakehouses in the matrix. Default: `true`.
+- `remove_lakehouse_default_reader_role` - (Optional, bool) Whether to purge the default `DefaultReader` role created by Fabric upon enabling OneLake security. Default: `true`.
+- `lakehouses` - (Optional, map of maps) Map of Lakehouse identifier (display name or UUID) to role definitions. Each role supports either Simple Mode or Advanced Mode:
+  - Simple Mode Attributes (mutually exclusive with Advanced Mode):
+    - `paths` - (Optional, set of string) Storage paths within the Lakehouse (e.g. `["/Tables/customers"]`).
+    - `actions` - (Optional, set of string) Storage action permissions: `Read`, `Write`, or `ReadWrite`. Default: `["Read"]`.
+    - `principal_ids` - (Optional, set of string) Set of Microsoft Entra ID Object IDs.
+    - `principal_type` - (Optional, string) Principal type for all principals in `principal_ids`: `User`, `Group`, `ServicePrincipal`, or `ManagedIdentity`. Default: `Group`.
+  - Advanced Mode Attributes (mutually exclusive with Simple Mode):
+    - `kind` - (Optional, string) Role kind: `Policy`. Default: `Policy`.
+    - `decision_rules` - (Optional, list of objects) Granular path rules with optional RLS and CLS:
+      - `paths` - (Required, set of string) Target storage paths within the Lakehouse.
+      - `actions` - (Optional, set of string) Storage action permissions (`Read`, `Write`, `ReadWrite`). Default: `["Read"]`.
+      - `effect` - (Optional, string) Access effect: `Permit`. Default: `Permit`.
+      - `row_constraints` - (Optional, list of objects) Row-Level Security (RLS) SQL predicate filters:
+        - `table_path` - (Required, string) Table path within `/Tables/...`.
+        - `predicate` - (Required, string) T-SQL Boolean expression filter (e.g. `Region = 'EMEA'`).
+      - `column_constraints` - (Optional, list of objects) Column-Level Security (CLS) column allowlists:
+        - `table_path` - (Required, string) Table path within `/Tables/...`.
+        - `columns` - (Required, set of string) Allowed column names.
+        - `action` - (Optional, string) Action: `Read`. Default: `Read`.
+        - `effect` - (Optional, string) Effect: `Permit`. Default: `Permit`.
+    - `entra_members` - (Optional, list of objects) Heterogeneous Microsoft Entra ID members:
+      - `object_id` - (Required, string) Microsoft Entra ID Object ID.
+      - `object_type` - (Optional, string) Principal type: `User`, `Group`, `ServicePrincipal`, or `ManagedIdentity`. Default: `Group`.
+      - `tenant_id` - (Optional, string) Entra ID Tenant ID for cross-tenant principals.
+    - `fabric_item_members` - (Optional, list of objects) Dynamic item-permission members (member virtualization):
+      - `source_path` - (Required, string) Source path of the Fabric item holding the permissions in format `{workspace_id}/{item_id}`.
+      - `item_access` - (Optional, set of string) Required item access permissions (`ReadAll`). Default: `["ReadAll"]`.
+EOT
   type = object({
     workspace_id = string
 

@@ -31,7 +31,7 @@ resource "fabricext_sql_database_permission" "example" {
 - `workspace_id`, `sql_database_id`, and `principal_id` validate UUID format at plan time; `role_type` validates `OneOf("read", "read_data", "read_spark", "write", "reshare")` mapping to Fabric SQL Database permissions (`["Read"]`, `["Read", "ReadData"]`, `["Read", "ReadAll", "SubscribeOneLakeEvents"]`, `["Read", "Write"]`, `["Read", "Reshare"]`)
   `[@test] ../internal/provider/sql_database_permission_resource_test.go::TestAccSQLDatabasePermissionResource_ValidationErrors`
 
-## CRUD Lifecycle, Downgrade Revocation, Disappears & ImportState
+## CRUD Lifecycle & ImportState
 
 - `Create` resolves `sql_database_name` to `sql_database_id` (or verifies `sql_database_id`), grants the mapped permissions, and sets composite `id = "{workspace_id}/{sql_database_id}/{principal_type}/{principal_id}"`
   `[@test] ../internal/provider/sql_database_permission_resource_test.go::TestAccSQLDatabasePermissionResource_CRUDDowngradeAndImport`

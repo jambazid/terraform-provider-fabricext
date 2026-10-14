@@ -6,6 +6,10 @@ description: |-
 
 # Fabric Extensions Provider
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/jambazid/terraform-provider-fabricext/main/assets/fabric-logo.svg" width="72" height="72" alt="Microsoft Fabric Logo" />
+</p>
+
 !> **Warning:** **Community Extension Notice**: This provider is a community extension for item-level permissions and OneLake Data Access Roles. Manage workspace provisioning and core item lifecycles via the official [`microsoft/fabric`](https://registry.terraform.io/providers/microsoft/fabric/latest) provider.
 
 The **Fabric Extensions (fabricext)** provider (`registry.terraform.io/jambazid/fabricext`) is a purpose-built provider for declaratively managing Microsoft Fabric item-level sharing and data-access permissions (`fabricext_*`) across Warehouses, SQL Databases, and Lakehouses until equivalent resources are available in Microsoft's official `microsoft/fabric` provider.

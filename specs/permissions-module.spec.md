@@ -8,7 +8,7 @@ targets:
   - ../modules/permissions/outputs.tf
 ---
 
-# Declarative Workspace Permissions Wrapper Module (`modules/permissions`)
+# Declarative Permissions Wrapper Module
 
 ## Module Interface
 
@@ -53,5 +53,5 @@ module "fabric_permissions" {
   `[@test] ../internal/provider/provider_test.go::TestAccPermissionsModule_MatrixWithRLSandCLS`
 - Enforces explicit `depends_on = [fabricext_lakehouse_onelake_security.this]` on `fabricext_lakehouse_permission.this` across all configured Lakehouses so that OneLake security verification and `DefaultReader` role purging complete before any role is provisioned
   `[@test] ../internal/provider/provider_test.go::TestAccPermissionsModule_MatrixFlattening`
-- Exports `warehouse_permission_ids`, `sql_database_permission_ids`, and `lakehouse_permission_ids` outputs
+- Exports `warehouse_permission_ids`, `sql_database_permission_ids`, `lakehouse_permission_ids`, and `lakehouse_onelake_security_ids` outputs
   `[@test] ../internal/provider/provider_test.go::TestAccPermissionsModule_MatrixFlattening`
