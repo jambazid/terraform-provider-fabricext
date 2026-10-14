@@ -147,6 +147,7 @@ type Server struct {
 	lakehouseSecurityEnabled map[string]bool                 // workspaceID/lakehouseID -> bool
 	listItemsCalls           map[string]int                  // workspaceID/itemType -> count
 	itemsPageSize            int                             // optional pagination page size
+	dataAccessRolesPageSize  int                             // optional Lakehouse dataAccessRoles pagination page size
 	throttle                 *throttleRule                   // optional fault injection for 429 / 5xx
 }
 
@@ -242,6 +243,13 @@ func (s *Server) SetItemsPageSize(size int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.itemsPageSize = size
+}
+
+// SetDataAccessRolesPageSize configures the page size for GET /v1/workspaces/{workspaceId}/items/{itemId}/dataAccessRoles.
+func (s *Server) SetDataAccessRolesPageSize(size int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.dataAccessRolesPageSize = size
 }
 
 // ListItemsCallCount returns the number of GET /items calls for (workspaceID, itemType).
@@ -482,7 +490,7 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request, pathParams map
 	case r.Method == http.MethodGet && pathParams["itemId"] != "" && !strings.HasSuffix(path, "/dataAccessRoles"):
 		s.handleGetItem(w, workspaceID, pathParams["itemId"])
 	case r.Method == http.MethodGet && strings.HasSuffix(path, "/dataAccessRoles"):
-		s.handleListDataAccessRoles(w, workspaceID, pathParams["itemId"])
+		s.handleListDataAccessRoles(w, r, workspaceID, pathParams["itemId"])
 	case r.Method == http.MethodPut && strings.HasSuffix(path, "/dataAccessRoles"):
 		s.handlePutDataAccessRoles(w, r, workspaceID, pathParams["itemId"])
 	default:
@@ -570,7 +578,9 @@ func (s *Server) itemExistsLocked(workspaceID, itemType, itemID string) bool {
 	return strings.EqualFold(it.Type, itemType)
 }
 
-func (s *Server) handleListDataAccessRoles(w http.ResponseWriter, workspaceID, itemID string) {
+func (s *Server) handleListDataAccessRoles(w http.ResponseWriter, r *http.Request, workspaceID, itemID string) {
+	contToken := r.URL.Query().Get("continuationToken")
+
 	s.mu.Lock()
 	if !s.itemExistsLocked(workspaceID, "Lakehouse", itemID) {
 		s.mu.Unlock()
@@ -595,14 +605,40 @@ func (s *Server) handleListDataAccessRoles(w http.ResponseWriter, workspaceID, i
 	}
 	roles := slices.Clone(state.roles)
 	etag := fmt.Sprintf(`"etag-v%d"`, state.etag)
+	pageSize := s.dataAccessRolesPageSize
 	s.mu.Unlock()
+
+	start := 0
+	if contToken != "" {
+		if idx, err := strconv.Atoi(contToken); err == nil && idx >= 0 && idx < len(roles) {
+			start = idx
+		}
+	}
+
+	end := len(roles)
+	var nextToken string
+	if pageSize > 0 && start+pageSize < len(roles) {
+		end = start + pageSize
+		nextToken = strconv.Itoa(end)
+	}
+
+	page := roles[start:end]
+	if page == nil {
+		page = []DataAccessRole{}
+	}
+
+	resp := map[string]any{
+		"value": page,
+	}
+	if nextToken != "" {
+		resp["continuationToken"] = nextToken
+		resp["continuationUri"] = fmt.Sprintf("%s/v1/workspaces/%s/items/%s/dataAccessRoles?continuationToken=%s", s.httpServer.URL, workspaceID, itemID, nextToken)
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Etag", etag)
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"value": roles,
-	})
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 func (s *Server) handlePutDataAccessRoles(w http.ResponseWriter, r *http.Request, workspaceID, itemID string) {
@@ -615,6 +651,34 @@ func (s *Server) handlePutDataAccessRoles(w http.ResponseWriter, r *http.Request
 	}
 
 	ifMatch := r.Header.Get("If-Match")
+	if ifMatch != "" {
+		if !strings.HasPrefix(ifMatch, `"`) || !strings.HasSuffix(ifMatch, `"`) || len(ifMatch) < 2 {
+			writeFabricError(w, http.StatusBadRequest, "InvalidETag", "The ETag must be specified in quotes.", false)
+			return
+		}
+	}
+
+	for _, role := range payload.Value {
+		if len(role.Name) > 128 {
+			writeFabricError(w, http.StatusBadRequest, "InvalidRoleName", fmt.Sprintf("Role name %q exceeds maximum allowed length of 128 characters", role.Name), false)
+			return
+		}
+		for _, rule := range role.DecisionRules {
+			hasConstraints := rule.Constraints != nil && (len(rule.Constraints.Rows) > 0 || len(rule.Constraints.Columns) > 0)
+			if hasConstraints {
+				for _, perm := range rule.Permission {
+					if strings.EqualFold(perm.AttributeName, "Action") {
+						for _, act := range perm.AttributeValueIncludedIn {
+							if strings.EqualFold(act, "ReadWrite") || strings.EqualFold(act, "Write") {
+								writeFabricError(w, http.StatusBadRequest, "InvalidRoleConfiguration", "Combining write actions with row-level or column-level security constraints is not supported by Microsoft Fabric OneLake security.", false)
+								return
+							}
+						}
+					}
+				}
+			}
+		}
+	}
 
 	s.mu.Lock()
 	if !s.itemExistsLocked(workspaceID, "Lakehouse", itemID) {
