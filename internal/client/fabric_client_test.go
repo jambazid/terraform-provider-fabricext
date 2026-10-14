@@ -122,62 +122,6 @@ func TestGetItemIDByName_PaginationTypeIsolationAndCacheRefresh(t *testing.T) {
 	}
 }
 
-func TestUpdateItemPermissions_DowngradeRevokesExcessPrivileges(t *testing.T) {
-	t.Parallel()
-
-	srv := fabricmock.NewServer(t)
-	wsID := "11111111-1111-1111-1111-111111111111"
-	dbID := "44444444-4444-4444-4444-444444444444"
-	principal := Principal{
-		ID:   "55555555-5555-5555-5555-555555555555",
-		Type: "Group",
-	}
-
-	srv.UpsertItem(fabricmock.Item{
-		ID:          dbID,
-		WorkspaceID: wsID,
-		DisplayName: "app_sqldb",
-		Type:        "SQLDatabase",
-	})
-
-	c := newTestClient(t, srv)
-	ctx := context.Background()
-
-	// Initial grant: read, read_data, write
-	if err := c.GrantItemPermissions(ctx, wsID, dbID, "SQLDatabase", principal, []string{"read", "read_data", "write"}); err != nil {
-		t.Fatalf("GrantItemPermissions failed: %v", err)
-	}
-
-	// Downgrade to ["read"] -> must revoke ["ReadData", "Write"] before granting ["Read"].
-	if err := c.UpdateItemPermissions(ctx, wsID, dbID, "SQLDatabase", principal, []string{"read", "read_data", "write"}, []string{"read"}); err != nil {
-		t.Fatalf("UpdateItemPermissions failed: %v", err)
-	}
-
-	seq := srv.OperationSequence()
-	if !slices.Equal(seq, []string{"grant", "revoke", "grant"}) {
-		t.Fatalf("expected operation sequence [grant, revoke, grant], got %v", seq)
-	}
-	if !slices.Equal(srv.LastRevokedPermissions(), []string{"ReadData", "Write"}) {
-		t.Fatalf("expected revoked permissions [ReadData Write], got %v", srv.LastRevokedPermissions())
-	}
-
-	gotPerms, err := c.GetItemPermissions(ctx, wsID, dbID, "SQLDatabase", principal.ID, principal.Type)
-	if err != nil {
-		t.Fatalf("GetItemPermissions failed: %v", err)
-	}
-	if !slices.Equal(gotPerms, []string{"read"}) {
-		t.Fatalf("expected final permissions [read], got %v", gotPerms)
-	}
-
-	// Revoke all and confirm idempotent 404 handling on second revoke.
-	if err := c.RevokeItemPermissions(ctx, wsID, dbID, "SQLDatabase", principal, []string{"read"}); err != nil {
-		t.Fatalf("first RevokeItemPermissions failed: %v", err)
-	}
-	if err := c.RevokeItemPermissions(ctx, wsID, dbID, "SQLDatabase", principal, []string{"read"}); err != nil {
-		t.Fatalf("second RevokeItemPermissions should treat 404 as idempotent nil, got: %v", err)
-	}
-}
-
 func TestLakehouseDataAccessRoles_ConcurrentRMWAndETagConflictRetry(t *testing.T) {
 	t.Parallel()
 

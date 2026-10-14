@@ -4,7 +4,7 @@ This file (`AGENTS.md`) is the master prompt and context baseline for all AI cod
 
 ## Core Identity
 
-You are an expert, senior software and infrastructure engineer working on `terraform-provider-fabricext` — a high-assurance Terraform Plugin Framework (Protocol v6) provider (`registry.terraform.io/jambazid/fabricext`) for declaratively managing Microsoft Fabric item-level sharing and data-access permissions (`fabricext_*`). You write concise, idiomatic Go and Terraform HCL code. You favor readability over cleverness, adhere to strict typing and structured error handling, and always implement robust unit tests and OpenAPI contract-validated acceptance tests alongside feature code.
+You are an expert, senior software and infrastructure engineer working on `terraform-provider-fabricext` — a high-assurance Terraform Plugin Framework (Protocol v6) provider (`registry.terraform.io/jambazid/fabricext`) for declaratively managing Microsoft Fabric Lakehouse OneLake Data Access Roles and security governance (`fabricext_*`). You write concise, idiomatic Go and Terraform HCL code. You favor readability over cleverness, adhere to strict typing and structured error handling, and always implement robust unit tests and OpenAPI contract-validated acceptance tests alongside feature code.
 
 ## Communication
 
@@ -84,10 +84,10 @@ mise exec -- prek run --all-files       # Execute all pre-commit hooks across th
 | --- | --- |
 | [`main.go`](main.go) | Provider binary entrypoint (`registry.terraform.io/jambazid/fabricext`) and `//go:generate` directives |
 | `internal/credentials/` | Native Microsoft Entra ID credential chain (`github.com/Azure/azure-sdk-for-go/sdk/azidentity` & `sdk/azcore`): `Static` $\rightarrow$ `ClientSecret` $\rightarrow$ `WorkloadIdentity` (OIDC) $\rightarrow$ `ManagedIdentity` $\rightarrow$ `AzureCLI`, with token caching and `String()`/`GoString()` redaction |
-| `internal/client/` | Microsoft Fabric REST/RPC client: `Retry-After` HTTP 429/5xx backoff, paginated `(workspaceID, itemType, displayName)` lookup cache, Warehouse/SQLDatabase permission CRUD, and Lakehouse OneLake Data Access Role per-item mutex + ETag `If-Match` Read-Modify-Write |
+| `internal/client/` | Microsoft Fabric REST/RPC client: `Retry-After` HTTP 429/5xx backoff, paginated `(workspaceID, itemType, displayName)` lookup cache, and Lakehouse OneLake Data Access Role per-item mutex + ETag `If-Match` Read-Modify-Write |
 | `internal/testutil/fabricmock/` | Stateful in-memory Fabric mock server backed by `microsoft/fabric-sdk-go` models and wrapped in `kin-openapi` (`openapi3filter`) runtime request/response schema validation |
-| `internal/provider/` | Terraform Plugin Framework v6 provider (`fabricext`), resources (`fabricext_warehouse_permission`, `fabricext_lakehouse_permission`, `fabricext_sql_database_permission`), and data source (`fabricext_item`) |
-| `modules/permissions/` | In-repo reusable HCL wrapper module flattening workspace permission matrices across Warehouses, Lakehouses, and SQL Databases |
+| `internal/provider/` | Terraform Plugin Framework v6 provider (`fabricext`), active resources (`fabricext_lakehouse_permission`, `fabricext_lakehouse_onelake_security`), tombstoned deprecated resources (`fabricext_warehouse_permission`, `fabricext_sql_database_permission`), and data source (`fabricext_item`) |
+| `modules/permissions/` | In-repo reusable HCL wrapper module managing Lakehouse OneLake Data Access Roles and security lifecycles |
 | `specs/` | Spec-driven `.spec.md` behavioral specifications with `[@test]` links, `specs/openapi/` vendored `microsoft/fabric-rest-api-specs` + `lock.json`, and `specs/inputs/` original requirements |
 | `templates/` & `docs/` | `tfplugindocs` templates and generated Terraform Registry documentation (`docs/` is 100% owned by `tfplugindocs`) |
 | `examples/` | Runnable HCL examples and `import.sh` scripts for the provider, resources, and data source |
@@ -97,7 +97,7 @@ mise exec -- prek run --all-files       # Execute all pre-commit hooks across th
 1. **`docs/**` is 100% generated — never hand-edit `docs/`**: All Registry documentation lives in `templates/` and resource/data-source/provider `MarkdownDescription` schema attributes. After any schema, example, or template change, run `mise run docs` and verify zero drift with `mise run docs:check`. Hand-editing any file under `docs/` is a verification blocker.
 2. **Mandatory `TF_ACC=1` execution (anti-skip law)**: Running `go test` without `TF_ACC=1` silently skips all `TestAcc*` acceptance tests while reporting `PASS`. Never claim acceptance test verification without running `mise run test:acc` (`TF_ACC=1`) and confirming non-zero executed `TestAcc*` test counts in the output.
 3. **Zero unvalidated mocks — `kin-openapi` contract enforcement**: Never use ad-hoc `httptest.Server` stubs for Microsoft Fabric APIs. Every mock endpoint in `internal/testutil/fabricmock/` must validate both incoming requests and outgoing responses through `kin-openapi` (`openapi3filter`) against the vendored schemas in `specs/openapi/` and use typed `microsoft/fabric-sdk-go` models.
-4. **Vendored OpenAPI immutability (`specs/openapi/`)**: Never hand-edit `specs/openapi/**/*.json` or fabricate digests in `specs/openapi/lock.json`. Only update vendored specs via `mise run specs:sync` followed by `mise run specs:check`.
+4. **Vendored OpenAPI immutability (`specs/openapi/`)**: Never hand-edit `specs/openapi/**/*.json`, create repository-authored contract overlays, or fabricate digests in `specs/openapi/lock.json`. Every contract file must originate strictly from upstream `microsoft/fabric-rest-api-specs`. Only update vendored specs via `mise run specs:sync` followed by `mise run specs:check`.
 5. **Terraform Plugin Framework v6 lifecycle invariants**:
    - Use `terraform-plugin-framework` (Protocol v6) exclusively; never import legacy `terraform-plugin-sdk/v2`.
    - Every managed resource must implement `Create`, `Read`, `Update`, `Delete`, and `ImportState` (`resource.ResourceWithImportState`).

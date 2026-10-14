@@ -1,6 +1,6 @@
 ---
 name: Warehouse Permission Resource (fabricext_warehouse_permission)
-description: Declarative Terraform Plugin Framework resource for Microsoft Fabric Warehouse item-level permissions
+description: Declarative Terraform Plugin Framework resource for Microsoft Fabric Warehouse item-level permissions (Deprecated)
 targets:
   - ../internal/provider/warehouse_permission_resource.go
   - ../internal/provider/warehouse_permission_resource_test.go
@@ -8,36 +8,26 @@ targets:
 
 # Warehouse Permission Resource (`fabricext_warehouse_permission`)
 
-## HCL Contract
+## Deprecation Notice
 
-```hcl
-resource "fabricext_warehouse_permission" "example" {
-  workspace_id   = "00000000-0000-0000-0000-000000000001"
-  warehouse_name = "sales_analytics_wh"
-  principal_id   = "11111111-1111-1111-1111-111111111111"
-  principal_type = "Group" # Optional: User, Group, ServicePrincipal, ServicePrincipalProfile (default: Group)
-  role_type      = "read"  # Required: read, write, reshare
-}
-```
+- `fabricext_warehouse_permission` is deprecated and will be removed in `v0.4.0`. Microsoft Fabric does not provide REST API routes for item-level sharing on Warehouses.
+- Practitioners must configure permissions using Fabric portal sharing and in-database T-SQL controls (`GRANT`/`DENY`/`REVOKE`).
+  `[@test] ../internal/provider/warehouse_permission_resource_test.go::TestWarehousePermissionResource_TombstoneLifecycle`
 
-`[@test] ../internal/provider/warehouse_permission_resource_test.go::TestAccWarehousePermissionResource_CRUDDowngradeAndImport`
+## Schema & Plan Modifiers
 
-## Schema, Plan Modifiers & Validators
-
-- `workspace_id`, `warehouse_name`, `warehouse_id`, `principal_id`, and `principal_type` carry `RequiresReplace()` plan modifiers; `id`, `warehouse_name`, and `warehouse_id` carry `UseStateForUnknown()`
-  `[@test] ../internal/provider/warehouse_permission_resource_test.go::TestAccWarehousePermissionResource_CRUDDowngradeAndImport`
-- `warehouse_name` and `warehouse_id` are optional attributes where at least one must be specified; if `warehouse_id` is supplied, `warehouse_name` is resolved automatically via `GetItemByID`, and if `warehouse_name` is supplied, `warehouse_id` is resolved via `GetItemByName`; if both are configured, `Create` validates that `warehouse_name` matches the fetched display name; on replacement, `ModifyPlan` clears the unconfigured counterpart so stale state values from `UseStateForUnknown` do not cause replacement failures
-  `[@test] ../internal/provider/warehouse_permission_resource_test.go::TestAccWarehousePermissionResource_MismatchedIdentifiers`
-- `workspace_id`, `warehouse_id`, and `principal_id` validate UUID format at plan time; `role_type` validates `OneOf("read", "write", "reshare")`; `principal_type` defaults to `"Group"` and validates `OneOf("User", "Group", "ServicePrincipal", "ServicePrincipalProfile")`
+- The resource schema defines `DeprecationMessage` alerting practitioners during plan and apply.
+  `[@test] ../internal/provider/warehouse_permission_resource_test.go::TestWarehousePermissionResource_TombstoneLifecycle`
+- `workspace_id`, `warehouse_id`, and `principal_id` validate UUID format at plan time; `role_type` validates `OneOf("read", "write", "reshare")`; `principal_type` defaults to `"Group"` and validates `OneOf("User", "Group", "ServicePrincipal", "ServicePrincipalProfile")`.
   `[@test] ../internal/provider/warehouse_permission_resource_test.go::TestAccWarehousePermissionResource_ValidationErrors`
 
-## CRUD Lifecycle, Disappears & ImportState
+## Tombstoned Lifecycle
 
-- `Create` resolves `warehouse_name` to `warehouse_id` (or verifies `warehouse_id`), grants the mapped permissions (`"read"` $\rightarrow$ `["Read"]`, `"write"` $\rightarrow$ `["Read", "Write"]`, `"reshare"` $\rightarrow$ `["Read", "Reshare"]`), and sets composite `id = "{workspace_id}/{warehouse_id}/{principal_type}/{principal_id}"`
-  `[@test] ../internal/provider/warehouse_permission_resource_test.go::TestAccWarehousePermissionResource_CRUDDowngradeAndImport`
-- `Update` supports both upgrades (`"read"` $\rightarrow$ `"write"`) and downgrades (`"write"` $\rightarrow$ `"read"`), revoking removed permissions before granting target permissions so downgrades never leave excess privileges
-  `[@test] ../internal/provider/warehouse_permission_resource_test.go::TestAccWarehousePermissionResource_CRUDDowngradeAndImport`
-- `Read` removes the resource from Terraform state (`resp.State.RemoveResource(ctx)`) if the Warehouse or principal permission has been deleted out-of-band
-  `[@test] ../internal/provider/warehouse_permission_resource_test.go::TestAccWarehousePermissionResource_Disappears`
-- `ImportState` parses `{workspace_id}/{warehouse_id}/{principal_type}/{principal_id}` and resolves `warehouse_name` via `GetItemByID`
-  `[@test] ../internal/provider/warehouse_permission_resource_test.go::TestAccWarehousePermissionResource_CRUDDowngradeAndImport`
+- `Create` and `Update` return an error diagnostic explaining that item-level sharing endpoints do not exist in Fabric, failing without issuing HTTP calls.
+  `[@test] ../internal/provider/warehouse_permission_resource_test.go::TestAccWarehousePermissionResource_DeprecatedCreateFails`
+- `Read` preserves prior state in memory without making network requests.
+  `[@test] ../internal/provider/warehouse_permission_resource_test.go::TestWarehousePermissionResource_TombstoneLifecycle`
+- `Delete` removes the resource from state and emits an informational warning diagnostic without making network calls.
+  `[@test] ../internal/provider/warehouse_permission_resource_test.go::TestWarehousePermissionResource_TombstoneLifecycle`
+- `ImportState` returns an error diagnostic directing practitioners to portal sharing and T-SQL.
+  `[@test] ../internal/provider/warehouse_permission_resource_test.go::TestWarehousePermissionResource_TombstoneLifecycle`

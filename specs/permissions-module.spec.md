@@ -47,11 +47,11 @@ module "fabric_permissions" {
 
 ## Matrix Flattening & Outputs
 
-- Flattens `warehouses`, `sql_databases`, and `lakehouses` sub-maps via `flatten([...])` into deterministic composite `for_each` keys (`{item_name}/{principal_type}/{principal_id}` for Warehouses and SQL Databases so role updates occur in-place, and `{lakehouse_name}/{role_name}` for Lakehouses) over `fabricext_warehouse_permission`, `fabricext_sql_database_permission`, and `fabricext_lakehouse_permission`, handling omitted or empty sub-maps cleanly without error
+- Flattens `lakehouses` sub-maps via `flatten([...])` into deterministic composite `for_each` keys (`{lakehouse_name}/{role_name}`) over `fabricext_lakehouse_permission`, handling omitted or empty sub-maps cleanly without error
   `[@test] ../internal/provider/provider_test.go::TestAccPermissionsModule_MatrixFlattening`
-- Supports direct item UUID keys as well as display names across `warehouses`, `sql_databases`, and `lakehouses`, and maps advanced Lakehouse `decision_rules` (with `row_constraints` and `column_constraints`), `entra_members`, and `fabric_item_members` cleanly to underlying resources
+- Supports direct item UUID keys as well as display names across `lakehouses`, and maps advanced Lakehouse `decision_rules` (with `row_constraints` and `column_constraints`), `entra_members`, and `fabric_item_members` cleanly to underlying resources
   `[@test] ../internal/provider/provider_test.go::TestAccPermissionsModule_MatrixWithRLSandCLS`
 - Enforces explicit `depends_on = [fabricext_lakehouse_onelake_security.this]` on `fabricext_lakehouse_permission.this` across all configured Lakehouses so that OneLake security verification and `DefaultReader` role purging complete before any role is provisioned
   `[@test] ../internal/provider/provider_test.go::TestAccPermissionsModule_MatrixFlattening`
-- Exports `warehouse_permission_ids`, `sql_database_permission_ids`, `lakehouse_permission_ids`, and `lakehouse_onelake_security_ids` outputs
+- Exports `warehouse_permission_ids` and `sql_database_permission_ids` (as empty maps for backward compatibility), and `lakehouse_permission_ids` and `lakehouse_onelake_security_ids` maps
   `[@test] ../internal/provider/provider_test.go::TestAccPermissionsModule_MatrixFlattening`

@@ -68,27 +68,6 @@ locals {
   } : {}
 }
 
-resource "fabricext_warehouse_permission" "this" {
-  for_each = local.warehouse_permissions
-
-  workspace_id   = var.fabric_permissions_matrix.workspace_id
-  warehouse_name = each.value.warehouse_name
-  warehouse_id   = each.value.warehouse_id
-  principal_id   = each.value.principal_id
-  principal_type = each.value.principal_type
-  role_type      = each.value.role_type
-}
-
-resource "fabricext_sql_database_permission" "this" {
-  for_each = local.sql_database_permissions
-
-  workspace_id      = var.fabric_permissions_matrix.workspace_id
-  sql_database_name = each.value.sql_database_name
-  sql_database_id   = each.value.sql_database_id
-  principal_id      = each.value.principal_id
-  principal_type    = each.value.principal_type
-  role_type         = each.value.role_type
-}
 
 resource "fabricext_lakehouse_onelake_security" "this" {
   for_each = local.unique_lakehouses

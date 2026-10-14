@@ -21,11 +21,6 @@ func NewFabricClient(cfg Config) (*FabricClient, error)
 func (c *FabricClient) GetItemIDByName(ctx context.Context, workspaceID, displayName, itemType string) (string, error)
 func (c *FabricClient) GetItemByID(ctx context.Context, workspaceID, itemID, itemType string) (*Item, error)
 
-func (c *FabricClient) GrantItemPermissions(ctx context.Context, workspaceID, itemID, itemType string, principal Principal, perms []string) error
-func (c *FabricClient) GetItemPermissions(ctx context.Context, workspaceID, itemID, itemType, principalID, principalType string) ([]string, error)
-func (c *FabricClient) UpdateItemPermissions(ctx context.Context, workspaceID, itemID, itemType string, principal Principal, oldPerms, newPerms []string) error
-func (c *FabricClient) RevokeItemPermissions(ctx context.Context, workspaceID, itemID, itemType string, principal Principal, perms []string) error
-
 func (c *FabricClient) UpsertDataAccessRole(ctx context.Context, workspaceID, lakehouseID string, role DataAccessRole) error
 func (c *FabricClient) GetDataAccessRole(ctx context.Context, workspaceID, lakehouseID, roleName string) (*DataAccessRole, error)
 func (c *FabricClient) DeleteDataAccessRole(ctx context.Context, workspaceID, lakehouseID, roleName string) error
@@ -39,13 +34,6 @@ func (c *FabricClient) DeleteDataAccessRole(ctx context.Context, workspaceID, la
   `[@test] ../internal/client/fabric_client_test.go::TestGetItemIDByName_PaginationTypeIsolationAndCacheRefresh`
 - On a cache miss for a previously cached `(workspaceID, itemType)`, the client evicts the cached entry once and re-fetches from the API before returning `*NotFoundError`
   `[@test] ../internal/client/fabric_client_test.go::TestGetItemIDByName_PaginationTypeIsolationAndCacheRefresh`
-
-## Downgrade Revocation Semantics
-
-- `UpdateItemPermissions` computes `toRevoke = oldPerms \ newPerms` and invokes `POST .../revokePermissions` before `POST .../grantPermissions` so role downgrades (e.g., `"write"` $\rightarrow$ `"read"` or `"read_data"` $\rightarrow$ `"read"`) remove excess privileges
-  `[@test] ../internal/client/fabric_client_test.go::TestUpdateItemPermissions_DowngradeRevokesExcessPrivileges`
-- `RevokeItemPermissions` treats HTTP `404 Not Found` as idempotent success
-  `[@test] ../internal/client/fabric_client_test.go::TestUpdateItemPermissions_DowngradeRevokesExcessPrivileges`
 
 ## Lakehouse Roles Concurrency
 
