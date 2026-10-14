@@ -20,7 +20,7 @@ targets:
   - ../scripts/coverage_summary.py
 ---
 
-# Tooling, Pre-Commit Hooks, and Hardened CI/CD
+# Tooling, Hooks & Hardened CI/CD
 
 ## Consolidated `mise.toml` Task Surface
 
@@ -42,7 +42,7 @@ minimum_release_age = "7d"
 - `trivy.yaml` scans filesystem dependencies, secrets, and Terraform HCL configurations (`modules/`, `examples/`) with exit code `1` on high/critical findings
   `[@test] ../internal/provider/provider_test.go::TestToolingAndCI_Invariants`
 
-## Dependabot, CI Coverage & StepSecurity-Hardened GitHub Actions (`ci.yaml` & `release.yaml`)
+## CI Coverage & Hardened Workflows
 
 - `.github/dependabot.yaml` configures weekly updates with a 7-day `cooldown` (`default-days: 7`) and dependency grouping (`terraform-plugin` and `github-actions`) for both `github-actions` and `gomod`
   `[@test] ../internal/provider/provider_test.go::TestToolingAndCI_Invariants`

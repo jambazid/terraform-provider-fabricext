@@ -10,7 +10,7 @@ targets:
 
 ## HCL Contract
 
-### Simple Flat Mode (Uniform Path Access)
+### Simple Flat Mode
 
 ```hcl
 resource "fabricext_lakehouse_permission" "simple" {
@@ -24,7 +24,7 @@ resource "fabricext_lakehouse_permission" "simple" {
 }
 ```
 
-### Advanced Structured Mode (Row-Level Security, Column-Level Security & Mixed Members)
+### Advanced Structured Mode
 
 ```hcl
 resource "fabricext_lakehouse_permission" "advanced" {
@@ -75,7 +75,7 @@ resource "fabricext_lakehouse_permission" "advanced" {
 - Validation enforces that either simple mode attributes or advanced mode blocks are provided, rejecting configurations declaring both simple mode attributes (`paths`, `actions`, `principal_ids`, `principal_type`) and advanced mode blocks, missing both, or declaring empty rules
   `[@test] ../internal/provider/lakehouse_permission_resource_test.go::TestAccLakehousePermissionResource_ValidationErrors`
 
-## Concurrency-Safe CRUD Lifecycle, Disappears & ImportState
+## Concurrency-Safe Lifecycle
 
 - Multiple `fabricext_lakehouse_permission` resources targeting the same Lakehouse via `for_each` execute safely in parallel without clobbering sibling roles or `DefaultReader`
   `[@test] ../internal/provider/lakehouse_permission_resource_test.go::TestAccLakehousePermissionResource_ParallelForEachAndETagConflict`

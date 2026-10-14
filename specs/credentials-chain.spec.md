@@ -6,7 +6,7 @@ targets:
   - ../internal/credentials/chain_test.go
 ---
 
-# Native Microsoft Entra ID Credential Chain
+# Native Entra Credential Chain
 
 ## Public Interface
 
