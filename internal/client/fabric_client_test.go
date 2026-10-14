@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -119,62 +120,6 @@ func TestGetItemIDByName_PaginationTypeIsolationAndCacheRefresh(t *testing.T) {
 	_, err = c.GetItemIDByName(ctx, wsID, "does_not_exist", "Warehouse")
 	if !IsNotFound(err) {
 		t.Fatalf("expected NotFoundError, got %v", err)
-	}
-}
-
-func TestUpdateItemPermissions_DowngradeRevokesExcessPrivileges(t *testing.T) {
-	t.Parallel()
-
-	srv := fabricmock.NewServer(t)
-	wsID := "11111111-1111-1111-1111-111111111111"
-	dbID := "44444444-4444-4444-4444-444444444444"
-	principal := Principal{
-		ID:   "55555555-5555-5555-5555-555555555555",
-		Type: "Group",
-	}
-
-	srv.UpsertItem(fabricmock.Item{
-		ID:          dbID,
-		WorkspaceID: wsID,
-		DisplayName: "app_sqldb",
-		Type:        "SQLDatabase",
-	})
-
-	c := newTestClient(t, srv)
-	ctx := context.Background()
-
-	// Initial grant: read, read_data, write
-	if err := c.GrantItemPermissions(ctx, wsID, dbID, "SQLDatabase", principal, []string{"read", "read_data", "write"}); err != nil {
-		t.Fatalf("GrantItemPermissions failed: %v", err)
-	}
-
-	// Downgrade to ["read"] -> must revoke ["ReadData", "Write"] before granting ["Read"].
-	if err := c.UpdateItemPermissions(ctx, wsID, dbID, "SQLDatabase", principal, []string{"read", "read_data", "write"}, []string{"read"}); err != nil {
-		t.Fatalf("UpdateItemPermissions failed: %v", err)
-	}
-
-	seq := srv.OperationSequence()
-	if !slices.Equal(seq, []string{"grant", "revoke", "grant"}) {
-		t.Fatalf("expected operation sequence [grant, revoke, grant], got %v", seq)
-	}
-	if !slices.Equal(srv.LastRevokedPermissions(), []string{"ReadData", "Write"}) {
-		t.Fatalf("expected revoked permissions [ReadData Write], got %v", srv.LastRevokedPermissions())
-	}
-
-	gotPerms, err := c.GetItemPermissions(ctx, wsID, dbID, "SQLDatabase", principal.ID, principal.Type)
-	if err != nil {
-		t.Fatalf("GetItemPermissions failed: %v", err)
-	}
-	if !slices.Equal(gotPerms, []string{"read"}) {
-		t.Fatalf("expected final permissions [read], got %v", gotPerms)
-	}
-
-	// Revoke all and confirm idempotent 404 handling on second revoke.
-	if err := c.RevokeItemPermissions(ctx, wsID, dbID, "SQLDatabase", principal, []string{"read"}); err != nil {
-		t.Fatalf("first RevokeItemPermissions failed: %v", err)
-	}
-	if err := c.RevokeItemPermissions(ctx, wsID, dbID, "SQLDatabase", principal, []string{"read"}); err != nil {
-		t.Fatalf("second RevokeItemPermissions should treat 404 as idempotent nil, got: %v", err)
 	}
 }
 
@@ -662,4 +607,134 @@ func TestLakehouseDataAccessRoles_ErrorDisambiguation(t *testing.T) {
 			t.Errorf("expected status 429, got %d", apiErr.StatusCode)
 		}
 	})
+}
+
+func TestItemPermissionsClient_DirectOperations(t *testing.T) {
+	t.Parallel()
+
+	wsID := "11111111-1111-1111-1111-111111111111"
+	itemID := "22222222-2222-2222-2222-222222222222"
+	principalID := "33333333-3333-3333-3333-333333333333"
+
+	var lastMethod, lastPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		lastMethod = r.Method
+		lastPath = r.URL.Path
+
+		if strings.HasSuffix(r.URL.Path, "/permissions") {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = fmt.Fprintf(w, `{
+				"value": [
+					{
+						"principal": {
+							"id": %q,
+							"type": "User"
+						},
+						"permissions": ["Read", "Write"]
+					}
+				]
+			}`, principalID)
+			return
+		}
+
+		if strings.HasSuffix(r.URL.Path, "/grantPermissions") || strings.HasSuffix(r.URL.Path, "/revokePermissions") {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	c, err := NewFabricClient(Config{
+		Endpoint: srv.URL,
+		TokenProvider: func(context.Context) (string, error) {
+			return "mock-token", nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	ctx := context.Background()
+	p := Principal{ID: principalID, Type: "User"}
+
+	// 1. GrantItemPermissions
+	if err := c.GrantItemPermissions(ctx, wsID, itemID, "Warehouse", p, []string{"read", "write"}); err != nil {
+		t.Fatalf("GrantItemPermissions failed: %v", err)
+	}
+	if lastMethod != http.MethodPost || !strings.Contains(lastPath, "/grantPermissions") {
+		t.Errorf("unexpected grant call: %s %s", lastMethod, lastPath)
+	}
+
+	// 2. GetItemPermissions match
+	perms, err := c.GetItemPermissions(ctx, wsID, itemID, "Warehouse", principalID, "User")
+	if err != nil {
+		t.Fatalf("GetItemPermissions failed: %v", err)
+	}
+	if len(perms) != 2 || perms[0] != "read" || perms[1] != "write" {
+		t.Errorf("unexpected permissions returned: %v", perms)
+	}
+
+	// 3. GetItemPermissions not found
+	_, err = c.GetItemPermissions(ctx, wsID, itemID, "Warehouse", "missing-principal", "User")
+	if err == nil {
+		t.Fatal("expected error for missing principal")
+	}
+	if !IsNotFound(err) {
+		t.Errorf("expected IsNotFound(err), got %v", err)
+	}
+
+	// 4. UpdateItemPermissions
+	if err := c.UpdateItemPermissions(ctx, wsID, itemID, "Warehouse", p, []string{"read", "write"}, []string{"read"}); err != nil {
+		t.Fatalf("UpdateItemPermissions failed: %v", err)
+	}
+
+	// 5. RevokeItemPermissions
+	if err := c.RevokeItemPermissions(ctx, wsID, itemID, "Warehouse", p, []string{"write"}); err != nil {
+		t.Fatalf("RevokeItemPermissions failed: %v", err)
+	}
+
+	// 6. Error cases for invalid item type or permissions
+	if err := c.GrantItemPermissions(ctx, wsID, itemID, "InvalidType", p, []string{"read"}); err == nil {
+		t.Fatal("expected error for InvalidType in GrantItemPermissions")
+	}
+	if err := c.GrantItemPermissions(ctx, wsID, itemID, "Warehouse", p, []string{"invalid-perm"}); err == nil {
+		t.Fatal("expected error for invalid-perm in GrantItemPermissions")
+	}
+	if _, err := c.GetItemPermissions(ctx, wsID, itemID, "InvalidType", principalID, "User"); err == nil {
+		t.Fatal("expected error for InvalidType in GetItemPermissions")
+	}
+	if err := c.UpdateItemPermissions(ctx, wsID, itemID, "Warehouse", p, []string{"bad"}, []string{"read"}); err == nil {
+		t.Fatal("expected error for bad oldPerms in UpdateItemPermissions")
+	}
+	if err := c.UpdateItemPermissions(ctx, wsID, itemID, "Warehouse", p, []string{"read"}, []string{"bad"}); err == nil {
+		t.Fatal("expected error for bad newPerms in UpdateItemPermissions")
+	}
+	if err := c.RevokeItemPermissions(ctx, wsID, itemID, "InvalidType", p, []string{"read"}); err == nil {
+		t.Fatal("expected error for InvalidType in RevokeItemPermissions")
+	}
+	if err := c.RevokeItemPermissions(ctx, wsID, itemID, "Warehouse", p, []string{"bad"}); err == nil {
+		t.Fatal("expected error for bad perms in RevokeItemPermissions")
+	}
+
+	// 7. Test error stringers
+	typeErr := &UnsupportedItemTypeError{
+		WorkspaceID: wsID,
+		ItemID:      itemID,
+		ActualType:  "Warehouse",
+	}
+	if !strings.Contains(typeErr.Error(), "only supported on Lakehouses") {
+		t.Errorf("unexpected error string: %s", typeErr.Error())
+	}
+
+	secErr := &OneLakeSecurityNotEnabledError{
+		WorkspaceID: wsID,
+		LakehouseID: itemID,
+		Message:     "custom message",
+	}
+	if secErr.Error() != "custom message" {
+		t.Errorf("unexpected custom message: %s", secErr.Error())
+	}
 }

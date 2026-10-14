@@ -202,13 +202,8 @@ func TestAccPermissionsModule_MatrixFlattening(t *testing.T) {
 					string(outputsBytes),
 				}, "\n"),
 				ConfigStateChecks: []statecheck.StateCheck{
-					statecheck.ExpectKnownOutputValue("warehouse_permission_ids", knownvalue.MapExact(map[string]knownvalue.Check{
-						"sales_analytics_wh/Group/55555555-5555-5555-5555-555555555551":            knownvalue.StringExact(wsID + "/" + whID + "/Group/55555555-5555-5555-5555-555555555551"),
-						"sales_analytics_wh/ServicePrincipal/55555555-5555-5555-5555-555555555552": knownvalue.StringExact(wsID + "/" + whID + "/ServicePrincipal/55555555-5555-5555-5555-555555555552"),
-					})),
-					statecheck.ExpectKnownOutputValue("sql_database_permission_ids", knownvalue.MapExact(map[string]knownvalue.Check{
-						"operational_orders_db/Group/55555555-5555-5555-5555-555555555551": knownvalue.StringExact(wsID + "/" + dbID + "/Group/55555555-5555-5555-5555-555555555551"),
-					})),
+					statecheck.ExpectKnownOutputValue("warehouse_permission_ids", knownvalue.MapExact(map[string]knownvalue.Check{})),
+					statecheck.ExpectKnownOutputValue("sql_database_permission_ids", knownvalue.MapExact(map[string]knownvalue.Check{})),
 					statecheck.ExpectKnownOutputValue("lakehouse_permission_ids", knownvalue.MapExact(map[string]knownvalue.Check{
 						"raw_bronze_lh/BronzeReaders": knownvalue.StringExact(wsID + "/" + lhID + "/BronzeReaders"),
 					})),
@@ -217,7 +212,7 @@ func TestAccPermissionsModule_MatrixFlattening(t *testing.T) {
 					})),
 				},
 			},
-			// Step 2: Upgrade Group from read -> write in-place (same key) and omit sql_databases & lakehouses
+			// Step 2: Omit sql_databases & lakehouses
 			{
 				Config: strings.Join([]string{
 					testAccProviderConfig(srv),
@@ -226,10 +221,7 @@ func TestAccPermissionsModule_MatrixFlattening(t *testing.T) {
 					string(outputsBytes),
 				}, "\n"),
 				ConfigStateChecks: []statecheck.StateCheck{
-					statecheck.ExpectKnownOutputValue("warehouse_permission_ids", knownvalue.MapExact(map[string]knownvalue.Check{
-						"sales_analytics_wh/Group/55555555-5555-5555-5555-555555555551":            knownvalue.StringExact(wsID + "/" + whID + "/Group/55555555-5555-5555-5555-555555555551"),
-						"sales_analytics_wh/ServicePrincipal/55555555-5555-5555-5555-555555555552": knownvalue.StringExact(wsID + "/" + whID + "/ServicePrincipal/55555555-5555-5555-5555-555555555552"),
-					})),
+					statecheck.ExpectKnownOutputValue("warehouse_permission_ids", knownvalue.MapExact(map[string]knownvalue.Check{})),
 					statecheck.ExpectKnownOutputValue("sql_database_permission_ids", knownvalue.MapExact(map[string]knownvalue.Check{})),
 					statecheck.ExpectKnownOutputValue("lakehouse_permission_ids", knownvalue.MapExact(map[string]knownvalue.Check{})),
 					statecheck.ExpectKnownOutputValue("lakehouse_onelake_security_ids", knownvalue.MapExact(map[string]knownvalue.Check{})),
@@ -561,12 +553,8 @@ func TestAccPermissionsModule_MatrixWithRLSandCLS(t *testing.T) {
 					string(outputsBytes),
 				}, "\n"),
 				ConfigStateChecks: []statecheck.StateCheck{
-					statecheck.ExpectKnownOutputValue("warehouse_permission_ids", knownvalue.MapExact(map[string]knownvalue.Check{
-						whID + "/Group/55555555-5555-5555-5555-555555555551": knownvalue.StringExact(wsID + "/" + whID + "/Group/55555555-5555-5555-5555-555555555551"),
-					})),
-					statecheck.ExpectKnownOutputValue("sql_database_permission_ids", knownvalue.MapExact(map[string]knownvalue.Check{
-						"operational_orders_db/Group/55555555-5555-5555-5555-555555555551": knownvalue.StringExact(wsID + "/" + dbID + "/Group/55555555-5555-5555-5555-555555555551"),
-					})),
+					statecheck.ExpectKnownOutputValue("warehouse_permission_ids", knownvalue.MapExact(map[string]knownvalue.Check{})),
+					statecheck.ExpectKnownOutputValue("sql_database_permission_ids", knownvalue.MapExact(map[string]knownvalue.Check{})),
 					statecheck.ExpectKnownOutputValue("lakehouse_permission_ids", knownvalue.MapExact(map[string]knownvalue.Check{
 						lhID + "/EmeaAnalysts": knownvalue.StringExact(wsID + "/" + lhID + "/EmeaAnalysts"),
 					})),

@@ -56,14 +56,6 @@ def sync_specs() -> int:
             "source_url": url,
         }
 
-    overlay_rel = "overlays/item-permissions.json"
-    overlay_path = OPENAPI_DIR / overlay_rel
-    if overlay_path.is_file():
-        files_lock[overlay_rel] = {
-            "sha256": hashlib.sha256(overlay_path.read_bytes()).hexdigest(),
-            "source_url": f"local://specs/openapi/{overlay_rel}",
-        }
-
     lock_data = {
         "repository": "https://github.com/microsoft/fabric-rest-api-specs",
         "branch": "main",
@@ -83,11 +75,18 @@ def check_specs() -> int:
 
     lock_data = json.loads(LOCK_FILE.read_text(encoding="utf-8"))
     files_lock = lock_data.get("files", {})
-    if not files_lock or "overlays/item-permissions.json" not in files_lock:
-        print("ERROR: lock.json is missing required tracked files or overlay", file=sys.stderr)
+    if not files_lock:
+        print("ERROR: lock.json is missing required tracked files", file=sys.stderr)
         return 1
 
     for rel_path, meta in sorted(files_lock.items()):
+        source_url = meta.get("source_url", "")
+        if not source_url.startswith("https://raw.githubusercontent.com/microsoft/fabric-rest-api-specs/"):
+            print(
+                f"ERROR: invalid source_url for {rel_path}: {source_url}. All specs must originate from upstream.",
+                file=sys.stderr,
+            )
+            return 1
         file_path = OPENAPI_DIR / rel_path
         if not file_path.is_file():
             print(f"ERROR: missing vendored OpenAPI file: {file_path}", file=sys.stderr)
@@ -111,7 +110,7 @@ def check_specs() -> int:
             return 1
 
     print(
-        f"Verified {len(files_lock)} vendored OpenAPI specs (commit {lock_data.get('commit_sha', 'unknown')[:12]}) + item-permissions overlay."
+        f"Verified {len(files_lock)} vendored OpenAPI specs (commit {lock_data.get('commit_sha', 'unknown')[:12]})."
     )
     return 0
 

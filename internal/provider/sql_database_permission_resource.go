@@ -6,7 +6,6 @@ package provider
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/resourcevalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
@@ -58,6 +57,7 @@ func (r *SQLDatabasePermissionResource) Metadata(_ context.Context, req resource
 // Schema defines the schema for fabricext_sql_database_permission.
 func (r *SQLDatabasePermissionResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		DeprecationMessage:  deprecatedItemSharingMessage,
 		MarkdownDescription: "Manages item-level sharing and permissions on a Microsoft Fabric **SQL Database** (`read`, `read_data`, `read_spark`, `write`, `reshare`) for a Microsoft Entra principal.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
@@ -184,281 +184,45 @@ func (r *SQLDatabasePermissionResource) ModifyPlan(ctx context.Context, req reso
 	resp.Diagnostics.Append(resp.Plan.Set(ctx, &plan)...)
 }
 
-// Create grants the requested SQL Database permissions and populates Terraform state.
-func (r *SQLDatabasePermissionResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	var plan SQLDatabasePermissionResourceModel
-	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	var config SQLDatabasePermissionResourceModel
-	if !req.Config.Raw.IsNull() {
-		resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
-		if resp.Diagnostics.HasError() {
-			return
-		}
-	}
-
-	if r.client == nil {
-		resp.Diagnostics.AddError("Unconfigured Fabric Client", "The provider was not properly configured before resource operation.")
-		return
-	}
-
-	wsID := plan.WorkspaceID.ValueString()
-	principal := client.Principal{
-		ID:   plan.PrincipalID.ValueString(),
-		Type: plan.PrincipalType.ValueString(),
-	}
-
-	hasConfigID := !config.SQLDatabaseID.IsNull() && !config.SQLDatabaseID.IsUnknown() && config.SQLDatabaseID.ValueString() != ""
-	hasConfigName := !config.SQLDatabaseName.IsNull() && !config.SQLDatabaseName.IsUnknown() && config.SQLDatabaseName.ValueString() != ""
-	if !hasConfigID && !hasConfigName {
-		config.SQLDatabaseID = plan.SQLDatabaseID
-		config.SQLDatabaseName = plan.SQLDatabaseName
-		hasConfigID = !config.SQLDatabaseID.IsNull() && !config.SQLDatabaseID.IsUnknown() && config.SQLDatabaseID.ValueString() != ""
-		hasConfigName = !config.SQLDatabaseName.IsNull() && !config.SQLDatabaseName.IsUnknown() && config.SQLDatabaseName.ValueString() != ""
-	}
-
-	var dbID string
-	var dbName string
-	switch {
-	case hasConfigID && hasConfigName:
-		dbID = config.SQLDatabaseID.ValueString()
-		dbName = config.SQLDatabaseName.ValueString()
-		item, err := r.client.GetItemByID(ctx, wsID, dbID, "SQLDatabase")
-		if err != nil {
-			resp.Diagnostics.AddError("Unable to Resolve SQL Database by ID", err.Error())
-			return
-		}
-		if item.DisplayName != dbName {
-			resp.Diagnostics.AddError(
-				"Conflicting SQL Database Identifiers",
-				fmt.Sprintf("Configured sql_database_name %q does not match display name %q of sql_database_id %q.", dbName, item.DisplayName, dbID),
-			)
-			return
-		}
-		plan.SQLDatabaseID = types.StringValue(dbID)
-		plan.SQLDatabaseName = types.StringValue(item.DisplayName)
-	case hasConfigID:
-		dbID = config.SQLDatabaseID.ValueString()
-		item, err := r.client.GetItemByID(ctx, wsID, dbID, "SQLDatabase")
-		if err != nil {
-			resp.Diagnostics.AddError("Unable to Resolve SQL Database by ID", err.Error())
-			return
-		}
-		dbName = item.DisplayName
-		plan.SQLDatabaseID = types.StringValue(dbID)
-		plan.SQLDatabaseName = types.StringValue(dbName)
-	default:
-		dbName = plan.SQLDatabaseName.ValueString()
-		var err error
-		dbID, err = r.client.GetItemIDByName(ctx, wsID, dbName, "SQLDatabase")
-		if err != nil {
-			resp.Diagnostics.AddError("Unable to Resolve SQL Database by Name", err.Error())
-			return
-		}
-		plan.SQLDatabaseID = types.StringValue(dbID)
-		plan.SQLDatabaseName = types.StringValue(dbName)
-	}
-
-	perms, err := client.ExpandRolePermissions("SQLDatabase", plan.RoleType.ValueString())
-	if err != nil {
-		resp.Diagnostics.AddError("Invalid SQL Database Role Type", err.Error())
-		return
-	}
-
-	if err := r.client.GrantItemPermissions(ctx, wsID, dbID, "SQLDatabase", principal, perms); err != nil {
-		resp.Diagnostics.AddError("Unable to Grant SQL Database Permissions", err.Error())
-		return
-	}
-
-	plan.SQLDatabaseID = types.StringValue(dbID)
-	plan.ID = types.StringValue(fmt.Sprintf("%s/%s/%s/%s", wsID, dbID, principal.Type, principal.ID))
-
-	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+// Create returns an error diagnostic indicating that Fabric does not support item-level sharing via REST API.
+func (r *SQLDatabasePermissionResource) Create(_ context.Context, _ resource.CreateRequest, resp *resource.CreateResponse) {
+	resp.Diagnostics.AddError(
+		deprecatedItemSharingCreateErrorSummary,
+		deprecatedItemSharingCreateErrorDetail,
+	)
 }
 
-// Read refreshes the Terraform state from the live Fabric SQL Database permission assignments.
+// Read preserves existing state without making network requests.
 func (r *SQLDatabasePermissionResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	var state SQLDatabasePermissionResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
-
-	if r.client == nil {
-		resp.Diagnostics.AddError("Unconfigured Fabric Client", "The provider was not properly configured before resource operation.")
-		return
-	}
-
-	wsID := state.WorkspaceID.ValueString()
-	dbID := state.SQLDatabaseID.ValueString()
-	principalID := state.PrincipalID.ValueString()
-	principalType := state.PrincipalType.ValueString()
-
-	item, err := r.client.GetItemByID(ctx, wsID, dbID, "SQLDatabase")
-	if err != nil {
-		if client.IsNotFound(err) {
-			resp.State.RemoveResource(ctx)
-			return
-		}
-		resp.Diagnostics.AddError("Unable to Read SQL Database Item", err.Error())
-		return
-	}
-	state.SQLDatabaseName = types.StringValue(item.DisplayName)
-
-	perms, err := r.client.GetItemPermissions(ctx, wsID, dbID, "SQLDatabase", principalID, principalType)
-	if err != nil {
-		if client.IsNotFound(err) {
-			resp.State.RemoveResource(ctx)
-			return
-		}
-		resp.Diagnostics.AddError("Unable to Read SQL Database Permissions", err.Error())
-		return
-	}
-
-	roleType, err := client.CollapseItemRolePermissions("SQLDatabase", perms)
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to Map SQL Database Permissions to Role Type", err.Error())
-		return
-	}
-
-	state.RoleType = types.StringValue(roleType)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
-// Update reconciles SQL Database permissions in-place using set-difference grant and revoke calls.
-func (r *SQLDatabasePermissionResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var plan SQLDatabasePermissionResourceModel
-	var state SQLDatabasePermissionResourceModel
-	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
-	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	if r.client == nil {
-		resp.Diagnostics.AddError("Unconfigured Fabric Client", "The provider was not properly configured before resource operation.")
-		return
-	}
-
-	oldPerms, err := client.ExpandRolePermissions("SQLDatabase", state.RoleType.ValueString())
-	if err != nil {
-		resp.Diagnostics.AddError("Invalid Previous SQL Database Role Type", err.Error())
-		return
-	}
-	newPerms, err := client.ExpandRolePermissions("SQLDatabase", plan.RoleType.ValueString())
-	if err != nil {
-		resp.Diagnostics.AddError("Invalid Target SQL Database Role Type", err.Error())
-		return
-	}
-
-	principal := client.Principal{
-		ID:   plan.PrincipalID.ValueString(),
-		Type: plan.PrincipalType.ValueString(),
-	}
-
-	if err := r.client.UpdateItemPermissions(ctx, plan.WorkspaceID.ValueString(), state.SQLDatabaseID.ValueString(), "SQLDatabase", principal, oldPerms, newPerms); err != nil {
-		resp.Diagnostics.AddError("Unable to Update SQL Database Permissions", err.Error())
-		return
-	}
-
-	plan.SQLDatabaseID = state.SQLDatabaseID
-	plan.ID = state.ID
-	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+// Update returns an error diagnostic indicating that Fabric does not support item-level sharing via REST API.
+func (r *SQLDatabasePermissionResource) Update(_ context.Context, _ resource.UpdateRequest, resp *resource.UpdateResponse) {
+	resp.Diagnostics.AddError(
+		deprecatedItemSharingCreateErrorSummary,
+		deprecatedItemSharingCreateErrorDetail,
+	)
 }
 
-// Delete revokes the managed SQL Database permissions from the target principal.
-func (r *SQLDatabasePermissionResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
-	var state SQLDatabasePermissionResourceModel
-	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	if r.client == nil {
-		resp.Diagnostics.AddError("Unconfigured Fabric Client", "The provider was not properly configured before resource operation.")
-		return
-	}
-
-	perms, err := client.ExpandRolePermissions("SQLDatabase", state.RoleType.ValueString())
-	if err != nil {
-		perms = []string{"Read", "ReadData", "ReadAll", "SubscribeOneLakeEvents", "Write", "Reshare"}
-	}
-
-	principal := client.Principal{
-		ID:   state.PrincipalID.ValueString(),
-		Type: state.PrincipalType.ValueString(),
-	}
-
-	if err := r.client.RevokeItemPermissions(ctx, state.WorkspaceID.ValueString(), state.SQLDatabaseID.ValueString(), "SQLDatabase", principal, perms); err != nil {
-		resp.Diagnostics.AddError("Unable to Revoke SQL Database Permissions", err.Error())
-		return
-	}
+// Delete removes the resource from state with an informational warning diagnostic.
+func (r *SQLDatabasePermissionResource) Delete(ctx context.Context, _ resource.DeleteRequest, resp *resource.DeleteResponse) {
+	resp.Diagnostics.AddWarning(
+		"Deprecated Resource Removed",
+		"fabricext_sql_database_permission has been removed from Terraform state. No Microsoft Fabric API calls were made.",
+	)
+	resp.State.RemoveResource(ctx)
 }
 
-// ImportState imports an existing SQL Database permission binding by {workspace_id}/{sql_database_id}/{principal_type}/{principal_id}.
-func (r *SQLDatabasePermissionResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	if r.client == nil {
-		resp.Diagnostics.AddError("Unconfigured Fabric Client", "The provider was not properly configured before resource operation.")
-		return
-	}
-
-	parts := strings.Split(req.ID, "/")
-	if len(parts) != 4 || parts[0] == "" || parts[1] == "" || parts[2] == "" || parts[3] == "" {
-		resp.Diagnostics.AddError(
-			"Invalid Import Identifier",
-			fmt.Sprintf("Expected import identifier in format {workspace_id}/{sql_database_id}/{principal_type}/{principal_id}, got: %q", req.ID),
-		)
-		return
-	}
-
-	wsID, dbID, rawPrincipalType, principalID := parts[0], parts[1], parts[2], parts[3]
-	if !uuidRegex.MatchString(wsID) {
-		resp.Diagnostics.AddError("Invalid Import Identifier", fmt.Sprintf("workspace_id %q must be a valid UUID", wsID))
-		return
-	}
-	if !uuidRegex.MatchString(dbID) {
-		resp.Diagnostics.AddError("Invalid Import Identifier", fmt.Sprintf("sql_database_id %q must be a valid UUID", dbID))
-		return
-	}
-	if !uuidRegex.MatchString(principalID) {
-		resp.Diagnostics.AddError("Invalid Import Identifier", fmt.Sprintf("principal_id %q must be a valid UUID", principalID))
-		return
-	}
-	principalType, err := normalizePrincipalType("SQLDatabase", rawPrincipalType)
-	if err != nil {
-		resp.Diagnostics.AddError("Invalid Import Identifier", err.Error())
-		return
-	}
-
-	item, err := r.client.GetItemByID(ctx, wsID, dbID, "SQLDatabase")
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to Resolve Imported SQL Database", err.Error())
-		return
-	}
-
-	perms, err := r.client.GetItemPermissions(ctx, wsID, dbID, "SQLDatabase", principalID, principalType)
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to Read Imported SQL Database Permissions", err.Error())
-		return
-	}
-	roleType, err := client.CollapseItemRolePermissions("SQLDatabase", perms)
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to Map Imported SQL Database Permissions", err.Error())
-		return
-	}
-
-	canonicalID := fmt.Sprintf("%s/%s/%s/%s", wsID, dbID, principalType, principalID)
-	state := SQLDatabasePermissionResourceModel{
-		ID:              types.StringValue(canonicalID),
-		WorkspaceID:     types.StringValue(wsID),
-		SQLDatabaseName: types.StringValue(item.DisplayName),
-		SQLDatabaseID:   types.StringValue(dbID),
-		PrincipalID:     types.StringValue(principalID),
-		PrincipalType:   types.StringValue(principalType),
-		RoleType:        types.StringValue(roleType),
-	}
-	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
+// ImportState returns an error diagnostic directing users away from importing deprecated resources.
+func (r *SQLDatabasePermissionResource) ImportState(_ context.Context, _ resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resp.Diagnostics.AddError(
+		"Cannot Import Deprecated Resource",
+		"fabricext_sql_database_permission cannot be imported because item-level sharing endpoints do not exist in Microsoft Fabric. Use portal sharing and T-SQL roles.",
+	)
 }

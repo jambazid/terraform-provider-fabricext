@@ -56,12 +56,6 @@ type Principal struct {
 	Type string `json:"type"`
 }
 
-// ItemPermissionAssignment represents a single principal's permissions on an item.
-type ItemPermissionAssignment struct {
-	Principal   Principal `json:"principal"`
-	Permissions []string  `json:"permissions"`
-}
-
 // PermissionScope defines a Path or Action attribute scope in a OneLake Data Access Role.
 type PermissionScope struct {
 	AttributeName            string   `json:"attributeName"`
@@ -148,18 +142,12 @@ type Server struct {
 	router     routers.Router
 
 	mu                       sync.Mutex
-	items                    map[string]map[string]Item                     // workspaceID -> itemID -> Item
-	permissions              map[string]map[string]ItemPermissionAssignment // workspaceID/itemType/itemID -> principalID -> assignment
-	lakehouseRoles           map[string]*lakehouseRolesState                // workspaceID/lakehouseID -> state
-	lakehouseSecurityEnabled map[string]bool                                // workspaceID/lakehouseID -> bool
-	listItemsCalls           map[string]int                                 // workspaceID/itemType -> count
-	itemsPageSize            int                                            // optional pagination page size
-	grantCalls               int                                            // total grantPermissions calls
-	revokeCalls              int                                            // total revokePermissions calls
-	lastRevokedPerms         []string                                       // permissions from most recent revokePermissions call
-	lastGrantedPerms         []string                                       // permissions from most recent grantPermissions call
-	operationSequence        []string                                       // ordered log of "grant" / "revoke" operations
-	throttle                 *throttleRule                                  // optional fault injection for 429 / 5xx
+	items                    map[string]map[string]Item      // workspaceID -> itemID -> Item
+	lakehouseRoles           map[string]*lakehouseRolesState // workspaceID/lakehouseID -> state
+	lakehouseSecurityEnabled map[string]bool                 // workspaceID/lakehouseID -> bool
+	listItemsCalls           map[string]int                  // workspaceID/itemType -> count
+	itemsPageSize            int                             // optional pagination page size
+	throttle                 *throttleRule                   // optional fault injection for 429 / 5xx
 }
 
 // NewServer creates and starts a contract-validated Fabric mock server.
@@ -174,7 +162,6 @@ func NewServer(t testing.TB) *Server {
 	s := &Server{
 		router:                   router,
 		items:                    make(map[string]map[string]Item),
-		permissions:              make(map[string]map[string]ItemPermissionAssignment),
 		lakehouseRoles:           make(map[string]*lakehouseRolesState),
 		lakehouseSecurityEnabled: make(map[string]bool),
 		listItemsCalls:           make(map[string]int),
@@ -225,11 +212,6 @@ func (s *Server) RemoveItem(workspaceID, itemID string) {
 	}
 	delete(s.lakehouseRoles, workspaceID+"/"+itemID)
 	delete(s.lakehouseSecurityEnabled, workspaceID+"/"+itemID)
-	for k := range s.permissions {
-		if strings.HasPrefix(k, workspaceID+"/") && strings.HasSuffix(k, "/"+itemID) {
-			delete(s.permissions, k)
-		}
-	}
 }
 
 // EnableLakehouseSecurity simulates an operator enabling OneLake Data Access Security
@@ -267,29 +249,6 @@ func (s *Server) ListItemsCallCount(workspaceID, itemType string) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.listItemsCalls[workspaceID+"/"+itemType]
-}
-
-// ClearPrincipalPermissions removes a principal's permissions from an item (simulating external revocation drift).
-func (s *Server) ClearPrincipalPermissions(workspaceID, itemType, itemID, principalID string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	key := fmt.Sprintf("%s/%s/%s", workspaceID, itemType, itemID)
-	if m, ok := s.permissions[key]; ok {
-		delete(m, principalID)
-	}
-}
-
-// GetPrincipalPermissions returns the current permissions slice for a principal on an item.
-func (s *Server) GetPrincipalPermissions(workspaceID, itemType, itemID, principalID string) []string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	key := fmt.Sprintf("%s/%s/%s", workspaceID, itemType, itemID)
-	if m, ok := s.permissions[key]; ok {
-		if a, exists := m[principalID]; exists {
-			return slices.Clone(a.Permissions)
-		}
-	}
-	return nil
 }
 
 // RemoveDataAccessRole deletes a named role from a Lakehouse (simulating external drift).
@@ -350,27 +309,6 @@ func (s *Server) InjectThrottle(statusCode, retryAfterSec, count int) {
 		retryAfterSec: retryAfterSec,
 		remaining:     count,
 	}
-}
-
-// OperationSequence returns the recorded sequence of "grant" and "revoke" calls.
-func (s *Server) OperationSequence() []string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return slices.Clone(s.operationSequence)
-}
-
-// LastRevokedPermissions returns the permissions slice from the most recent revokePermissions call.
-func (s *Server) LastRevokedPermissions() []string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return slices.Clone(s.lastRevokedPerms)
-}
-
-// LastGrantedPermissions returns the permissions slice from the most recent grantPermissions call.
-func (s *Server) LastGrantedPermissions() []string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return slices.Clone(s.lastGrantedPerms)
 }
 
 func defaultLakehouseRoles(workspaceID, lakehouseID string) []DataAccessRole {
@@ -543,18 +481,6 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request, pathParams map
 		s.handleListItems(w, r, workspaceID)
 	case r.Method == http.MethodGet && pathParams["itemId"] != "" && !strings.HasSuffix(path, "/dataAccessRoles"):
 		s.handleGetItem(w, workspaceID, pathParams["itemId"])
-	case strings.Contains(path, "/warehouses/") && strings.HasSuffix(path, "/permissions"):
-		s.handleListPermissions(w, workspaceID, "Warehouse", pathParams["warehouseId"])
-	case strings.Contains(path, "/warehouses/") && strings.HasSuffix(path, "/grantPermissions"):
-		s.handleGrantPermissions(w, r, workspaceID, "Warehouse", pathParams["warehouseId"])
-	case strings.Contains(path, "/warehouses/") && strings.HasSuffix(path, "/revokePermissions"):
-		s.handleRevokePermissions(w, r, workspaceID, "Warehouse", pathParams["warehouseId"])
-	case strings.Contains(path, "/sqlDatabases/") && strings.HasSuffix(path, "/permissions"):
-		s.handleListPermissions(w, workspaceID, "SQLDatabase", pathParams["sqlDatabaseId"])
-	case strings.Contains(path, "/sqlDatabases/") && strings.HasSuffix(path, "/grantPermissions"):
-		s.handleGrantPermissions(w, r, workspaceID, "SQLDatabase", pathParams["sqlDatabaseId"])
-	case strings.Contains(path, "/sqlDatabases/") && strings.HasSuffix(path, "/revokePermissions"):
-		s.handleRevokePermissions(w, r, workspaceID, "SQLDatabase", pathParams["sqlDatabaseId"])
 	case r.Method == http.MethodGet && strings.HasSuffix(path, "/dataAccessRoles"):
 		s.handleListDataAccessRoles(w, workspaceID, pathParams["itemId"])
 	case r.Method == http.MethodPut && strings.HasSuffix(path, "/dataAccessRoles"):
@@ -642,122 +568,6 @@ func (s *Server) itemExistsLocked(workspaceID, itemType, itemID string) bool {
 		return false
 	}
 	return strings.EqualFold(it.Type, itemType)
-}
-
-func (s *Server) handleListPermissions(w http.ResponseWriter, workspaceID, itemType, itemID string) {
-	s.mu.Lock()
-	if !s.itemExistsLocked(workspaceID, itemType, itemID) {
-		s.mu.Unlock()
-		writeFabricError(w, http.StatusNotFound, "ItemNotFound", fmt.Sprintf("%s %s not found", itemType, itemID), false)
-		return
-	}
-
-	key := fmt.Sprintf("%s/%s/%s", workspaceID, itemType, itemID)
-	permMap := s.permissions[key]
-	assignments := make([]ItemPermissionAssignment, 0, len(permMap))
-	for _, a := range permMap {
-		if len(a.Permissions) > 0 {
-			assignments = append(assignments, ItemPermissionAssignment{
-				Principal:   a.Principal,
-				Permissions: slices.Clone(a.Permissions),
-			})
-		}
-	}
-	s.mu.Unlock()
-
-	slices.SortFunc(assignments, func(a, b ItemPermissionAssignment) int {
-		return strings.Compare(a.Principal.ID, b.Principal.ID)
-	})
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"value": assignments,
-	})
-}
-
-func (s *Server) handleGrantPermissions(w http.ResponseWriter, r *http.Request, workspaceID, itemType, itemID string) {
-	var payload ItemPermissionAssignment
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		writeFabricError(w, http.StatusBadRequest, "InvalidRequest", err.Error(), false)
-		return
-	}
-
-	s.mu.Lock()
-	if !s.itemExistsLocked(workspaceID, itemType, itemID) {
-		s.mu.Unlock()
-		writeFabricError(w, http.StatusNotFound, "ItemNotFound", fmt.Sprintf("%s %s not found", itemType, itemID), false)
-		return
-	}
-
-	key := fmt.Sprintf("%s/%s/%s", workspaceID, itemType, itemID)
-	permMap, ok := s.permissions[key]
-	if !ok {
-		permMap = make(map[string]ItemPermissionAssignment)
-		s.permissions[key] = permMap
-	}
-
-	existing := permMap[payload.Principal.ID]
-	merged := slices.Clone(existing.Permissions)
-	for _, p := range payload.Permissions {
-		if !slices.Contains(merged, p) {
-			merged = append(merged, p)
-		}
-	}
-	permMap[payload.Principal.ID] = ItemPermissionAssignment{
-		Principal:   payload.Principal,
-		Permissions: merged,
-	}
-	s.grantCalls++
-	s.lastGrantedPerms = slices.Clone(payload.Permissions)
-	s.operationSequence = append(s.operationSequence, "grant")
-	s.mu.Unlock()
-
-	w.WriteHeader(http.StatusOK)
-}
-
-func (s *Server) handleRevokePermissions(w http.ResponseWriter, r *http.Request, workspaceID, itemType, itemID string) {
-	var payload ItemPermissionAssignment
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		writeFabricError(w, http.StatusBadRequest, "InvalidRequest", err.Error(), false)
-		return
-	}
-
-	s.mu.Lock()
-	if !s.itemExistsLocked(workspaceID, itemType, itemID) {
-		s.mu.Unlock()
-		writeFabricError(w, http.StatusNotFound, "ItemNotFound", fmt.Sprintf("%s %s not found", itemType, itemID), false)
-		return
-	}
-
-	key := fmt.Sprintf("%s/%s/%s", workspaceID, itemType, itemID)
-	permMap := s.permissions[key]
-	existing, exists := permMap[payload.Principal.ID]
-	if !exists {
-		s.mu.Unlock()
-		writeFabricError(w, http.StatusNotFound, "PrincipalPermissionNotFound", "Principal permission assignment not found", false)
-		return
-	}
-
-	var remaining []string
-	for _, p := range existing.Permissions {
-		if !slices.Contains(payload.Permissions, p) {
-			remaining = append(remaining, p)
-		}
-	}
-	if len(remaining) == 0 {
-		delete(permMap, payload.Principal.ID)
-	} else {
-		existing.Permissions = remaining
-		permMap[payload.Principal.ID] = existing
-	}
-
-	s.revokeCalls++
-	s.lastRevokedPerms = slices.Clone(payload.Permissions)
-	s.operationSequence = append(s.operationSequence, "revoke")
-	s.mu.Unlock()
-
-	w.WriteHeader(http.StatusOK)
 }
 
 func (s *Server) handleListDataAccessRoles(w http.ResponseWriter, workspaceID, itemID string) {
@@ -905,7 +715,6 @@ func buildOpenAPIRouter() (routers.Router, error) {
 		"warehouse/definitions.json",
 		"lakehouse/definitions.json",
 		"sqlDatabase/definitions.json",
-		"overlays/item-permissions.json",
 	}
 
 	specFiles := []string{
@@ -913,7 +722,6 @@ func buildOpenAPIRouter() (routers.Router, error) {
 		"warehouse/swagger.json",
 		"lakehouse/swagger.json",
 		"sqlDatabase/swagger.json",
-		"overlays/item-permissions.json",
 	}
 
 	combinedDefs := make(map[string]any)

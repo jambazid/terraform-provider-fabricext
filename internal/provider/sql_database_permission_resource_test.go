@@ -4,179 +4,36 @@
 package provider
 
 import (
-	"fmt"
+	"context"
 	"regexp"
-	"slices"
 	"testing"
 
-	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
-	"github.com/hashicorp/terraform-plugin-testing/terraform"
+	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
+	"github.com/hashicorp/terraform-plugin-framework/types"
+	tfresource "github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/jambazid/terraform-provider-fabricext/internal/testutil/fabricmock"
 )
 
-func TestAccSQLDatabasePermissionResource_CRUDDowngradeAndImport(t *testing.T) {
+func TestAccSQLDatabasePermissionResource_DeprecatedCreateFails(t *testing.T) {
 	t.Parallel()
 
 	srv := fabricmock.NewServer(t)
-	wsID := "11111111-1111-1111-1111-111111111111"
-	dbID := "44444444-4444-4444-4444-444444444444"
-	principalID := "55555555-5555-5555-5555-555555555555"
 
-	srv.UpsertItem(fabricmock.Item{
-		ID:          dbID,
-		WorkspaceID: wsID,
-		DisplayName: "operational_orders_db",
-		Type:        "SQLDatabase",
-	})
-
-	resource.Test(t, resource.TestCase{
+	tfresource.Test(t, tfresource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
-		Steps: []resource.TestStep{
-			// 1. Create with role_type = "read_data"
+		Steps: []tfresource.TestStep{
 			{
-				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
+				Config: testAccProviderConfig(srv) + `
 resource "fabricext_sql_database_permission" "test" {
-  workspace_id      = %q
-  sql_database_name = "operational_orders_db"
-  principal_id      = %q
-  principal_type    = "Group"
-  role_type         = "read_data"
-}
-`, wsID, principalID),
-				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("fabricext_sql_database_permission.test", "id", wsID+"/"+dbID+"/Group/"+principalID),
-					resource.TestCheckResourceAttr("fabricext_sql_database_permission.test", "sql_database_id", dbID),
-					resource.TestCheckResourceAttr("fabricext_sql_database_permission.test", "role_type", "read_data"),
-				),
-			},
-			// 2. Change to role_type = "read_spark"
-			{
-				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
-resource "fabricext_sql_database_permission" "test" {
-  workspace_id      = %q
-  sql_database_name = "operational_orders_db"
-  principal_id      = %q
-  principal_type    = "Group"
-  role_type         = "read_spark"
-}
-`, wsID, principalID),
-				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("fabricext_sql_database_permission.test", "role_type", "read_spark"),
-					func(_ *terraform.State) error {
-						perms := srv.GetPrincipalPermissions(wsID, "SQLDatabase", dbID, principalID)
-						if !slices.Contains(perms, "ReadAll") || !slices.Contains(perms, "SubscribeOneLakeEvents") {
-							return fmt.Errorf("expected ReadAll and SubscribeOneLakeEvents on server, got %v", perms)
-						}
-						if slices.Contains(perms, "ReadData") {
-							return fmt.Errorf("expected ReadData to be revoked when switching to read_spark, got %v", perms)
-						}
-						return nil
-					},
-				),
-			},
-			// 3. Downgrade to role_type = "read"
-			{
-				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
-resource "fabricext_sql_database_permission" "test" {
-  workspace_id      = %q
-  sql_database_name = "operational_orders_db"
-  principal_id      = %q
+  workspace_id      = "11111111-1111-1111-1111-111111111111"
+  sql_database_name = "orders_db"
+  principal_id      = "33333333-3333-3333-3333-333333333333"
   principal_type    = "Group"
   role_type         = "read"
 }
-`, wsID, principalID),
-				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("fabricext_sql_database_permission.test", "role_type", "read"),
-					func(_ *terraform.State) error {
-						perms := srv.GetPrincipalPermissions(wsID, "SQLDatabase", dbID, principalID)
-						if !slices.Equal(perms, []string{"Read"}) {
-							return fmt.Errorf("expected only [Read] after downgrade, got %v", perms)
-						}
-						return nil
-					},
-				),
-			},
-			// 4. Test write and reshare presets
-			{
-				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
-resource "fabricext_sql_database_permission" "test" {
-  workspace_id      = %q
-  sql_database_name = "operational_orders_db"
-  principal_id      = %q
-  principal_type    = "Group"
-  role_type         = "write"
-}
-`, wsID, principalID),
-				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("fabricext_sql_database_permission.test", "role_type", "write"),
-				),
-			},
-			{
-				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
-resource "fabricext_sql_database_permission" "test" {
-  workspace_id      = %q
-  sql_database_name = "operational_orders_db"
-  principal_id      = %q
-  principal_type    = "Group"
-  role_type         = "reshare"
-}
-`, wsID, principalID),
-				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("fabricext_sql_database_permission.test", "role_type", "reshare"),
-				),
-			},
-			// 5. ImportState verification
-			{
-				ResourceName:      "fabricext_sql_database_permission.test",
-				ImportState:       true,
-				ImportStateVerify: true,
-			},
-		},
-	})
-}
-
-func TestAccSQLDatabasePermissionResource_Disappears(t *testing.T) {
-	t.Parallel()
-
-	srv := fabricmock.NewServer(t)
-	wsID := "11111111-1111-1111-1111-111111111111"
-	dbID := "44444444-4444-4444-4444-444444444444"
-	principalID := "55555555-5555-5555-5555-555555555555"
-
-	srv.UpsertItem(fabricmock.Item{
-		ID:          dbID,
-		WorkspaceID: wsID,
-		DisplayName: "operational_orders_db",
-		Type:        "SQLDatabase",
-	})
-
-	cfg := testAccProviderConfig(srv) + fmt.Sprintf(`
-resource "fabricext_sql_database_permission" "test" {
-  workspace_id      = %q
-  sql_database_name = "operational_orders_db"
-  principal_id      = %q
-  role_type         = "read_data"
-}
-`, wsID, principalID)
-
-	resource.Test(t, resource.TestCase{
-		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
-		Steps: []resource.TestStep{
-			{
-				Config: cfg,
-				Check: func(_ *terraform.State) error {
-					srv.ClearPrincipalPermissions(wsID, "SQLDatabase", dbID, principalID)
-					return nil
-				},
-				ExpectNonEmptyPlan: true,
-			},
-			{
-				Config: cfg,
-				Check: func(_ *terraform.State) error {
-					srv.RemoveItem(wsID, dbID)
-					return nil
-				},
-				ExpectNonEmptyPlan: true,
+`,
+				ExpectError: regexp.MustCompile(`Resource Not Supported by Microsoft Fabric`),
 			},
 		},
 	})
@@ -187,16 +44,16 @@ func TestAccSQLDatabasePermissionResource_ValidationErrors(t *testing.T) {
 
 	srv := fabricmock.NewServer(t)
 
-	resource.UnitTest(t, resource.TestCase{
+	tfresource.UnitTest(t, tfresource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
-		Steps: []resource.TestStep{
+		Steps: []tfresource.TestStep{
 			{
 				Config: testAccProviderConfig(srv) + `
 resource "fabricext_sql_database_permission" "invalid_role" {
   workspace_id      = "11111111-1111-1111-1111-111111111111"
-  sql_database_name = "operational_orders_db"
-  principal_id      = "55555555-5555-5555-5555-555555555555"
-  role_type         = "super_admin"
+  sql_database_name = "orders_db"
+  principal_id      = "33333333-3333-3333-3333-333333333333"
+  role_type         = "admin"
 }
 `,
 				ExpectError: regexp.MustCompile(`Attribute role_type value must be one of`),
@@ -204,131 +61,103 @@ resource "fabricext_sql_database_permission" "invalid_role" {
 			{
 				Config: testAccProviderConfig(srv) + `
 resource "fabricext_sql_database_permission" "invalid_uuid" {
-  workspace_id      = "invalid-uuid"
-  sql_database_name = "operational_orders_db"
-  principal_id      = "55555555-5555-5555-5555-555555555555"
-  role_type         = "read_data"
+  workspace_id      = "not-a-uuid"
+  sql_database_name = "orders_db"
+  principal_id      = "33333333-3333-3333-3333-333333333333"
+  role_type         = "read"
 }
 `,
 				ExpectError: regexp.MustCompile(`must be a valid UUID`),
 			},
+			{
+				Config: testAccProviderConfig(srv) + `
+resource "fabricext_sql_database_permission" "invalid_principal_type" {
+  workspace_id      = "11111111-1111-1111-1111-111111111111"
+  sql_database_name = "orders_db"
+  principal_id      = "33333333-3333-3333-3333-333333333333"
+  principal_type    = "InvalidType"
+  role_type         = "read"
+}
+`,
+				ExpectError: regexp.MustCompile(`Attribute principal_type value must be one of`),
+			},
 		},
 	})
 }
 
-func TestAccSQLDatabasePermissionResource_DirectIDReference(t *testing.T) {
+func TestSQLDatabasePermissionResource_TombstoneLifecycle(t *testing.T) {
 	t.Parallel()
 
-	srv := fabricmock.NewServer(t)
-	wsID := "11111111-1111-1111-1111-111111111111"
-	dbID := "44444444-4444-4444-4444-444444444444"
-	dbID2 := "55555555-5555-5555-5555-555555555555"
-	principalID := "33333333-3333-3333-3333-333333333333"
+	res := NewSQLDatabasePermissionResource()
+	ctx := context.Background()
 
-	srv.UpsertItem(fabricmock.Item{
-		ID:          dbID,
-		WorkspaceID: wsID,
-		DisplayName: "direct_db",
-		Type:        "SQLDatabase",
-	})
-	srv.UpsertItem(fabricmock.Item{
-		ID:          dbID2,
-		WorkspaceID: wsID,
-		DisplayName: "direct_db_2",
-		Type:        "SQLDatabase",
-	})
+	// 1. Schema check
+	var schemaResp resource.SchemaResponse
+	res.Schema(ctx, resource.SchemaRequest{}, &schemaResp)
+	if schemaResp.Schema.DeprecationMessage == "" {
+		t.Fatalf("expected non-empty DeprecationMessage on schema")
+	}
 
-	resource.Test(t, resource.TestCase{
-		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
-resource "fabricext_sql_database_permission" "direct" {
-  workspace_id      = %q
-  sql_database_id   = %q
-  principal_id      = %q
-  role_type         = "read_data"
-}
-`, wsID, dbID, principalID),
-				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("fabricext_sql_database_permission.direct", "id", wsID+"/"+dbID+"/Group/"+principalID),
-					resource.TestCheckResourceAttr("fabricext_sql_database_permission.direct", "sql_database_id", dbID),
-					resource.TestCheckResourceAttr("fabricext_sql_database_permission.direct", "sql_database_name", "direct_db"),
-					resource.TestCheckResourceAttr("fabricext_sql_database_permission.direct", "principal_type", "Group"),
-					resource.TestCheckResourceAttr("fabricext_sql_database_permission.direct", "role_type", "read_data"),
-				),
-			},
-			{
-				ResourceName:      "fabricext_sql_database_permission.direct",
-				ImportState:       true,
-				ImportStateVerify: true,
-			},
-			// Step 3: Replace resource by switching to sql_database_name only (clears sql_database_id in plan)
-			{
-				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
-resource "fabricext_sql_database_permission" "direct" {
-  workspace_id      = %q
-  sql_database_name = "direct_db_2"
-  principal_id      = %q
-  role_type         = "read_data"
-}
-`, wsID, principalID),
-				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("fabricext_sql_database_permission.direct", "id", wsID+"/"+dbID2+"/Group/"+principalID),
-					resource.TestCheckResourceAttr("fabricext_sql_database_permission.direct", "sql_database_id", dbID2),
-					resource.TestCheckResourceAttr("fabricext_sql_database_permission.direct", "sql_database_name", "direct_db_2"),
-				),
-			},
-			// Step 4: Replace resource by changing sql_database_name (ensures counterpart ID is re-resolved)
-			{
-				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
-resource "fabricext_sql_database_permission" "direct" {
-  workspace_id      = %q
-  sql_database_name = "direct_db"
-  principal_id      = %q
-  role_type         = "read_data"
-}
-`, wsID, principalID),
-				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("fabricext_sql_database_permission.direct", "id", wsID+"/"+dbID+"/Group/"+principalID),
-					resource.TestCheckResourceAttr("fabricext_sql_database_permission.direct", "sql_database_id", dbID),
-					resource.TestCheckResourceAttr("fabricext_sql_database_permission.direct", "sql_database_name", "direct_db"),
-				),
-			},
+	// 2. Read preserves state
+	stateModel := SQLDatabasePermissionResourceModel{
+		ID:              types.StringValue("11111111-1111-1111-1111-111111111111/44444444-4444-4444-4444-444444444444/Group/33333333-3333-3333-3333-333333333333"),
+		WorkspaceID:     types.StringValue("11111111-1111-1111-1111-111111111111"),
+		SQLDatabaseName: types.StringValue("orders_db"),
+		SQLDatabaseID:   types.StringValue("44444444-4444-4444-4444-444444444444"),
+		PrincipalID:     types.StringValue("33333333-3333-3333-3333-333333333333"),
+		PrincipalType:   types.StringValue("Group"),
+		RoleType:        types.StringValue("read"),
+	}
+
+	readReq := resource.ReadRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
 		},
-	})
-}
-
-func TestAccSQLDatabasePermissionResource_MismatchedIdentifiers(t *testing.T) {
-	t.Parallel()
-
-	srv := fabricmock.NewServer(t)
-	wsID := "11111111-1111-1111-1111-111111111111"
-	dbID := "22222222-2222-2222-2222-222222222222"
-	principalID := "33333333-3333-3333-3333-333333333333"
-
-	srv.UpsertItem(fabricmock.Item{
-		ID:          dbID,
-		WorkspaceID: wsID,
-		DisplayName: "correct_db_name",
-		Type:        "SQLDatabase",
-	})
-
-	resource.Test(t, resource.TestCase{
-		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
-resource "fabricext_sql_database_permission" "mismatch" {
-  workspace_id      = %q
-  sql_database_id   = %q
-  sql_database_name = "wrong_db_name"
-  principal_id      = %q
-  role_type         = "read_data"
-}
-`, wsID, dbID, principalID),
-				ExpectError: regexp.MustCompile(`Conflicting SQL Database Identifiers`),
-			},
+	}
+	readResp := resource.ReadResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
 		},
-	})
+	}
+	readReq.State.Set(ctx, &stateModel)
+	res.Read(ctx, readReq, &readResp)
+	if readResp.Diagnostics.HasError() {
+		t.Fatalf("unexpected error in Read: %v", readResp.Diagnostics.Errors())
+	}
+	var readBack SQLDatabasePermissionResourceModel
+	readResp.State.Get(ctx, &readBack)
+	if readBack.ID.ValueString() != stateModel.ID.ValueString() {
+		t.Fatalf("expected state preserved in Read, got %s", readBack.ID.ValueString())
+	}
+
+	// 3. Delete removes resource and emits warning
+	delReq := resource.DeleteRequest{
+		State: readResp.State,
+	}
+	delResp := resource.DeleteResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+	res.Delete(ctx, delReq, &delResp)
+	if delResp.Diagnostics.HasError() {
+		t.Fatalf("unexpected error in Delete: %v", delResp.Diagnostics.Errors())
+	}
+	if len(delResp.Diagnostics.Warnings()) == 0 {
+		t.Fatalf("expected warning diagnostic in Delete")
+	}
+	if !delResp.State.Raw.IsNull() {
+		t.Fatalf("expected raw state to be null after Delete.RemoveResource")
+	}
+
+	// 4. ImportState returns error
+	importRes, ok := res.(resource.ResourceWithImportState)
+	if !ok {
+		t.Fatalf("expected ResourceWithImportState")
+	}
+	var importResp resource.ImportStateResponse
+	importRes.ImportState(ctx, resource.ImportStateRequest{ID: "foo/bar/baz"}, &importResp)
+	if !importResp.Diagnostics.HasError() {
+		t.Fatalf("expected ImportState to return error")
+	}
 }
