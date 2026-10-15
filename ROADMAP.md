@@ -2,7 +2,7 @@
 
 > **Mission Statement:** `terraform-provider-fabricext` (`registry.terraform.io/jambazid/fabricext`) provides declarative Terraform Plugin Framework extensions for Microsoft Fabric security governance, Lakehouse OneLake Data Access Roles, and advanced platform capabilities not currently covered by the official provider.
 >
-> **Pre-Stable Status (`v0.x`):** All resources in this repository are experimental and pre-stable (`v0.x`). Pin provider versions (`~> 0.5.0`) in `required_providers`.
+> **Pre-Stable Status (`v0.x`):** All resources in this repository are experimental and pre-stable (`v0.x`). Pin provider versions (`~> 0.6.0`) in `required_providers`.
 
 ---
 

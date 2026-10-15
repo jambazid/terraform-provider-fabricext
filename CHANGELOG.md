@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.6.0 - October 15, 2026
+
+### ✨ Added
+
+* Add `fabricext_item_access_details` data source and `fabricext_item_share_gate` verification waiter resource backed by the Microsoft Fabric Admin API (`GET /v1/admin/workspaces/{workspaceId}/items/{itemId}/users`), enabling declarative verification of out-of-band item shares for Warehouses, SQL Databases, and Lakehouses.
+
 ## 0.5.0 - October 15, 2026
 
 ### 💥 Breaking
