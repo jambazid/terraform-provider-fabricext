@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.5.0 - October 15, 2026
+
+### 💥 Breaking
+
+* Rename resource `fabricext_lakehouse_permission` to `fabricext_lakehouse_data_access_role` across all provider schemas, tests, examples, and `modules/permissions`. Remove deprecated resources `fabricext_warehouse_permission` and `fabricext_sql_database_permission` as scheduled for v0.5.0.
+
+### 📚 Documentation
+
+* Align roadmap and documentation for post-v0.4.0 scope: update candidate extensions (UDF, dbt jobs, shortcuts, capacity governance), reflect v0.5.0 scheduled removal target for tombstoned resources, and enforce concise heading standards across project markdown.
+* Reorganize documentation guides under subcategory Guides, remove Use Cases: page title prefixes, adopt open-ended connectivity tool phrasing, incorporate Atlas alongside SQL migration tools, and streamline guides for concision.
+
 ## 0.4.0 - October 14, 2026
 
 ### ⚰️ Deprecated

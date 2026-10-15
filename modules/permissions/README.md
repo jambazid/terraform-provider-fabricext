@@ -21,7 +21,7 @@ Manage standard table access across Lakehouses using simple mode:
 
 ```hcl
 module "workspace_permissions" {
-  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=0.4.0"
+  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=0.5.0"
 
   fabric_permissions_matrix = {
     workspace_id = "00000000-0000-0000-0000-000000000001"
@@ -46,7 +46,7 @@ Filter rows for specific principals using T-SQL Boolean predicates in `row_const
 
 ```hcl
 module "workspace_permissions" {
-  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=0.4.0"
+  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=0.5.0"
 
   fabric_permissions_matrix = {
     workspace_id = "00000000-0000-0000-0000-000000000001"
@@ -86,7 +86,7 @@ Restrict column access to an explicit allowlist using `column_constraints`:
 
 ```hcl
 module "workspace_permissions" {
-  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=0.4.0"
+  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=0.5.0"
 
   fabric_permissions_matrix = {
     workspace_id = "00000000-0000-0000-0000-000000000001"
@@ -128,7 +128,7 @@ Combine users, groups, service principals, and managed identities on the same ro
 
 ```hcl
 module "workspace_permissions" {
-  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=0.4.0"
+  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=0.5.0"
 
   fabric_permissions_matrix = {
     workspace_id = "00000000-0000-0000-0000-000000000001"
@@ -173,7 +173,7 @@ Dynamically derive role membership from users holding item permissions on anothe
 
 ```hcl
 module "workspace_permissions" {
-  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=0.4.0"
+  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=0.5.0"
 
   fabric_permissions_matrix = {
     workspace_id = "00000000-0000-0000-0000-000000000001"
@@ -211,7 +211,7 @@ Control OneLake security verification and `DefaultReader` role purging behavior:
 
 ```hcl
 module "workspace_permissions" {
-  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=0.4.0"
+  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=0.5.0"
 
   fabric_permissions_matrix = {
     workspace_id = "00000000-0000-0000-0000-000000000001"

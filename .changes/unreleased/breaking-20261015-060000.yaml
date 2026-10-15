@@ -1,7 +1,0 @@
-kind: breaking
-body: >-
-  Rename resource `fabricext_lakehouse_permission` to `fabricext_lakehouse_data_access_role`
-  across all provider schemas, tests, examples, and `modules/permissions`.
-  Remove deprecated resources `fabricext_warehouse_permission` and
-  `fabricext_sql_database_permission` as scheduled for v0.5.0.
-time: 2026-10-15T06:00:00.000000000+01:00
