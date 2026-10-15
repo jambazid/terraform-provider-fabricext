@@ -73,7 +73,7 @@ A frequent practitioner question is how Microsoft Entra ID identities map betwee
 
 ### In Terraform Providers
 
-~> **Important:** Declarative management via `fabricext_warehouse_permission` was tombstoned in v0.3.0 and is scheduled for removal in v0.4.0. For existing state, the resource can be safely detached using Terraform 1.7+ `removed` blocks:
+~> **Important:** Declarative management via `fabricext_warehouse_permission` was tombstoned in v0.3.0 and is scheduled for removal in v0.5.0. For existing state, the resource can be safely detached using Terraform 1.7+ `removed` blocks:
 
 ```hcl
 removed {

@@ -345,7 +345,7 @@ Entries within `fabric_item_members` support:
 
 | Name | Description |
 | :--- | :--- |
-| `warehouse_permission_ids` | (Deprecated) Empty map `{}` retained for interface compatibility; Warehouse item sharing was tombstoned in v0.3.0 and scheduled for removal in v0.4.0. |
-| `sql_database_permission_ids` | (Deprecated) Empty map `{}` retained for interface compatibility; SQL Database item sharing was tombstoned in v0.3.0 and scheduled for removal in v0.4.0. |
+| `warehouse_permission_ids` | (Deprecated) Empty map `{}` retained for interface compatibility; Warehouse item sharing was tombstoned in v0.3.0 and scheduled for removal in v0.5.0. |
+| `sql_database_permission_ids` | (Deprecated) Empty map `{}` retained for interface compatibility; SQL Database item sharing was tombstoned in v0.3.0 and scheduled for removal in v0.5.0. |
 | `lakehouse_permission_ids` | Map of flattened Lakehouse Data Access Role keys to composite resource IDs. |
 | `lakehouse_onelake_security_ids` | Map of unique Lakehouse keys to composite OneLake security resource IDs. |

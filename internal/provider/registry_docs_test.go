@@ -54,8 +54,8 @@ func TestRegistryDocs_DeprecationNoticePresent(t *testing.T) {
 		if !strings.Contains(str, "!> **Deprecated:**") {
 			t.Errorf("file %s is missing '!> **Deprecated:**' callout", file)
 		}
-		if !strings.Contains(str, "v0.4.0") {
-			t.Errorf("file %s is missing removal target version v0.4.0", file)
+		if !strings.Contains(str, "v0.5.0") {
+			t.Errorf("file %s is missing removal target version v0.5.0", file)
 		}
 	}
 }

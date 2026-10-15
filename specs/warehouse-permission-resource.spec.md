@@ -10,7 +10,7 @@ targets:
 
 ## Deprecation Notice
 
-- `fabricext_warehouse_permission` is deprecated and will be removed in `v0.4.0`. Microsoft Fabric does not provide REST API routes for item-level sharing on Warehouses.
+- `fabricext_warehouse_permission` is deprecated and will be removed in `v0.5.0`. Microsoft Fabric does not provide REST API routes for item-level sharing on Warehouses.
 - Practitioners must configure permissions using Fabric portal sharing and in-database T-SQL controls (`GRANT`/`DENY`/`REVOKE`).
   `[@test] ../internal/provider/warehouse_permission_resource_test.go::TestWarehousePermissionResource_TombstoneLifecycle`
 

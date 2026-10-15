@@ -6,7 +6,7 @@ package provider
 const (
 	// deprecatedItemSharingMessage explains that item-level sharing endpoints do not exist
 	// in the public Microsoft Fabric REST API and points practitioners to portal & T-SQL alternatives.
-	deprecatedItemSharingMessage = "This resource was tombstoned in v0.3.0 and is scheduled for removal in v0.4.0. The underlying " +
+	deprecatedItemSharingMessage = "This resource was tombstoned in v0.3.0 and is scheduled for removal in v0.5.0. The underlying " +
 		"Microsoft Fabric REST routes (/permissions, /grantPermissions, /revokePermissions) do not exist in the public " +
 		"Fabric REST API. For Warehouses, sharing is currently available only through the Fabric portal UI, and fine-grained " +
 		"data access must be configured using in-database T-SQL controls (GRANT/DENY/REVOKE). For SQL Databases, sharing " +

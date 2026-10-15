@@ -21,7 +21,7 @@ Following HashiCorp Provider Design Principles, each active `fabricext_*` resour
 - `fabricext_lakehouse_onelake_security`: Manages OneLake Data Access Security enablement verification and `DefaultReader` role purging.
 - `fabricext_item`: (Data Source) Resolves Microsoft Fabric items by workspace and display name.
 
-~> **Note:** Early prototype resources `fabricext_warehouse_permission` and `fabricext_sql_database_permission` were tombstoned in v0.3.0 and are scheduled for removal in v0.4.0 because Microsoft Fabric does not offer public item-sharing REST APIs for Warehouses or SQL Databases. Existing configurations should detach them using Terraform 1.7+ `removed` blocks.
+~> **Note:** Early prototype resources `fabricext_warehouse_permission` and `fabricext_sql_database_permission` were tombstoned in v0.3.0 and are scheduled for removal in v0.5.0 because Microsoft Fabric does not offer public item-sharing REST APIs for Warehouses or SQL Databases. Existing configurations should detach them using Terraform 1.7+ `removed` blocks.
 
 This atomic resource model decouples individual permission bindings from one another. An issue granting permissions to one item does not block or destroy grants on unrelated items.
 

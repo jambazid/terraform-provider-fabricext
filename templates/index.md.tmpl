@@ -41,7 +41,7 @@ To manage permissions across an entire workspace, you can compose them using nat
 
 ### Deprecated Resources
 
-Early prototypes included `fabricext_warehouse_permission` and `fabricext_sql_database_permission`. Because Microsoft Fabric does not offer public item-sharing REST APIs for Warehouses or SQL Databases, these resources were tombstoned in `v0.3.0` and scheduled for removal in `v0.4.0`. Existing configurations should detach them from state using Terraform 1.7+ `removed` blocks with `lifecycle { destroy = false }`.
+Early prototypes included `fabricext_warehouse_permission` and `fabricext_sql_database_permission`. Because Microsoft Fabric does not offer public item-sharing REST APIs for Warehouses or SQL Databases, these resources were tombstoned in `v0.3.0` and scheduled for removal in `v0.5.0`. Existing configurations should detach them from state using Terraform 1.7+ `removed` blocks with `lifecycle { destroy = false }`.
 
 For architectural patterns, in-place lifecycle keying invariants, and code examples, see the **[Declarative Matrix Composition Guide](guides/matrix_composition.md)**.
 
