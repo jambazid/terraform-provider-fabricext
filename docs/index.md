@@ -49,13 +49,13 @@ For setup instructions and credential evaluation details, see the dedicated auth
 
 ## Permissions Management
 
-The active provider resources (`fabricext_lakehouse_permission`, `fabricext_lakehouse_onelake_security`) manage Lakehouse OneLake Data Access Roles and security lifecycles per HashiCorp Provider Design Principles.
+The active provider resources (`fabricext_lakehouse_data_access_role`, `fabricext_lakehouse_onelake_security`) manage Lakehouse OneLake Data Access Roles and security lifecycles per HashiCorp Provider Design Principles.
 
 To manage permissions across an entire workspace, you can compose them using native Terraform `for_each` maps or use the in-repo [`modules/permissions`](https://github.com/jambazid/terraform-provider-fabricext/tree/main/modules/permissions) wrapper module.
 
 ### Deprecated Resources
 
-Early prototypes included `fabricext_warehouse_permission` and `fabricext_sql_database_permission`. Because Microsoft Fabric does not offer public item-sharing REST APIs for Warehouses or SQL Databases, these resources were tombstoned in `v0.3.0` and scheduled for removal in `v0.5.0`. Existing configurations should detach them from state using Terraform 1.7+ `removed` blocks with `lifecycle { destroy = false }`.
+Early prototypes included `fabricext_warehouse_permission` and `fabricext_sql_database_permission`. Because Microsoft Fabric does not offer public item-sharing REST APIs for Warehouses or SQL Databases, these resources were tombstoned in `v0.3.0` and removed in `v0.5.0`. Existing configurations should detach them from state using Terraform 1.7+ `removed` blocks with `lifecycle { destroy = false }`.
 
 For architectural patterns, in-place lifecycle keying invariants, and code examples, see the **[Declarative Matrix Composition Guide](guides/matrix_composition.md)**.
 

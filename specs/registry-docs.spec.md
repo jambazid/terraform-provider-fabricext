@@ -26,21 +26,21 @@ Because `fabricext` is a community extension operating in a pre-`v1.0.0` state t
 
 ## 3. Deprecated Resources
 
-- `fabricext_warehouse_permission` and `fabricext_sql_database_permission` templates lead with the deprecation notice explaining that Microsoft Fabric does not offer public item-sharing REST endpoints for Warehouses or SQL Databases.
-- Fine-grained database access is ground in primary-source Microsoft Learn documentation:
+- `fabricext_warehouse_permission` and `fabricext_sql_database_permission` were removed in v0.5.0 because Microsoft Fabric does not offer public item-sharing REST endpoints for Warehouses or SQL Databases.
+- Fine-grained database access is grounded in primary-source Microsoft Learn documentation:
   - Warehouses: In-database T-SQL permissions (`GRANT`/`DENY`/`REVOKE`).
   - SQL Databases: In-database T-SQL roles and permissions or Purview policies.
-  - Lakehouses: OneLake Data Access Roles (`fabricext_lakehouse_permission`, `fabricext_lakehouse_onelake_security`).
+  - Lakehouses: OneLake Data Access Roles (`fabricext_lakehouse_data_access_role`, `fabricext_lakehouse_onelake_security`).
 - **REQ-DOCS-008 (No Active Item-Sharing Claims)**: Documentation, templates, guides, and README must contain zero claims that `/permissions`, `/grantPermissions`, or `/revokePermissions` exist via REST or that `fabricext` bridges them via an overlay.
 - **REQ-DOCS-009 (Honest Technical Comparison Narrative)**: Official provider comparison documentation must present an honest technical comparison focusing on OneLake security `DefaultReader` purging, RFC 9110 ETag Read-Modify-Write concurrency, multi-page pagination, and offline contract testing, with zero nonexistent REST sequence diagrams.
 
 ## 4. Verification Requirements
 
 - `[@test] ../internal/provider/registry_docs_test.go::TestRegistryDocs_ExperimentalBannerPresent`
-  Verifies that `templates/index.md.tmpl`, `README.md`, `modules/permissions/README.md`, and all resource templates contain the experimental banner.
+  Verifies that `templates/index.md.tmpl`, `README.md`, `modules/permissions/README.md`, and all active resource templates contain the experimental banner.
 
 - `[@test] ../internal/provider/registry_docs_test.go::TestRegistryDocs_DeprecationNoticePresent`
-  Verifies that `templates/resources/warehouse_permission.md.tmpl` and `templates/resources/sql_database_permission.md.tmpl` include the formal deprecation notice.
+  Verifies that `templates/resources/warehouse_permission.md.tmpl` and `templates/resources/sql_database_permission.md.tmpl` are removed and documented in `ROADMAP.md`.
 
 - `[@test] ../internal/provider/registry_docs_test.go::TestRegistryDocs_AccessControlPlaybook`
   Verifies that `templates/guides/access_control_playbook.md.tmpl` exists, contains the Start Here routing table, and provides structured cards with verified verify queries.

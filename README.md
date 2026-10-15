@@ -12,11 +12,9 @@
 
 | Resource / Data Source | Microsoft Fabric Item Type | Capabilities | Status |
 | :--- | :--- | :--- | :--- |
-| `fabricext_lakehouse_permission` | `Lakehouse` | Manages OneLake Data Access Roles (`/dataAccessRoles`) with per-Lakehouse mutex locking and `If-Match` ETag Read-Modify-Write concurrency control. | Active |
+| `fabricext_lakehouse_data_access_role` | `Lakehouse` | Manages OneLake Data Access Roles (`/dataAccessRoles`) with per-Lakehouse mutex locking and `If-Match` ETag Read-Modify-Write concurrency control. | Active |
 | `fabricext_lakehouse_onelake_security` | `Lakehouse` | Validates OneLake security enablement and manages the `DefaultReader` role lifecycle. | Active |
 | `data.fabricext_item` | `Warehouse`, `Lakehouse`, `SQLDatabase`, `SQLEndpoint`, `SemanticModel` | Resolves `(workspace_id, display_name, type)` to canonical item UUIDs (`id`) using a paginated, type-isolated lookup cache. | Active |
-| `fabricext_warehouse_permission` | `Warehouse` | Tombstone resource. Warehouse item sharing is unsupported via REST API; use in-database T-SQL permissions. | Deprecated (v0.3.0) |
-| `fabricext_sql_database_permission` | `SQLDatabase` | Tombstone resource. SQL Database item sharing is unsupported via REST API; use in-database T-SQL permissions. | Deprecated (v0.3.0) |
 
 ## Quick Start
 
@@ -49,7 +47,7 @@ resource "fabricext_lakehouse_onelake_security" "bronze_lh" {
 }
 
 # Declaratively provision fine-grained OneLake Data Access Role:
-resource "fabricext_lakehouse_permission" "bronze_readers" {
+resource "fabricext_lakehouse_data_access_role" "bronze_readers" {
   workspace_id   = data.fabricext_item.bronze_lh.workspace_id
   lakehouse_name = data.fabricext_item.bronze_lh.display_name
   role_name      = "BronzeReaders"

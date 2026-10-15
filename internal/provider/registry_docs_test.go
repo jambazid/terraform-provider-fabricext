@@ -17,10 +17,8 @@ func TestRegistryDocs_ExperimentalBannerPresent(t *testing.T) {
 	requiredFiles := []string{
 		"../../templates/index.md.tmpl",
 		"../../README.md",
-		"../../templates/resources/lakehouse_permission.md.tmpl",
+		"../../templates/resources/lakehouse_data_access_role.md.tmpl",
 		"../../templates/resources/lakehouse_onelake_security.md.tmpl",
-		"../../templates/resources/warehouse_permission.md.tmpl",
-		"../../templates/resources/sql_database_permission.md.tmpl",
 	}
 
 	for _, file := range requiredFiles {
@@ -37,26 +35,26 @@ func TestRegistryDocs_ExperimentalBannerPresent(t *testing.T) {
 }
 
 // TestRegistryDocs_DeprecationNoticePresent verifies that warehouse and sql database templates
-// contain the formal deprecation notice and explanation.
+// were removed from templates/resources/ and their removal is documented.
 func TestRegistryDocs_DeprecationNoticePresent(t *testing.T) {
-	deprecatedFiles := []string{
+	removedFiles := []string{
 		"../../templates/resources/warehouse_permission.md.tmpl",
 		"../../templates/resources/sql_database_permission.md.tmpl",
 	}
 
-	for _, file := range deprecatedFiles {
-		content, err := os.ReadFile(file)
-		if err != nil {
-			t.Fatalf("failed to read deprecated file %s: %v", file, err)
+	for _, file := range removedFiles {
+		if _, err := os.Stat(file); !os.IsNotExist(err) {
+			t.Errorf("deprecated file %s should be removed from templates/resources/", file)
 		}
+	}
 
-		str := string(content)
-		if !strings.Contains(str, "!> **Deprecated:**") {
-			t.Errorf("file %s is missing '!> **Deprecated:**' callout", file)
-		}
-		if !strings.Contains(str, "v0.5.0") {
-			t.Errorf("file %s is missing removal target version v0.5.0", file)
-		}
+	// Verify removal is documented in ROADMAP.md
+	roadmapContent, err := os.ReadFile("../../ROADMAP.md")
+	if err != nil {
+		t.Fatalf("failed to read ROADMAP.md: %v", err)
+	}
+	if !strings.Contains(string(roadmapContent), "v0.5.0") {
+		t.Errorf("ROADMAP.md missing removal target version v0.5.0")
 	}
 }
 

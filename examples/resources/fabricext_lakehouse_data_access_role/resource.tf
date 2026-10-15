@@ -7,7 +7,7 @@ resource "fabricext_lakehouse_onelake_security" "raw_bronze" {
 }
 
 # Simple flat mode (basic table and folder path access)
-resource "fabricext_lakehouse_permission" "bronze_readers" {
+resource "fabricext_lakehouse_data_access_role" "bronze_readers" {
   workspace_id   = "00000000-0000-0000-0000-000000000001"
   lakehouse_name = fabricext_lakehouse_onelake_security.raw_bronze.lakehouse_name
   role_name      = "BronzeReaders"
@@ -30,7 +30,7 @@ resource "fabricext_lakehouse_onelake_security" "silver" {
 }
 
 # Advanced structured mode (Row-Level Security, Column-Level Security, and heterogeneous members)
-resource "fabricext_lakehouse_permission" "emea_analysts" {
+resource "fabricext_lakehouse_data_access_role" "emea_analysts" {
   workspace_id = "00000000-0000-0000-0000-000000000001"
   lakehouse_id = fabricext_lakehouse_onelake_security.silver.lakehouse_id
   role_name    = "EmeaAnalysts"

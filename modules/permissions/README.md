@@ -5,8 +5,7 @@ This module flattens and declaratively provisions workspace-wide Microsoft Fabri
 ## Overview
 
 - **Matrix Flattening**: Express multiple permissions across many items and principals without repeating boilerplate resource blocks.
-- **Strict Validation**: Validates UUIDs and allowed role types at plan time.
-- **Atomic Management**: Creates individual `fabricext_lakehouse_permission` and `fabricext_lakehouse_onelake_security` resources under the hood, ensuring isolated updates and clean state tracking. *(Note: `warehouses` and `sql_databases` input blocks are deprecated and no longer create resources, as Microsoft Fabric does not offer public item-sharing REST APIs for those services).*
+- **Atomic Management**: Creates individual `fabricext_lakehouse_data_access_role` and `fabricext_lakehouse_onelake_security` resources under the hood, ensuring isolated updates and clean state tracking. *(Note: `warehouses` and `sql_databases` input blocks are deprecated and no longer create resources, as Microsoft Fabric does not offer public item-sharing REST APIs for those services).*
 
 ## Prerequisites
 
@@ -333,7 +332,7 @@ Entries within `fabric_item_members` support:
 | Name | Version |
 | :--- | :--- |
 | terraform | `>= 1.6.0` |
-| fabricext | `>= 0.3.0` |
+| fabricext | `>= 0.5.0` |
 
 ## Inputs
 
@@ -347,5 +346,6 @@ Entries within `fabric_item_members` support:
 | :--- | :--- |
 | `warehouse_permission_ids` | (Deprecated) Empty map `{}` retained for interface compatibility; Warehouse item sharing was tombstoned in v0.3.0 and scheduled for removal in v0.5.0. |
 | `sql_database_permission_ids` | (Deprecated) Empty map `{}` retained for interface compatibility; SQL Database item sharing was tombstoned in v0.3.0 and scheduled for removal in v0.5.0. |
-| `lakehouse_permission_ids` | Map of flattened Lakehouse Data Access Role keys to composite resource IDs. |
+| `lakehouse_data_access_role_ids` | Map of flattened Lakehouse Data Access Role keys to composite resource IDs. |
+| `lakehouse_permission_ids` | (Deprecated) Map of flattened Lakehouse Data Access Role keys to composite resource IDs. Kept as alias for backwards compatibility. |
 | `lakehouse_onelake_security_ids` | Map of unique Lakehouse keys to composite OneLake security resource IDs. |

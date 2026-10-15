@@ -204,6 +204,9 @@ func TestAccPermissionsModule_MatrixFlattening(t *testing.T) {
 				ConfigStateChecks: []statecheck.StateCheck{
 					statecheck.ExpectKnownOutputValue("warehouse_permission_ids", knownvalue.MapExact(map[string]knownvalue.Check{})),
 					statecheck.ExpectKnownOutputValue("sql_database_permission_ids", knownvalue.MapExact(map[string]knownvalue.Check{})),
+					statecheck.ExpectKnownOutputValue("lakehouse_data_access_role_ids", knownvalue.MapExact(map[string]knownvalue.Check{
+						"raw_bronze_lh/BronzeReaders": knownvalue.StringExact(wsID + "/" + lhID + "/BronzeReaders"),
+					})),
 					statecheck.ExpectKnownOutputValue("lakehouse_permission_ids", knownvalue.MapExact(map[string]knownvalue.Check{
 						"raw_bronze_lh/BronzeReaders": knownvalue.StringExact(wsID + "/" + lhID + "/BronzeReaders"),
 					})),
@@ -223,6 +226,7 @@ func TestAccPermissionsModule_MatrixFlattening(t *testing.T) {
 				ConfigStateChecks: []statecheck.StateCheck{
 					statecheck.ExpectKnownOutputValue("warehouse_permission_ids", knownvalue.MapExact(map[string]knownvalue.Check{})),
 					statecheck.ExpectKnownOutputValue("sql_database_permission_ids", knownvalue.MapExact(map[string]knownvalue.Check{})),
+					statecheck.ExpectKnownOutputValue("lakehouse_data_access_role_ids", knownvalue.MapExact(map[string]knownvalue.Check{})),
 					statecheck.ExpectKnownOutputValue("lakehouse_permission_ids", knownvalue.MapExact(map[string]knownvalue.Check{})),
 					statecheck.ExpectKnownOutputValue("lakehouse_onelake_security_ids", knownvalue.MapExact(map[string]knownvalue.Check{})),
 				},
@@ -555,6 +559,9 @@ func TestAccPermissionsModule_MatrixWithRLSandCLS(t *testing.T) {
 				ConfigStateChecks: []statecheck.StateCheck{
 					statecheck.ExpectKnownOutputValue("warehouse_permission_ids", knownvalue.MapExact(map[string]knownvalue.Check{})),
 					statecheck.ExpectKnownOutputValue("sql_database_permission_ids", knownvalue.MapExact(map[string]knownvalue.Check{})),
+					statecheck.ExpectKnownOutputValue("lakehouse_data_access_role_ids", knownvalue.MapExact(map[string]knownvalue.Check{
+						lhID + "/EmeaAnalysts": knownvalue.StringExact(wsID + "/" + lhID + "/EmeaAnalysts"),
+					})),
 					statecheck.ExpectKnownOutputValue("lakehouse_permission_ids", knownvalue.MapExact(map[string]knownvalue.Check{
 						lhID + "/EmeaAnalysts": knownvalue.StringExact(wsID + "/" + lhID + "/EmeaAnalysts"),
 					})),
@@ -632,6 +639,9 @@ func TestAccPermissionsModule_LakehouseSecurityOptOut(t *testing.T) {
 					string(outputsBytes),
 				}, "\n"),
 				ConfigStateChecks: []statecheck.StateCheck{
+					statecheck.ExpectKnownOutputValue("lakehouse_data_access_role_ids", knownvalue.MapExact(map[string]knownvalue.Check{
+						"opt_out_lh/BronzeReaders": knownvalue.StringExact(wsID + "/" + lhID + "/BronzeReaders"),
+					})),
 					statecheck.ExpectKnownOutputValue("lakehouse_permission_ids", knownvalue.MapExact(map[string]knownvalue.Check{
 						"opt_out_lh/BronzeReaders": knownvalue.StringExact(wsID + "/" + lhID + "/BronzeReaders"),
 					})),

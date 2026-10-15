@@ -30,7 +30,7 @@ resource "fabricext_lakehouse_onelake_security" "sales" {
   remove_default_reader_role = true
 }
 
-resource "fabricext_lakehouse_permission" "analysts" {
+resource "fabricext_lakehouse_data_access_role" "analysts" {
   workspace_id   = fabric_lakehouse.sales.workspace_id
   lakehouse_id   = fabric_lakehouse.sales.id
   role_name      = "SalesAnalysts"

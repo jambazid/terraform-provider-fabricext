@@ -23,7 +23,7 @@ func (f stateCheckFunc) CheckState(ctx context.Context, req statecheck.CheckStat
 	f(ctx, req, resp)
 }
 
-func TestAccLakehousePermissionResource_CRUDAndImport(t *testing.T) {
+func TestAccLakehouseDataAccessRoleResource_CRUDAndImport(t *testing.T) {
 	t.Parallel()
 
 	srv := fabricmock.NewServer(t)
@@ -45,7 +45,7 @@ func TestAccLakehousePermissionResource_CRUDAndImport(t *testing.T) {
 			// 1. Create OneLake Data Access Role
 			{
 				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
-resource "fabricext_lakehouse_permission" "test" {
+resource "fabricext_lakehouse_data_access_role" "test" {
   workspace_id   = %q
   lakehouse_name = "raw_bronze_lh"
   role_name      = "BronzeReaders"
@@ -56,15 +56,15 @@ resource "fabricext_lakehouse_permission" "test" {
 }
 `, wsID, principalID),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.test", "id", wsID+"/"+lhID+"/BronzeReaders"),
-					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.test", "lakehouse_id", lhID),
-					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.test", "paths.#", "2"),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_data_access_role.test", "id", wsID+"/"+lhID+"/BronzeReaders"),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_data_access_role.test", "lakehouse_id", lhID),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_data_access_role.test", "paths.#", "2"),
 				),
 			},
 			// 2. Update paths in-place
 			{
 				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
-resource "fabricext_lakehouse_permission" "test" {
+resource "fabricext_lakehouse_data_access_role" "test" {
   workspace_id   = %q
   lakehouse_name = "raw_bronze_lh"
   role_name      = "BronzeReaders"
@@ -75,12 +75,12 @@ resource "fabricext_lakehouse_permission" "test" {
 }
 `, wsID, principalID),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.test", "paths.#", "3"),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_data_access_role.test", "paths.#", "3"),
 				),
 			},
 			// 3. ImportState verification
 			{
-				ResourceName:      "fabricext_lakehouse_permission.test",
+				ResourceName:      "fabricext_lakehouse_data_access_role.test",
 				ImportState:       true,
 				ImportStateVerify: true,
 			},
@@ -88,7 +88,7 @@ resource "fabricext_lakehouse_permission" "test" {
 	})
 }
 
-func TestAccLakehousePermissionResource_ParallelForEachAndETagConflict(t *testing.T) {
+func TestAccLakehouseDataAccessRoleResource_ParallelForEachAndETagConflict(t *testing.T) {
 	t.Parallel()
 
 	srv := fabricmock.NewServer(t)
@@ -128,7 +128,7 @@ locals {
   }
 }
 
-resource "fabricext_lakehouse_permission" "batch" {
+resource "fabricext_lakehouse_data_access_role" "batch" {
   for_each = local.roles
 
   workspace_id   = %q
@@ -184,7 +184,7 @@ resource "fabricext_lakehouse_permission" "batch" {
 	})
 }
 
-func TestAccLakehousePermissionResource_Disappears(t *testing.T) {
+func TestAccLakehouseDataAccessRoleResource_Disappears(t *testing.T) {
 	t.Parallel()
 
 	srv := fabricmock.NewServer(t)
@@ -200,7 +200,7 @@ func TestAccLakehousePermissionResource_Disappears(t *testing.T) {
 	srv.EnableLakehouseSecurity(wsID, lhID)
 
 	cfg := testAccProviderConfig(srv) + fmt.Sprintf(`
-resource "fabricext_lakehouse_permission" "test" {
+resource "fabricext_lakehouse_data_access_role" "test" {
   workspace_id   = %q
   lakehouse_name = "raw_bronze_lh"
   role_name      = "BronzeReaders"
@@ -244,7 +244,7 @@ resource "fabricext_lakehouse_permission" "test" {
 	})
 }
 
-func TestAccLakehousePermissionResource_ValidationErrors(t *testing.T) {
+func TestAccLakehouseDataAccessRoleResource_ValidationErrors(t *testing.T) {
 	t.Parallel()
 
 	srv := fabricmock.NewServer(t)
@@ -254,7 +254,7 @@ func TestAccLakehousePermissionResource_ValidationErrors(t *testing.T) {
 		Steps: []resource.TestStep{
 			{
 				Config: testAccProviderConfig(srv) + `
-resource "fabricext_lakehouse_permission" "invalid_role_name" {
+resource "fabricext_lakehouse_data_access_role" "invalid_role_name" {
   workspace_id   = "11111111-1111-1111-1111-111111111111"
   lakehouse_name = "raw_bronze_lh"
   role_name      = "123InvalidStart"
@@ -266,7 +266,7 @@ resource "fabricext_lakehouse_permission" "invalid_role_name" {
 			},
 			{
 				Config: testAccProviderConfig(srv) + `
-resource "fabricext_lakehouse_permission" "empty_paths" {
+resource "fabricext_lakehouse_data_access_role" "empty_paths" {
   workspace_id   = "11111111-1111-1111-1111-111111111111"
   lakehouse_name = "raw_bronze_lh"
   role_name      = "BronzeReaders"
@@ -278,7 +278,7 @@ resource "fabricext_lakehouse_permission" "empty_paths" {
 			},
 			{
 				Config: testAccProviderConfig(srv) + `
-resource "fabricext_lakehouse_permission" "missing_definition" {
+resource "fabricext_lakehouse_data_access_role" "missing_definition" {
   workspace_id   = "11111111-1111-1111-1111-111111111111"
   lakehouse_name = "raw_bronze_lh"
   role_name      = "BronzeReaders"
@@ -288,7 +288,7 @@ resource "fabricext_lakehouse_permission" "missing_definition" {
 			},
 			{
 				Config: testAccProviderConfig(srv) + `
-resource "fabricext_lakehouse_permission" "conflicting_definition" {
+resource "fabricext_lakehouse_data_access_role" "conflicting_definition" {
   workspace_id   = "11111111-1111-1111-1111-111111111111"
   lakehouse_name = "raw_bronze_lh"
   role_name      = "BronzeReaders"
@@ -304,7 +304,7 @@ resource "fabricext_lakehouse_permission" "conflicting_definition" {
 			},
 			{
 				Config: testAccProviderConfig(srv) + `
-resource "fabricext_lakehouse_permission" "missing_identifier" {
+resource "fabricext_lakehouse_data_access_role" "missing_identifier" {
   workspace_id  = "11111111-1111-1111-1111-111111111111"
   role_name     = "BronzeReaders"
   paths         = ["/Tables/customers"]
@@ -315,7 +315,7 @@ resource "fabricext_lakehouse_permission" "missing_identifier" {
 			},
 			{
 				Config: testAccProviderConfig(srv) + `
-resource "fabricext_lakehouse_permission" "missing_principals" {
+resource "fabricext_lakehouse_data_access_role" "missing_principals" {
   workspace_id   = "11111111-1111-1111-1111-111111111111"
   lakehouse_name = "raw_bronze_lh"
   role_name      = "BronzeReaders"
@@ -326,7 +326,7 @@ resource "fabricext_lakehouse_permission" "missing_principals" {
 			},
 			{
 				Config: testAccProviderConfig(srv) + `
-resource "fabricext_lakehouse_permission" "advanced_missing_rules" {
+resource "fabricext_lakehouse_data_access_role" "advanced_missing_rules" {
   workspace_id   = "11111111-1111-1111-1111-111111111111"
   lakehouse_name = "raw_bronze_lh"
   role_name      = "BronzeReaders"
@@ -341,7 +341,7 @@ resource "fabricext_lakehouse_permission" "advanced_missing_rules" {
 			},
 			{
 				Config: testAccProviderConfig(srv) + `
-resource "fabricext_lakehouse_permission" "advanced_missing_members" {
+resource "fabricext_lakehouse_data_access_role" "advanced_missing_members" {
   workspace_id   = "11111111-1111-1111-1111-111111111111"
   lakehouse_name = "raw_bronze_lh"
   role_name      = "BronzeReaders"
@@ -355,7 +355,7 @@ resource "fabricext_lakehouse_permission" "advanced_missing_members" {
 			},
 			{
 				Config: testAccProviderConfig(srv) + `
-resource "fabricext_lakehouse_permission" "invalid_source_path" {
+resource "fabricext_lakehouse_data_access_role" "invalid_source_path" {
   workspace_id   = "11111111-1111-1111-1111-111111111111"
   lakehouse_name = "raw_bronze_lh"
   role_name      = "BronzeReaders"
@@ -373,7 +373,7 @@ resource "fabricext_lakehouse_permission" "invalid_source_path" {
 			},
 			{
 				Config: testAccProviderConfig(srv) + `
-resource "fabricext_lakehouse_permission" "mixing_actions_advanced" {
+resource "fabricext_lakehouse_data_access_role" "mixing_actions_advanced" {
   workspace_id   = "11111111-1111-1111-1111-111111111111"
   lakehouse_name = "raw_bronze_lh"
   role_name      = "BronzeReaders"
@@ -392,7 +392,7 @@ resource "fabricext_lakehouse_permission" "mixing_actions_advanced" {
 			},
 			{
 				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
-resource "fabricext_lakehouse_permission" "role_name_too_long" {
+resource "fabricext_lakehouse_data_access_role" "role_name_too_long" {
   workspace_id   = "11111111-1111-1111-1111-111111111111"
   lakehouse_name = "raw_bronze_lh"
   role_name      = "%s"
@@ -404,7 +404,7 @@ resource "fabricext_lakehouse_permission" "role_name_too_long" {
 			},
 			{
 				Config: testAccProviderConfig(srv) + `
-resource "fabricext_lakehouse_permission" "readwrite_with_row_constraint" {
+resource "fabricext_lakehouse_data_access_role" "readwrite_with_row_constraint" {
   workspace_id   = "11111111-1111-1111-1111-111111111111"
   lakehouse_name = "raw_bronze_lh"
   role_name      = "BronzeWriters"
@@ -429,7 +429,7 @@ resource "fabricext_lakehouse_permission" "readwrite_with_row_constraint" {
 			},
 			{
 				Config: testAccProviderConfig(srv) + `
-resource "fabricext_lakehouse_permission" "readwrite_with_col_constraint" {
+resource "fabricext_lakehouse_data_access_role" "readwrite_with_col_constraint" {
   workspace_id   = "11111111-1111-1111-1111-111111111111"
   lakehouse_name = "raw_bronze_lh"
   role_name      = "BronzeWriters"
@@ -456,7 +456,7 @@ resource "fabricext_lakehouse_permission" "readwrite_with_col_constraint" {
 	})
 }
 
-func TestAccLakehousePermissionResource_SimpleAndAdvancedParity(t *testing.T) {
+func TestAccLakehouseDataAccessRoleResource_SimpleAndAdvancedParity(t *testing.T) {
 	t.Parallel()
 
 	srv := fabricmock.NewServer(t)
@@ -478,7 +478,7 @@ func TestAccLakehousePermissionResource_SimpleAndAdvancedParity(t *testing.T) {
 			// 1. Simple flat mode using direct lakehouse_id
 			{
 				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
-resource "fabricext_lakehouse_permission" "parity" {
+resource "fabricext_lakehouse_data_access_role" "parity" {
   workspace_id   = %q
   lakehouse_id   = %q
   role_name      = "ParityRole"
@@ -489,19 +489,19 @@ resource "fabricext_lakehouse_permission" "parity" {
 }
 `, wsID, lhID, principalID),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.parity", "id", wsID+"/"+lhID+"/ParityRole"),
-					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.parity", "lakehouse_id", lhID),
-					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.parity", "lakehouse_name", "raw_bronze_lh"),
-					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.parity", "paths.#", "2"),
-					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.parity", "actions.#", "1"),
-					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.parity", "principal_ids.#", "1"),
-					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.parity", "principal_type", "Group"),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_data_access_role.parity", "id", wsID+"/"+lhID+"/ParityRole"),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_data_access_role.parity", "lakehouse_id", lhID),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_data_access_role.parity", "lakehouse_name", "raw_bronze_lh"),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_data_access_role.parity", "paths.#", "2"),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_data_access_role.parity", "actions.#", "1"),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_data_access_role.parity", "principal_ids.#", "1"),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_data_access_role.parity", "principal_type", "Group"),
 				),
 			},
 			// 2. In-place update to advanced structured mode with RLS and CLS
 			{
 				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
-resource "fabricext_lakehouse_permission" "parity" {
+resource "fabricext_lakehouse_data_access_role" "parity" {
   workspace_id = %q
   lakehouse_id = %q
   role_name    = "ParityRole"
@@ -532,19 +532,19 @@ resource "fabricext_lakehouse_permission" "parity" {
 }
 `, wsID, lhID, principalID),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.parity", "id", wsID+"/"+lhID+"/ParityRole"),
-					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.parity", "kind", "Policy"),
-					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.parity", "decision_rule.#", "1"),
-					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.parity", "decision_rule.0.paths.#", "1"),
-					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.parity", "decision_rule.0.actions.#", "1"),
-					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.parity", "decision_rule.0.row_constraint.#", "1"),
-					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.parity", "decision_rule.0.row_constraint.0.table_path", "/Tables/customers"),
-					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.parity", "decision_rule.0.row_constraint.0.predicate", "Region = 'EMEA'"),
-					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.parity", "decision_rule.0.column_constraint.#", "1"),
-					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.parity", "decision_rule.0.column_constraint.0.table_path", "/Tables/customers"),
-					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.parity", "decision_rule.0.column_constraint.0.columns.#", "2"),
-					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.parity", "entra_member.#", "1"),
-					resource.TestCheckTypeSetElemNestedAttrs("fabricext_lakehouse_permission.parity", "entra_member.*", map[string]string{
+					resource.TestCheckResourceAttr("fabricext_lakehouse_data_access_role.parity", "id", wsID+"/"+lhID+"/ParityRole"),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_data_access_role.parity", "kind", "Policy"),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_data_access_role.parity", "decision_rule.#", "1"),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_data_access_role.parity", "decision_rule.0.paths.#", "1"),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_data_access_role.parity", "decision_rule.0.actions.#", "1"),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_data_access_role.parity", "decision_rule.0.row_constraint.#", "1"),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_data_access_role.parity", "decision_rule.0.row_constraint.0.table_path", "/Tables/customers"),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_data_access_role.parity", "decision_rule.0.row_constraint.0.predicate", "Region = 'EMEA'"),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_data_access_role.parity", "decision_rule.0.column_constraint.#", "1"),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_data_access_role.parity", "decision_rule.0.column_constraint.0.table_path", "/Tables/customers"),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_data_access_role.parity", "decision_rule.0.column_constraint.0.columns.#", "2"),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_data_access_role.parity", "entra_member.#", "1"),
+					resource.TestCheckTypeSetElemNestedAttrs("fabricext_lakehouse_data_access_role.parity", "entra_member.*", map[string]string{
 						"object_id":   principalID,
 						"object_type": "Group",
 					}),
@@ -552,7 +552,7 @@ resource "fabricext_lakehouse_permission" "parity" {
 			},
 			// 3. ImportState verification of advanced mode
 			{
-				ResourceName:      "fabricext_lakehouse_permission.parity",
+				ResourceName:      "fabricext_lakehouse_data_access_role.parity",
 				ImportState:       true,
 				ImportStateVerify: true,
 			},
@@ -560,7 +560,7 @@ resource "fabricext_lakehouse_permission" "parity" {
 	})
 }
 
-func TestAccLakehousePermissionResource_MixedMembersAndShortcuts(t *testing.T) {
+func TestAccLakehouseDataAccessRoleResource_MixedMembersAndShortcuts(t *testing.T) {
 	t.Parallel()
 
 	srv := fabricmock.NewServer(t)
@@ -583,7 +583,7 @@ func TestAccLakehousePermissionResource_MixedMembersAndShortcuts(t *testing.T) {
 		Steps: []resource.TestStep{
 			{
 				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
-resource "fabricext_lakehouse_permission" "mixed" {
+resource "fabricext_lakehouse_data_access_role" "mixed" {
   workspace_id   = %q
   lakehouse_name = "gold_analytics_lh"
   role_name      = "MixedRole"
@@ -616,27 +616,27 @@ resource "fabricext_lakehouse_permission" "mixed" {
 }
 `, wsID, memberUser, memberSP, shortcutSource),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.mixed", "id", wsID+"/"+lhID+"/MixedRole"),
-					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.mixed", "lakehouse_id", lhID),
-					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.mixed", "decision_rule.#", "2"),
-					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.mixed", "entra_member.#", "2"),
-					resource.TestCheckTypeSetElemNestedAttrs("fabricext_lakehouse_permission.mixed", "entra_member.*", map[string]string{
+					resource.TestCheckResourceAttr("fabricext_lakehouse_data_access_role.mixed", "id", wsID+"/"+lhID+"/MixedRole"),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_data_access_role.mixed", "lakehouse_id", lhID),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_data_access_role.mixed", "decision_rule.#", "2"),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_data_access_role.mixed", "entra_member.#", "2"),
+					resource.TestCheckTypeSetElemNestedAttrs("fabricext_lakehouse_data_access_role.mixed", "entra_member.*", map[string]string{
 						"object_id":   memberUser,
 						"object_type": "User",
 					}),
-					resource.TestCheckTypeSetElemNestedAttrs("fabricext_lakehouse_permission.mixed", "entra_member.*", map[string]string{
+					resource.TestCheckTypeSetElemNestedAttrs("fabricext_lakehouse_data_access_role.mixed", "entra_member.*", map[string]string{
 						"object_id":   memberSP,
 						"object_type": "ServicePrincipal",
 						"tenant_id":   "99999999-9999-9999-9999-999999999999",
 					}),
-					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.mixed", "fabric_item_member.#", "1"),
-					resource.TestCheckTypeSetElemNestedAttrs("fabricext_lakehouse_permission.mixed", "fabric_item_member.*", map[string]string{
+					resource.TestCheckResourceAttr("fabricext_lakehouse_data_access_role.mixed", "fabric_item_member.#", "1"),
+					resource.TestCheckTypeSetElemNestedAttrs("fabricext_lakehouse_data_access_role.mixed", "fabric_item_member.*", map[string]string{
 						"source_path": shortcutSource,
 					}),
 				),
 			},
 			{
-				ResourceName:      "fabricext_lakehouse_permission.mixed",
+				ResourceName:      "fabricext_lakehouse_data_access_role.mixed",
 				ImportState:       true,
 				ImportStateVerify: true,
 			},
@@ -644,7 +644,7 @@ resource "fabricext_lakehouse_permission" "mixed" {
 	})
 }
 
-func TestAccLakehousePermissionResource_MismatchedIdentifiers(t *testing.T) {
+func TestAccLakehouseDataAccessRoleResource_MismatchedIdentifiers(t *testing.T) {
 	t.Parallel()
 
 	srv := fabricmock.NewServer(t)
@@ -663,7 +663,7 @@ func TestAccLakehousePermissionResource_MismatchedIdentifiers(t *testing.T) {
 		Steps: []resource.TestStep{
 			{
 				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
-resource "fabricext_lakehouse_permission" "mismatch" {
+resource "fabricext_lakehouse_data_access_role" "mismatch" {
   workspace_id   = %q
   lakehouse_id   = %q
   lakehouse_name = "wrong_lakehouse_name"
@@ -678,7 +678,7 @@ resource "fabricext_lakehouse_permission" "mismatch" {
 	})
 }
 
-func TestAccLakehousePermissionResource_IdentifierReplacement(t *testing.T) {
+func TestAccLakehouseDataAccessRoleResource_IdentifierReplacement(t *testing.T) {
 	t.Parallel()
 
 	srv := fabricmock.NewServer(t)
@@ -708,7 +708,7 @@ func TestAccLakehousePermissionResource_IdentifierReplacement(t *testing.T) {
 			// Step 1: Create targeting lakehouse_id
 			{
 				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
-resource "fabricext_lakehouse_permission" "test" {
+resource "fabricext_lakehouse_data_access_role" "test" {
   workspace_id  = %q
   lakehouse_id  = %q
   role_name     = "Role1"
@@ -717,14 +717,14 @@ resource "fabricext_lakehouse_permission" "test" {
 }
 `, wsID, lhID1, principalID),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.test", "lakehouse_id", lhID1),
-					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.test", "lakehouse_name", "lakehouse_one"),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_data_access_role.test", "lakehouse_id", lhID1),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_data_access_role.test", "lakehouse_name", "lakehouse_one"),
 				),
 			},
 			// Step 2: Replace by switching to lakehouse_name only
 			{
 				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
-resource "fabricext_lakehouse_permission" "test" {
+resource "fabricext_lakehouse_data_access_role" "test" {
   workspace_id   = %q
   lakehouse_name = "lakehouse_two"
   role_name      = "Role1"
@@ -733,14 +733,14 @@ resource "fabricext_lakehouse_permission" "test" {
 }
 `, wsID, principalID),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.test", "lakehouse_id", lhID2),
-					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.test", "lakehouse_name", "lakehouse_two"),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_data_access_role.test", "lakehouse_id", lhID2),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_data_access_role.test", "lakehouse_name", "lakehouse_two"),
 				),
 			},
 			// Step 3: Replace by changing lakehouse_name
 			{
 				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
-resource "fabricext_lakehouse_permission" "test" {
+resource "fabricext_lakehouse_data_access_role" "test" {
   workspace_id   = %q
   lakehouse_name = "lakehouse_one"
   role_name      = "Role1"
@@ -749,8 +749,8 @@ resource "fabricext_lakehouse_permission" "test" {
 }
 `, wsID, principalID),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.test", "lakehouse_id", lhID1),
-					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.test", "lakehouse_name", "lakehouse_one"),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_data_access_role.test", "lakehouse_id", lhID1),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_data_access_role.test", "lakehouse_name", "lakehouse_one"),
 				),
 			},
 		},

@@ -153,39 +153,9 @@ func TestResource_ConfigureUnexpectedTypes(t *testing.T) {
 
 	ctx := context.Background()
 
-	t.Run("WarehousePermissionResource with invalid provider data type", func(t *testing.T) {
+	t.Run("LakehouseDataAccessRoleResource with invalid provider data type", func(t *testing.T) {
 		t.Parallel()
-		r, ok := NewWarehousePermissionResource().(tfsdkresource.ResourceWithConfigure)
-		if !ok {
-			t.Fatal("expected ResourceWithConfigure")
-		}
-		var resp tfsdkresource.ConfigureResponse
-		r.Configure(ctx, tfsdkresource.ConfigureRequest{
-			ProviderData: "invalid-string-data",
-		}, &resp)
-		if !resp.Diagnostics.HasError() {
-			t.Fatal("expected diagnostic error for invalid provider data")
-		}
-	})
-
-	t.Run("SQLDatabasePermissionResource with invalid provider data type", func(t *testing.T) {
-		t.Parallel()
-		r, ok := NewSQLDatabasePermissionResource().(tfsdkresource.ResourceWithConfigure)
-		if !ok {
-			t.Fatal("expected ResourceWithConfigure")
-		}
-		var resp tfsdkresource.ConfigureResponse
-		r.Configure(ctx, tfsdkresource.ConfigureRequest{
-			ProviderData: "invalid-string-data",
-		}, &resp)
-		if !resp.Diagnostics.HasError() {
-			t.Fatal("expected diagnostic error for invalid provider data")
-		}
-	})
-
-	t.Run("LakehousePermissionResource with invalid provider data type", func(t *testing.T) {
-		t.Parallel()
-		r, ok := NewLakehousePermissionResource().(tfsdkresource.ResourceWithConfigure)
+		r, ok := NewLakehouseDataAccessRoleResource().(tfsdkresource.ResourceWithConfigure)
 		if !ok {
 			t.Fatal("expected ResourceWithConfigure")
 		}
@@ -230,29 +200,10 @@ func TestResource_ConfigureUnexpectedTypes(t *testing.T) {
 
 	t.Run("Resources and DataSource with nil provider data", func(t *testing.T) {
 		t.Parallel()
-		wh, ok := NewWarehousePermissionResource().(tfsdkresource.ResourceWithConfigure)
-		if !ok {
-			t.Fatal("expected WarehousePermissionResource to implement ResourceWithConfigure")
-		}
-		var whResp tfsdkresource.ConfigureResponse
-		wh.Configure(ctx, tfsdkresource.ConfigureRequest{ProviderData: nil}, &whResp)
-		if whResp.Diagnostics.HasError() {
-			t.Fatal("unexpected diagnostic error when provider data is nil")
-		}
 
-		sql, ok := NewSQLDatabasePermissionResource().(tfsdkresource.ResourceWithConfigure)
+		lh, ok := NewLakehouseDataAccessRoleResource().(tfsdkresource.ResourceWithConfigure)
 		if !ok {
-			t.Fatal("expected SQLDatabasePermissionResource to implement ResourceWithConfigure")
-		}
-		var sqlResp tfsdkresource.ConfigureResponse
-		sql.Configure(ctx, tfsdkresource.ConfigureRequest{ProviderData: nil}, &sqlResp)
-		if sqlResp.Diagnostics.HasError() {
-			t.Fatal("unexpected diagnostic error when provider data is nil")
-		}
-
-		lh, ok := NewLakehousePermissionResource().(tfsdkresource.ResourceWithConfigure)
-		if !ok {
-			t.Fatal("expected LakehousePermissionResource to implement ResourceWithConfigure")
+			t.Fatal("expected LakehouseDataAccessRoleResource to implement ResourceWithConfigure")
 		}
 		var lhResp tfsdkresource.ConfigureResponse
 		lh.Configure(ctx, tfsdkresource.ConfigureRequest{ProviderData: nil}, &lhResp)
@@ -287,31 +238,13 @@ func TestAccImportState_InvalidIdentifiers(t *testing.T) {
 
 	srv := fabricmock.NewServer(t)
 
-	whCfg := testAccProviderConfig(srv) + `
-resource "fabricext_warehouse_permission" "test" {
-  workspace_id   = "11111111-1111-1111-1111-111111111111"
-  warehouse_name = "wh"
-  principal_id   = "22222222-2222-2222-2222-222222222222"
-  role_type      = "read"
-}
-`
-
 	lhCfg := testAccProviderConfig(srv) + `
-resource "fabricext_lakehouse_permission" "lh" {
+resource "fabricext_lakehouse_data_access_role" "lh" {
   workspace_id   = "11111111-1111-1111-1111-111111111111"
   lakehouse_name = "lh"
   role_name      = "custom"
   principal_id   = "22222222-2222-2222-2222-222222222222"
   principal_type = "User"
-}
-`
-
-	sqlCfg := testAccProviderConfig(srv) + `
-resource "fabricext_sql_database_permission" "sql" {
-  workspace_id      = "11111111-1111-1111-1111-111111111111"
-  sql_database_name = "sqldb"
-  principal_id      = "22222222-2222-2222-2222-222222222222"
-  role_type         = "read"
 }
 `
 
@@ -325,124 +258,38 @@ resource "fabricext_lakehouse_onelake_security" "sec" {
 	rtest.UnitTest(t, rtest.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []rtest.TestStep{
-			{
-				Config:        whCfg,
-				ResourceName:  "fabricext_warehouse_permission.test",
-				ImportState:   true,
-				ImportStateId: "too/few/parts",
-				ExpectError:   regexp.MustCompile(`Cannot Import Deprecated Resource`),
-			},
-			{
-				Config:        whCfg,
-				ResourceName:  "fabricext_warehouse_permission.test",
-				ImportState:   true,
-				ImportStateId: "bad-ws/22222222-2222-2222-2222-222222222222/User/33333333-3333-3333-3333-333333333333",
-				ExpectError:   regexp.MustCompile(`Cannot Import Deprecated Resource`),
-			},
-			{
-				Config:        whCfg,
-				ResourceName:  "fabricext_warehouse_permission.test",
-				ImportState:   true,
-				ImportStateId: "11111111-1111-1111-1111-111111111111/bad-wh/User/33333333-3333-3333-3333-333333333333",
-				ExpectError:   regexp.MustCompile(`Cannot Import Deprecated Resource`),
-			},
-			{
-				Config:        whCfg,
-				ResourceName:  "fabricext_warehouse_permission.test",
-				ImportState:   true,
-				ImportStateId: "11111111-1111-1111-1111-111111111111/22222222-2222-2222-2222-222222222222/User/bad-principal",
-				ExpectError:   regexp.MustCompile(`Cannot Import Deprecated Resource`),
-			},
-			{
-				Config:        whCfg,
-				ResourceName:  "fabricext_warehouse_permission.test",
-				ImportState:   true,
-				ImportStateId: "11111111-1111-1111-1111-111111111111/22222222-2222-2222-2222-222222222222/ManagedIdentity/33333333-3333-3333-3333-333333333333",
-				ExpectError:   regexp.MustCompile(`Cannot Import Deprecated Resource`),
-			},
 			// Lakehouse import errors
 			{
 				Config:        lhCfg,
-				ResourceName:  "fabricext_lakehouse_permission.lh",
+				ResourceName:  "fabricext_lakehouse_data_access_role.lh",
 				ImportState:   true,
 				ImportStateId: "too/few",
 				ExpectError:   regexp.MustCompile(`Expected import identifier in format`),
 			},
 			{
 				Config:        lhCfg,
-				ResourceName:  "fabricext_lakehouse_permission.lh",
+				ResourceName:  "fabricext_lakehouse_data_access_role.lh",
 				ImportState:   true,
 				ImportStateId: "bad-ws/22222222-2222-2222-2222-222222222222/role_name",
 				ExpectError:   regexp.MustCompile(`workspace_id .* must be a valid UUID`),
 			},
 			{
 				Config:        lhCfg,
-				ResourceName:  "fabricext_lakehouse_permission.lh",
+				ResourceName:  "fabricext_lakehouse_data_access_role.lh",
 				ImportState:   true,
 				ImportStateId: "11111111-1111-1111-1111-111111111111/bad-lh/role_name",
 				ExpectError:   regexp.MustCompile(`lakehouse_id .* must be a valid UUID`),
 			},
 			{
 				Config:        lhCfg,
-				ResourceName:  "fabricext_lakehouse_permission.lh",
+				ResourceName:  "fabricext_lakehouse_data_access_role.lh",
 				ImportState:   true,
 				ImportStateId: "11111111-1111-1111-1111-111111111111/22222222-2222-2222-2222-222222222222/123invalid",
 				ExpectError:   regexp.MustCompile(`role_name .* must start with a letter`),
 			},
-			// SQLDatabase import errors
-			{
-				Config:        sqlCfg,
-				ResourceName:  "fabricext_sql_database_permission.sql",
-				ImportState:   true,
-				ImportStateId: "too/few/parts",
-				ExpectError:   regexp.MustCompile(`Cannot Import Deprecated Resource`),
-			},
-			{
-				Config:        sqlCfg,
-				ResourceName:  "fabricext_sql_database_permission.sql",
-				ImportState:   true,
-				ImportStateId: "bad-ws/22222222-2222-2222-2222-222222222222/User/33333333-3333-3333-3333-333333333333",
-				ExpectError:   regexp.MustCompile(`Cannot Import Deprecated Resource`),
-			},
-			{
-				Config:        sqlCfg,
-				ResourceName:  "fabricext_sql_database_permission.sql",
-				ImportState:   true,
-				ImportStateId: "11111111-1111-1111-1111-111111111111/bad-sqldb/User/33333333-3333-3333-3333-333333333333",
-				ExpectError:   regexp.MustCompile(`Cannot Import Deprecated Resource`),
-			},
-			{
-				Config:        sqlCfg,
-				ResourceName:  "fabricext_sql_database_permission.sql",
-				ImportState:   true,
-				ImportStateId: "11111111-1111-1111-1111-111111111111/22222222-2222-2222-2222-222222222222/User/bad-principal",
-				ExpectError:   regexp.MustCompile(`Cannot Import Deprecated Resource`),
-			},
-			{
-				Config:        sqlCfg,
-				ResourceName:  "fabricext_sql_database_permission.sql",
-				ImportState:   true,
-				ImportStateId: "11111111-1111-1111-1111-111111111111/22222222-2222-2222-2222-222222222222/ManagedIdentity/33333333-3333-3333-3333-333333333333",
-				ExpectError:   regexp.MustCompile(`Cannot Import Deprecated Resource`),
-			},
-			// Import non-existent items API error
-			{
-				Config:        whCfg,
-				ResourceName:  "fabricext_warehouse_permission.test",
-				ImportState:   true,
-				ImportStateId: "11111111-1111-1111-1111-111111111111/22222222-2222-2222-2222-222222222222/User/55555555-5555-5555-5555-555555555555",
-				ExpectError:   regexp.MustCompile(`Cannot Import Deprecated Resource`),
-			},
-			{
-				Config:        sqlCfg,
-				ResourceName:  "fabricext_sql_database_permission.sql",
-				ImportState:   true,
-				ImportStateId: "11111111-1111-1111-1111-111111111111/33333333-3333-3333-3333-333333333333/User/55555555-5555-5555-5555-555555555555",
-				ExpectError:   regexp.MustCompile(`Cannot Import Deprecated Resource`),
-			},
 			{
 				Config:        lhCfg,
-				ResourceName:  "fabricext_lakehouse_permission.lh",
+				ResourceName:  "fabricext_lakehouse_data_access_role.lh",
 				ImportState:   true,
 				ImportStateId: "11111111-1111-1111-1111-111111111111/44444444-4444-4444-4444-444444444444/custom_role",
 				ExpectError:   regexp.MustCompile(`Unable to Resolve Imported Lakehouse`),
@@ -480,55 +327,7 @@ resource "fabricext_lakehouse_onelake_security" "sec" {
 	})
 }
 
-func TestAccWarehousePermissionResource_APIErrors(t *testing.T) {
-	t.Parallel()
-
-	srv := fabricmock.NewServer(t)
-
-	// Warehouse does not exist in mock -> Create fails due to resource deprecation/unsupported API
-	rtest.UnitTest(t, rtest.TestCase{
-		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
-		Steps: []rtest.TestStep{
-			{
-				Config: testAccProviderConfig(srv) + `
-resource "fabricext_warehouse_permission" "missing" {
-  workspace_id   = "11111111-1111-1111-1111-111111111111"
-  warehouse_name = "non_existent_wh"
-  principal_id   = "22222222-2222-2222-2222-222222222222"
-  role_type      = "read"
-}
-`,
-				ExpectError: regexp.MustCompile(`Resource Not Supported by Microsoft Fabric`),
-			},
-		},
-	})
-}
-
-func TestAccSQLDatabasePermissionResource_APIErrors(t *testing.T) {
-	t.Parallel()
-
-	srv := fabricmock.NewServer(t)
-
-	// SQLDatabase does not exist in mock -> Create fails due to resource deprecation/unsupported API
-	rtest.UnitTest(t, rtest.TestCase{
-		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
-		Steps: []rtest.TestStep{
-			{
-				Config: testAccProviderConfig(srv) + `
-resource "fabricext_sql_database_permission" "missing" {
-  workspace_id      = "11111111-1111-1111-1111-111111111111"
-  sql_database_name = "non_existent_sql"
-  principal_id      = "22222222-2222-2222-2222-222222222222"
-  role_type         = "read"
-}
-`,
-				ExpectError: regexp.MustCompile(`Resource Not Supported by Microsoft Fabric`),
-			},
-		},
-	})
-}
-
-func TestAccLakehousePermissionResource_APIErrors(t *testing.T) {
+func TestAccLakehouseDataAccessRoleResource_APIErrors(t *testing.T) {
 	t.Parallel()
 
 	srv := fabricmock.NewServer(t)
@@ -539,7 +338,7 @@ func TestAccLakehousePermissionResource_APIErrors(t *testing.T) {
 		Steps: []rtest.TestStep{
 			{
 				Config: testAccProviderConfig(srv) + `
-resource "fabricext_lakehouse_permission" "missing" {
+resource "fabricext_lakehouse_data_access_role" "missing" {
   workspace_id   = "11111111-1111-1111-1111-111111111111"
   lakehouse_name = "non_existent_lh"
   role_name      = "custom"
@@ -559,23 +358,8 @@ func TestAccPermissions_UpdateInPlaceEdge(t *testing.T) {
 
 	srv := fabricmock.NewServer(t)
 	wsID := "11111111-1111-1111-1111-111111111111"
-	whID := "22222222-2222-2222-2222-222222222222"
-	sqlID := "33333333-3333-3333-3333-333333333333"
 	lhID := "44444444-4444-4444-4444-444444444444"
 	pid := "55555555-5555-5555-5555-555555555555"
-
-	srv.UpsertItem(fabricmock.Item{
-		ID:          whID,
-		WorkspaceID: wsID,
-		DisplayName: "wh_edge",
-		Type:        "Warehouse",
-	})
-	srv.UpsertItem(fabricmock.Item{
-		ID:          sqlID,
-		WorkspaceID: wsID,
-		DisplayName: "sql_edge",
-		Type:        "SQLDatabase",
-	})
 	srv.UpsertItem(fabricmock.Item{
 		ID:          lhID,
 		WorkspaceID: wsID,
@@ -590,7 +374,7 @@ func TestAccPermissions_UpdateInPlaceEdge(t *testing.T) {
 			// 1. Create with initial values
 			{
 				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
-resource "fabricext_lakehouse_permission" "lh" {
+resource "fabricext_lakehouse_data_access_role" "lh" {
   workspace_id   = %q
   lakehouse_name = "lh_edge"
   role_name      = "custom_role"
@@ -603,7 +387,7 @@ resource "fabricext_lakehouse_permission" "lh" {
 			// 2. Update lakehouse in place
 			{
 				Config: testAccProviderConfig(srv) + fmt.Sprintf(`
-resource "fabricext_lakehouse_permission" "lh" {
+resource "fabricext_lakehouse_data_access_role" "lh" {
   workspace_id   = %q
   lakehouse_name = "lh_edge"
   role_name      = "custom_role"
@@ -620,11 +404,11 @@ resource "fabricext_lakehouse_permission" "lh" {
 func TestLakehouse_BuildRolePayloadEdgeCases(t *testing.T) {
 	t.Parallel()
 
-	r := &LakehousePermissionResource{}
+	r := &LakehouseDataAccessRoleResource{}
 	ctx := context.Background()
 
 	// 1. Null sets
-	mBadPrincipals := &LakehousePermissionResourceModel{
+	mBadPrincipals := &LakehouseDataAccessRoleResourceModel{
 		RoleName:      types.StringValue("CustomRole"),
 		PrincipalType: types.StringValue("User"),
 		PrincipalIDs:  types.SetNull(types.StringType),
@@ -640,7 +424,7 @@ func TestLakehouse_BuildRolePayloadEdgeCases(t *testing.T) {
 	}
 
 	// 2. Unknown set elements
-	mUnknown := &LakehousePermissionResourceModel{
+	mUnknown := &LakehouseDataAccessRoleResourceModel{
 		RoleName:      types.StringValue("CustomRole"),
 		PrincipalType: types.StringValue("User"),
 		PrincipalIDs:  types.SetUnknown(types.StringType),
@@ -718,107 +502,9 @@ func TestResource_UpdateAndDeleteErrors(t *testing.T) {
 		t.Fatalf("failed to create badClient: %v", err)
 	}
 
-	t.Run("Warehouse Update and Delete errors", func(t *testing.T) {
-		t.Parallel()
-		r := &WarehousePermissionResource{client: badClient}
-		var schemaResp tfsdkresource.SchemaResponse
-		r.Schema(ctx, tfsdkresource.SchemaRequest{}, &schemaResp)
-
-		planModel := WarehousePermissionResourceModel{
-			WorkspaceID:   types.StringValue("11111111-1111-1111-1111-111111111111"),
-			WarehouseName: types.StringValue("wh"),
-			PrincipalID:   types.StringValue("22222222-2222-2222-2222-222222222222"),
-			PrincipalType: types.StringValue("User"),
-			RoleType:      types.StringValue("write"),
-		}
-		stateModel := WarehousePermissionResourceModel{
-			ID:            types.StringValue("11111111-1111-1111-1111-111111111111/33333333-3333-3333-3333-333333333333/User/22222222-2222-2222-2222-222222222222"),
-			WorkspaceID:   types.StringValue("11111111-1111-1111-1111-111111111111"),
-			WarehouseName: types.StringValue("wh"),
-			WarehouseID:   types.StringValue("33333333-3333-3333-3333-333333333333"),
-			PrincipalID:   types.StringValue("22222222-2222-2222-2222-222222222222"),
-			PrincipalType: types.StringValue("User"),
-			RoleType:      types.StringValue("read"),
-		}
-
-		plan := tfsdk.Plan{Schema: schemaResp.Schema}
-		if diags := plan.Set(ctx, &planModel); diags.HasError() {
-			t.Fatalf("failed to set plan: %v", diags)
-		}
-		state := tfsdk.State{Schema: schemaResp.Schema}
-		if diags := state.Set(ctx, &stateModel); diags.HasError() {
-			t.Fatalf("failed to set state: %v", diags)
-		}
-
-		var updateResp tfsdkresource.UpdateResponse
-		r.Update(ctx, tfsdkresource.UpdateRequest{Plan: plan, State: state}, &updateResp)
-		if !updateResp.Diagnostics.HasError() {
-			t.Fatal("expected error updating warehouse with tombstone")
-		}
-
-		var delResp tfsdkresource.DeleteResponse
-		delResp.State = tfsdk.State{Schema: schemaResp.Schema}
-		r.Delete(ctx, tfsdkresource.DeleteRequest{State: state}, &delResp)
-		if delResp.Diagnostics.HasError() {
-			t.Fatal("unexpected error deleting warehouse with tombstone")
-		}
-		if len(delResp.Diagnostics.Warnings()) == 0 {
-			t.Fatal("expected warning on tombstone warehouse Delete")
-		}
-	})
-
-	t.Run("SQLDatabase Update and Delete errors", func(t *testing.T) {
-		t.Parallel()
-		r := &SQLDatabasePermissionResource{client: badClient}
-		var schemaResp tfsdkresource.SchemaResponse
-		r.Schema(ctx, tfsdkresource.SchemaRequest{}, &schemaResp)
-
-		planModel := SQLDatabasePermissionResourceModel{
-			WorkspaceID:     types.StringValue("11111111-1111-1111-1111-111111111111"),
-			SQLDatabaseName: types.StringValue("sql"),
-			PrincipalID:     types.StringValue("22222222-2222-2222-2222-222222222222"),
-			PrincipalType:   types.StringValue("User"),
-			RoleType:        types.StringValue("write"),
-		}
-		stateModel := SQLDatabasePermissionResourceModel{
-			ID:              types.StringValue("11111111-1111-1111-1111-111111111111/33333333-3333-3333-3333-333333333333/User/22222222-2222-2222-2222-222222222222"),
-			WorkspaceID:     types.StringValue("11111111-1111-1111-1111-111111111111"),
-			SQLDatabaseName: types.StringValue("sql"),
-			SQLDatabaseID:   types.StringValue("33333333-3333-3333-3333-333333333333"),
-			PrincipalID:     types.StringValue("22222222-2222-2222-2222-222222222222"),
-			PrincipalType:   types.StringValue("User"),
-			RoleType:        types.StringValue("read"),
-		}
-
-		plan := tfsdk.Plan{Schema: schemaResp.Schema}
-		if diags := plan.Set(ctx, &planModel); diags.HasError() {
-			t.Fatalf("failed to set plan: %v", diags)
-		}
-		state := tfsdk.State{Schema: schemaResp.Schema}
-		if diags := state.Set(ctx, &stateModel); diags.HasError() {
-			t.Fatalf("failed to set state: %v", diags)
-		}
-
-		var updateResp tfsdkresource.UpdateResponse
-		r.Update(ctx, tfsdkresource.UpdateRequest{Plan: plan, State: state}, &updateResp)
-		if !updateResp.Diagnostics.HasError() {
-			t.Fatal("expected error updating SQL database with tombstone")
-		}
-
-		var delResp tfsdkresource.DeleteResponse
-		delResp.State = tfsdk.State{Schema: schemaResp.Schema}
-		r.Delete(ctx, tfsdkresource.DeleteRequest{State: state}, &delResp)
-		if delResp.Diagnostics.HasError() {
-			t.Fatal("unexpected error deleting SQL database with tombstone")
-		}
-		if len(delResp.Diagnostics.Warnings()) == 0 {
-			t.Fatal("expected warning on tombstone SQL database Delete")
-		}
-	})
-
 	t.Run("Lakehouse Update and Delete errors", func(t *testing.T) {
 		t.Parallel()
-		r := &LakehousePermissionResource{client: badClient}
+		r := &LakehouseDataAccessRoleResource{client: badClient}
 		var schemaResp tfsdkresource.SchemaResponse
 		r.Schema(ctx, tfsdkresource.SchemaRequest{}, &schemaResp)
 
@@ -826,7 +512,7 @@ func TestResource_UpdateAndDeleteErrors(t *testing.T) {
 		paths, _ := types.SetValueFrom(ctx, types.StringType, []string{"/Tables/a"})
 		actions, _ := types.SetValueFrom(ctx, types.StringType, []string{"Read"})
 
-		planModel := LakehousePermissionResourceModel{
+		planModel := LakehouseDataAccessRoleResourceModel{
 			WorkspaceID:      types.StringValue("11111111-1111-1111-1111-111111111111"),
 			LakehouseName:    types.StringValue("lh"),
 			RoleName:         types.StringValue("custom"),
@@ -838,7 +524,7 @@ func TestResource_UpdateAndDeleteErrors(t *testing.T) {
 			EntraMember:      types.SetNull(entraMemberElemType),
 			FabricItemMember: types.SetNull(fabricItemMemberElemType),
 		}
-		stateModel := LakehousePermissionResourceModel{
+		stateModel := LakehouseDataAccessRoleResourceModel{
 			ID:               types.StringValue("11111111-1111-1111-1111-111111111111/33333333-3333-3333-3333-333333333333/custom"),
 			WorkspaceID:      types.StringValue("11111111-1111-1111-1111-111111111111"),
 			LakehouseName:    types.StringValue("lh"),
@@ -958,51 +644,11 @@ func TestResource_UpdateAndDeleteErrors(t *testing.T) {
 		}
 	})
 
-	t.Run("Warehouse, SQLDatabase, and Lakehouse Create error paths", func(t *testing.T) {
+	t.Run("Lakehouse Create error paths", func(t *testing.T) {
 		t.Parallel()
 
-		// 1. Warehouse Create grant error
-		wh := &WarehousePermissionResource{client: badClient}
-		var whSchema tfsdkresource.SchemaResponse
-		wh.Schema(ctx, tfsdkresource.SchemaRequest{}, &whSchema)
-
-		whPlanModel := WarehousePermissionResourceModel{
-			WorkspaceID:   types.StringValue("11111111-1111-1111-1111-111111111111"),
-			WarehouseName: types.StringValue("wh"),
-			PrincipalID:   types.StringValue("22222222-2222-2222-2222-222222222222"),
-			PrincipalType: types.StringValue("User"),
-			RoleType:      types.StringValue("read"),
-		}
-		whPlan := tfsdk.Plan{Schema: whSchema.Schema}
-		_ = whPlan.Set(ctx, &whPlanModel)
-		var whCreateResp tfsdkresource.CreateResponse
-		wh.Create(ctx, tfsdkresource.CreateRequest{Plan: whPlan}, &whCreateResp)
-		if !whCreateResp.Diagnostics.HasError() {
-			t.Fatal("expected error creating warehouse with failing client")
-		}
-
-		// 2. SQLDatabase Create grant error
-		sql := &SQLDatabasePermissionResource{client: badClient}
-		var sqlSchema tfsdkresource.SchemaResponse
-		sql.Schema(ctx, tfsdkresource.SchemaRequest{}, &sqlSchema)
-
-		sqlPlanModel := SQLDatabasePermissionResourceModel{
-			WorkspaceID:     types.StringValue("11111111-1111-1111-1111-111111111111"),
-			SQLDatabaseName: types.StringValue("sql"),
-			PrincipalID:     types.StringValue("22222222-2222-2222-2222-222222222222"),
-			PrincipalType:   types.StringValue("User"),
-			RoleType:        types.StringValue("read"),
-		}
-		sqlPlan := tfsdk.Plan{Schema: sqlSchema.Schema}
-		_ = sqlPlan.Set(ctx, &sqlPlanModel)
-		var sqlCreateResp tfsdkresource.CreateResponse
-		sql.Create(ctx, tfsdkresource.CreateRequest{Plan: sqlPlan}, &sqlCreateResp)
-		if !sqlCreateResp.Diagnostics.HasError() {
-			t.Fatal("expected error creating SQL database with failing client")
-		}
-
 		// 3. Lakehouse Create role error
-		lh := &LakehousePermissionResource{client: badClient}
+		lh := &LakehouseDataAccessRoleResource{client: badClient}
 		var lhSchema tfsdkresource.SchemaResponse
 		lh.Schema(ctx, tfsdkresource.SchemaRequest{}, &lhSchema)
 
@@ -1010,7 +656,7 @@ func TestResource_UpdateAndDeleteErrors(t *testing.T) {
 		paths, _ := types.SetValueFrom(ctx, types.StringType, []string{"/Tables/a"})
 		actions, _ := types.SetValueFrom(ctx, types.StringType, []string{"Read"})
 
-		lhPlanModel := LakehousePermissionResourceModel{
+		lhPlanModel := LakehouseDataAccessRoleResourceModel{
 			WorkspaceID:      types.StringValue("11111111-1111-1111-1111-111111111111"),
 			LakehouseName:    types.StringValue("lh"),
 			RoleName:         types.StringValue("custom"),
@@ -1157,7 +803,7 @@ func TestLakehouse_IsRoleAdvanced(t *testing.T) {
 func TestLakehouse_PopulateLakehouseState_EdgeCases(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	r := &LakehousePermissionResource{tenantID: "default-tenant-id"}
+	r := &LakehouseDataAccessRoleResource{tenantID: "default-tenant-id"}
 
 	role := &client.DataAccessRole{
 		Kind: "", // should default to "Policy"
@@ -1200,7 +846,7 @@ func TestLakehouse_PopulateLakehouseState_EdgeCases(t *testing.T) {
 		},
 	}
 
-	var state LakehousePermissionResourceModel
+	var state LakehouseDataAccessRoleResourceModel
 	diags := r.populateLakehouseStateFromRole(ctx, role, &state)
 	if diags.HasError() {
 		t.Fatalf("unexpected errors populating state: %v", diags)
@@ -1231,7 +877,7 @@ func TestLakehouse_PopulateLakehouseState_EdgeCases(t *testing.T) {
 		t.Fatalf("failed to create prior entra set: %v", d)
 	}
 
-	priorState := LakehousePermissionResourceModel{
+	priorState := LakehouseDataAccessRoleResourceModel{
 		EntraMember: priorSet,
 	}
 	diags = r.populateLakehouseStateFromRole(ctx, role, &priorState)
@@ -1250,7 +896,7 @@ func TestLakehouse_PopulateLakehouseState_EdgeCases(t *testing.T) {
 func TestLakehouse_ModifyPlan_EdgeCases(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	r := &LakehousePermissionResource{}
+	r := &LakehouseDataAccessRoleResource{}
 	var schemaResp tfsdkresource.SchemaResponse
 	r.Schema(ctx, tfsdkresource.SchemaRequest{}, &schemaResp)
 
@@ -1272,119 +918,9 @@ func TestResource_NilClientErrors(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	// 1. WarehousePermissionResource (Tombstoned Deprecated Resource)
+	// 3. LakehouseDataAccessRoleResource
 	{
-		r := &WarehousePermissionResource{client: nil}
-		var schemaResp tfsdkresource.SchemaResponse
-		r.Schema(ctx, tfsdkresource.SchemaRequest{}, &schemaResp)
-
-		plan := tfsdk.Plan{Schema: schemaResp.Schema}
-		whModel := WarehousePermissionResourceModel{
-			ID:            types.StringValue("11111111-1111-1111-1111-111111111111/22222222-2222-2222-2222-222222222222/User/33333333-3333-3333-3333-333333333333"),
-			WorkspaceID:   types.StringValue("11111111-1111-1111-1111-111111111111"),
-			WarehouseName: types.StringValue("wh"),
-			WarehouseID:   types.StringValue("22222222-2222-2222-2222-222222222222"),
-			PrincipalID:   types.StringValue("33333333-3333-3333-3333-333333333333"),
-			PrincipalType: types.StringValue("User"),
-			RoleType:      types.StringValue("read"),
-		}
-		state := tfsdk.State{Schema: schemaResp.Schema}
-		_ = state.Set(ctx, &whModel)
-
-		var createResp tfsdkresource.CreateResponse
-		r.Create(ctx, tfsdkresource.CreateRequest{Plan: plan}, &createResp)
-		if !createResp.Diagnostics.HasError() {
-			t.Fatal("expected error on tombstone Create")
-		}
-
-		var readResp tfsdkresource.ReadResponse
-		readResp.State = tfsdk.State{Schema: schemaResp.Schema}
-		r.Read(ctx, tfsdkresource.ReadRequest{State: state}, &readResp)
-		if readResp.Diagnostics.HasError() {
-			t.Fatalf("unexpected error on tombstone Read: %v", readResp.Diagnostics.Errors())
-		}
-
-		var updateResp tfsdkresource.UpdateResponse
-		r.Update(ctx, tfsdkresource.UpdateRequest{Plan: plan, State: state}, &updateResp)
-		if !updateResp.Diagnostics.HasError() {
-			t.Fatal("expected error on tombstone Update")
-		}
-
-		var delResp tfsdkresource.DeleteResponse
-		delResp.State = tfsdk.State{Schema: schemaResp.Schema}
-		r.Delete(ctx, tfsdkresource.DeleteRequest{State: state}, &delResp)
-		if delResp.Diagnostics.HasError() {
-			t.Fatal("unexpected error on tombstone Delete")
-		}
-		if len(delResp.Diagnostics.Warnings()) == 0 {
-			t.Fatal("expected warning on tombstone Delete")
-		}
-
-		var importResp tfsdkresource.ImportStateResponse
-		r.ImportState(ctx, tfsdkresource.ImportStateRequest{ID: "ws/wh/User/p"}, &importResp)
-		if !importResp.Diagnostics.HasError() {
-			t.Fatal("expected error on tombstone ImportState")
-		}
-	}
-
-	// 2. SQLDatabasePermissionResource (Tombstoned Deprecated Resource)
-	{
-		r := &SQLDatabasePermissionResource{client: nil}
-		var schemaResp tfsdkresource.SchemaResponse
-		r.Schema(ctx, tfsdkresource.SchemaRequest{}, &schemaResp)
-
-		plan := tfsdk.Plan{Schema: schemaResp.Schema}
-		sqlModel := SQLDatabasePermissionResourceModel{
-			ID:              types.StringValue("11111111-1111-1111-1111-111111111111/22222222-2222-2222-2222-222222222222/User/33333333-3333-3333-3333-333333333333"),
-			WorkspaceID:     types.StringValue("11111111-1111-1111-1111-111111111111"),
-			SQLDatabaseName: types.StringValue("db"),
-			SQLDatabaseID:   types.StringValue("22222222-2222-2222-2222-222222222222"),
-			PrincipalID:     types.StringValue("33333333-3333-3333-3333-333333333333"),
-			PrincipalType:   types.StringValue("User"),
-			RoleType:        types.StringValue("read"),
-		}
-		state := tfsdk.State{Schema: schemaResp.Schema}
-		_ = state.Set(ctx, &sqlModel)
-
-		var createResp tfsdkresource.CreateResponse
-		r.Create(ctx, tfsdkresource.CreateRequest{Plan: plan}, &createResp)
-		if !createResp.Diagnostics.HasError() {
-			t.Fatal("expected error on tombstone Create")
-		}
-
-		var readResp tfsdkresource.ReadResponse
-		readResp.State = tfsdk.State{Schema: schemaResp.Schema}
-		r.Read(ctx, tfsdkresource.ReadRequest{State: state}, &readResp)
-		if readResp.Diagnostics.HasError() {
-			t.Fatal("unexpected error on tombstone Read")
-		}
-
-		var updateResp tfsdkresource.UpdateResponse
-		r.Update(ctx, tfsdkresource.UpdateRequest{Plan: plan, State: state}, &updateResp)
-		if !updateResp.Diagnostics.HasError() {
-			t.Fatal("expected error on tombstone Update")
-		}
-
-		var delResp tfsdkresource.DeleteResponse
-		delResp.State = tfsdk.State{Schema: schemaResp.Schema}
-		r.Delete(ctx, tfsdkresource.DeleteRequest{State: state}, &delResp)
-		if delResp.Diagnostics.HasError() {
-			t.Fatal("unexpected error on tombstone Delete")
-		}
-		if len(delResp.Diagnostics.Warnings()) == 0 {
-			t.Fatal("expected warning on tombstone Delete")
-		}
-
-		var importResp tfsdkresource.ImportStateResponse
-		r.ImportState(ctx, tfsdkresource.ImportStateRequest{ID: "ws/db/User/p"}, &importResp)
-		if !importResp.Diagnostics.HasError() {
-			t.Fatal("expected error on tombstone ImportState")
-		}
-	}
-
-	// 3. LakehousePermissionResource
-	{
-		r := &LakehousePermissionResource{client: nil}
+		r := &LakehouseDataAccessRoleResource{client: nil}
 		var schemaResp tfsdkresource.SchemaResponse
 		r.Schema(ctx, tfsdkresource.SchemaRequest{}, &schemaResp)
 
@@ -1570,140 +1106,9 @@ func TestResource_APIErrors_Exhaustive(t *testing.T) {
 		t.Fatalf("failed to create badClient: %v", err)
 	}
 
-	// Warehouse Read/Update/Delete/Import (tombstoned resource)
-	{
-		r := &WarehousePermissionResource{client: badClient}
-		var schemaResp tfsdkresource.SchemaResponse
-		r.Schema(ctx, tfsdkresource.SchemaRequest{}, &schemaResp)
-
-		stateModel := WarehousePermissionResourceModel{
-			ID:            types.StringValue("11111111-1111-1111-1111-111111111111/22222222-2222-2222-2222-222222222222/User/33333333-3333-3333-3333-333333333333"),
-			WorkspaceID:   types.StringValue("11111111-1111-1111-1111-111111111111"),
-			WarehouseName: types.StringValue("wh"),
-			WarehouseID:   types.StringValue("22222222-2222-2222-2222-222222222222"),
-			PrincipalID:   types.StringValue("33333333-3333-3333-3333-333333333333"),
-			PrincipalType: types.StringValue("User"),
-			RoleType:      types.StringValue("read"),
-		}
-		state := tfsdk.State{Schema: schemaResp.Schema}
-		_ = state.Set(ctx, &stateModel)
-
-		var readResp tfsdkresource.ReadResponse
-		readResp.State = tfsdk.State{Schema: schemaResp.Schema}
-		r.Read(ctx, tfsdkresource.ReadRequest{State: state}, &readResp)
-		if readResp.Diagnostics.HasError() {
-			t.Fatal("unexpected error on tombstone Warehouse Read")
-		}
-
-		var importResp tfsdkresource.ImportStateResponse
-		r.ImportState(ctx, tfsdkresource.ImportStateRequest{
-			ID: "11111111-1111-1111-1111-111111111111/22222222-2222-2222-2222-222222222222/User/33333333-3333-3333-3333-333333333333",
-		}, &importResp)
-		if !importResp.Diagnostics.HasError() {
-			t.Fatal("expected error on Warehouse ImportState")
-		}
-
-		// Create fails immediately on tombstone
-		whPlanIDOnly := WarehousePermissionResourceModel{
-			WorkspaceID:   types.StringValue("11111111-1111-1111-1111-111111111111"),
-			WarehouseID:   types.StringValue("22222222-2222-2222-2222-222222222222"),
-			PrincipalID:   types.StringValue("33333333-3333-3333-3333-333333333333"),
-			PrincipalType: types.StringValue("User"),
-			RoleType:      types.StringValue("read"),
-		}
-		planIDOnly := tfsdk.Plan{Schema: schemaResp.Schema}
-		_ = planIDOnly.Set(ctx, &whPlanIDOnly)
-		var createRespIDOnly tfsdkresource.CreateResponse
-		r.Create(ctx, tfsdkresource.CreateRequest{Plan: planIDOnly}, &createRespIDOnly)
-		if !createRespIDOnly.Diagnostics.HasError() {
-			t.Fatal("expected error on Warehouse Create")
-		}
-
-		whPlanBoth := WarehousePermissionResourceModel{
-			WorkspaceID:   types.StringValue("11111111-1111-1111-1111-111111111111"),
-			WarehouseID:   types.StringValue("22222222-2222-2222-2222-222222222222"),
-			WarehouseName: types.StringValue("wh"),
-			PrincipalID:   types.StringValue("33333333-3333-3333-3333-333333333333"),
-			PrincipalType: types.StringValue("User"),
-			RoleType:      types.StringValue("read"),
-		}
-		planBoth := tfsdk.Plan{Schema: schemaResp.Schema}
-		_ = planBoth.Set(ctx, &whPlanBoth)
-		var createRespBoth tfsdkresource.CreateResponse
-		r.Create(ctx, tfsdkresource.CreateRequest{Plan: planBoth}, &createRespBoth)
-		if !createRespBoth.Diagnostics.HasError() {
-			t.Fatal("expected error on Warehouse Create")
-		}
-	}
-
-	// SQLDatabase Read/Update/Delete/Import (tombstoned resource)
-	{
-		r := &SQLDatabasePermissionResource{client: badClient}
-		var schemaResp tfsdkresource.SchemaResponse
-		r.Schema(ctx, tfsdkresource.SchemaRequest{}, &schemaResp)
-
-		stateModel := SQLDatabasePermissionResourceModel{
-			ID:              types.StringValue("11111111-1111-1111-1111-111111111111/22222222-2222-2222-2222-222222222222/User/33333333-3333-3333-3333-333333333333"),
-			WorkspaceID:     types.StringValue("11111111-1111-1111-1111-111111111111"),
-			SQLDatabaseName: types.StringValue("db"),
-			SQLDatabaseID:   types.StringValue("22222222-2222-2222-2222-222222222222"),
-			PrincipalID:     types.StringValue("33333333-3333-3333-3333-333333333333"),
-			PrincipalType:   types.StringValue("User"),
-			RoleType:        types.StringValue("read"),
-		}
-		state := tfsdk.State{Schema: schemaResp.Schema}
-		_ = state.Set(ctx, &stateModel)
-
-		var readResp tfsdkresource.ReadResponse
-		readResp.State = tfsdk.State{Schema: schemaResp.Schema}
-		r.Read(ctx, tfsdkresource.ReadRequest{State: state}, &readResp)
-		if readResp.Diagnostics.HasError() {
-			t.Fatal("unexpected error on tombstone SQLDatabase Read")
-		}
-
-		var importResp tfsdkresource.ImportStateResponse
-		r.ImportState(ctx, tfsdkresource.ImportStateRequest{
-			ID: "11111111-1111-1111-1111-111111111111/22222222-2222-2222-2222-222222222222/User/33333333-3333-3333-3333-333333333333",
-		}, &importResp)
-		if !importResp.Diagnostics.HasError() {
-			t.Fatal("expected error on tombstone SQLDatabase ImportState")
-		}
-
-		sqlPlanIDOnly := SQLDatabasePermissionResourceModel{
-			WorkspaceID:   types.StringValue("11111111-1111-1111-1111-111111111111"),
-			SQLDatabaseID: types.StringValue("22222222-2222-2222-2222-222222222222"),
-			PrincipalID:   types.StringValue("33333333-3333-3333-3333-333333333333"),
-			PrincipalType: types.StringValue("User"),
-			RoleType:      types.StringValue("read"),
-		}
-		planIDOnly := tfsdk.Plan{Schema: schemaResp.Schema}
-		_ = planIDOnly.Set(ctx, &sqlPlanIDOnly)
-		var createRespIDOnly tfsdkresource.CreateResponse
-		r.Create(ctx, tfsdkresource.CreateRequest{Plan: planIDOnly}, &createRespIDOnly)
-		if !createRespIDOnly.Diagnostics.HasError() {
-			t.Fatal("expected error on tombstone SQLDatabase Create")
-		}
-
-		sqlPlanBoth := SQLDatabasePermissionResourceModel{
-			WorkspaceID:     types.StringValue("11111111-1111-1111-1111-111111111111"),
-			SQLDatabaseID:   types.StringValue("22222222-2222-2222-2222-222222222222"),
-			SQLDatabaseName: types.StringValue("db"),
-			PrincipalID:     types.StringValue("33333333-3333-3333-3333-333333333333"),
-			PrincipalType:   types.StringValue("User"),
-			RoleType:        types.StringValue("read"),
-		}
-		planBoth := tfsdk.Plan{Schema: schemaResp.Schema}
-		_ = planBoth.Set(ctx, &sqlPlanBoth)
-		var createRespBoth tfsdkresource.CreateResponse
-		r.Create(ctx, tfsdkresource.CreateRequest{Plan: planBoth}, &createRespBoth)
-		if !createRespBoth.Diagnostics.HasError() {
-			t.Fatal("expected error on tombstone SQLDatabase Create")
-		}
-	}
-
 	// Lakehouse Read/Update/Delete/Import with failing client
 	{
-		r := &LakehousePermissionResource{client: badClient}
+		r := &LakehouseDataAccessRoleResource{client: badClient}
 		var schemaResp tfsdkresource.SchemaResponse
 		r.Schema(ctx, tfsdkresource.SchemaRequest{}, &schemaResp)
 
@@ -1711,7 +1116,7 @@ func TestResource_APIErrors_Exhaustive(t *testing.T) {
 		paths, _ := types.SetValueFrom(ctx, types.StringType, []string{"/Tables/a"})
 		actions, _ := types.SetValueFrom(ctx, types.StringType, []string{"Read"})
 
-		stateModel := LakehousePermissionResourceModel{
+		stateModel := LakehouseDataAccessRoleResourceModel{
 			ID:               types.StringValue("11111111-1111-1111-1111-111111111111/22222222-2222-2222-2222-222222222222/CustomRole"),
 			WorkspaceID:      types.StringValue("11111111-1111-1111-1111-111111111111"),
 			LakehouseName:    types.StringValue("lh"),
@@ -1743,7 +1148,7 @@ func TestResource_APIErrors_Exhaustive(t *testing.T) {
 		}
 
 		// Create with ID only where GetItemByID fails
-		lhPlanIDOnly := LakehousePermissionResourceModel{
+		lhPlanIDOnly := LakehouseDataAccessRoleResourceModel{
 			WorkspaceID:      types.StringValue("11111111-1111-1111-1111-111111111111"),
 			LakehouseID:      types.StringValue("22222222-2222-2222-2222-222222222222"),
 			RoleName:         types.StringValue("CustomRole"),
@@ -1764,7 +1169,7 @@ func TestResource_APIErrors_Exhaustive(t *testing.T) {
 		}
 
 		// Create with both ID and Name where GetItemByID fails
-		lhPlanBoth := LakehousePermissionResourceModel{
+		lhPlanBoth := LakehouseDataAccessRoleResourceModel{
 			WorkspaceID:      types.StringValue("11111111-1111-1111-1111-111111111111"),
 			LakehouseID:      types.StringValue("22222222-2222-2222-2222-222222222222"),
 			LakehouseName:    types.StringValue("lh"),
