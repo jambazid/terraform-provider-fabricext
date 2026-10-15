@@ -98,3 +98,9 @@ replacements:
   - path: ./guides/official_provider_comparison.md
     find: '(?s)(fabricext\s*=\s*\{[^}]*version\s*=\s*")[^"]*(")'
     replace: '${1}~> {{.VersionNoPrefix}}${2}'
+  - path: ./ROADMAP.md
+    find: '(?s)(Pin provider versions \(`)[^`]*(`\))'
+    replace: '${1}~> {{.VersionNoPrefix}}${2}'
+  - path: ./DESIGN.md
+    find: '(?s)(Consumers must pin provider versions \(`)[^`]*(`\))'
+    replace: '${1}~> {{.VersionNoPrefix}}${2}'
