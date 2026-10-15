@@ -485,6 +485,7 @@ func (p *FabricProvider) Resources(_ context.Context) []func() resource.Resource
 	return []func() resource.Resource{
 		NewLakehouseDataAccessRoleResource,
 		NewLakehouseOnelakeSecurityResource,
+		NewItemShareGateResource,
 	}
 }
 
@@ -492,6 +493,7 @@ func (p *FabricProvider) Resources(_ context.Context) []func() resource.Resource
 func (p *FabricProvider) DataSources(_ context.Context) []func() datasource.DataSource {
 	return []func() datasource.DataSource{
 		NewItemDataSource,
+		NewItemAccessDetailsDataSource,
 	}
 }
 

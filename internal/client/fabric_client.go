@@ -161,6 +161,64 @@ func (e *UnsupportedItemTypeError) Error() string {
 	return fmt.Sprintf("OneLake Data Access Security is only supported on Lakehouses; item %q in workspace %q has type %q", e.ItemID, e.WorkspaceID, e.ActualType)
 }
 
+// AdminAPIAccessDeniedError indicates that the caller does not have sufficient Fabric Administrator or tenant-level permissions to access the Admin API.
+type AdminAPIAccessDeniedError struct {
+	WorkspaceID string
+	ItemID      string
+	Message     string
+}
+
+func (e *AdminAPIAccessDeniedError) Error() string {
+	base := fmt.Sprintf("access denied to Fabric Admin APIs for item %q in workspace %q: caller must be a Fabric Administrator or a service principal enrolled in the tenant setting 'Service principals can access read-only admin APIs' with scope Tenant.Read.All or Tenant.ReadWrite.All", e.ItemID, e.WorkspaceID)
+	if e.Message != "" {
+		return fmt.Sprintf("%s (upstream error: %s)", base, e.Message)
+	}
+	return base
+}
+
+// UserDetails represents Microsoft Entra user-specific details.
+type UserDetails struct {
+	UserPrincipalName string `json:"userPrincipalName,omitempty"`
+}
+
+// GroupDetails represents Microsoft Entra group-specific details.
+type GroupDetails struct {
+	GroupType string `json:"groupType,omitempty"`
+}
+
+// ServicePrincipalDetails represents Microsoft Entra service principal details.
+type ServicePrincipalDetails struct {
+	AadAppID string `json:"aadAppId,omitempty"`
+}
+
+// PrincipalDetail represents a principal with access to an item.
+type PrincipalDetail struct {
+	ID                      string                   `json:"id"`
+	DisplayName             string                   `json:"displayName,omitempty"`
+	Type                    string                   `json:"type"`
+	UserDetails             *UserDetails             `json:"userDetails,omitempty"`
+	GroupDetails            *GroupDetails            `json:"groupDetails,omitempty"`
+	ServicePrincipalDetails *ServicePrincipalDetails `json:"servicePrincipalDetails,omitempty"`
+}
+
+// ItemAccessDetailModel represents permission details on an item.
+type ItemAccessDetailModel struct {
+	Type                  string   `json:"type,omitempty"`
+	Permissions           []string `json:"permissions"`
+	AdditionalPermissions []string `json:"additionalPermissions"`
+}
+
+// ItemAccessDetailsItem represents one principal's access entry for an item.
+type ItemAccessDetailsItem struct {
+	Principal         PrincipalDetail       `json:"principal"`
+	ItemAccessDetails ItemAccessDetailModel `json:"itemAccessDetails"`
+}
+
+// ItemAccessDetailsResponse represents the response envelope from GET /v1/admin/workspaces/{workspaceId}/items/{itemId}/users.
+type ItemAccessDetailsResponse struct {
+	AccessDetails []ItemAccessDetailsItem `json:"accessDetails"`
+}
+
 // APIError represents an HTTP error response returned by the Microsoft Fabric API.
 type APIError struct {
 	StatusCode  int
@@ -202,6 +260,7 @@ type FabricClient struct {
 	cacheMu        sync.Mutex
 	itemCache      map[itemCacheKey]map[string]string
 	lakehouseLocks sync.Map // map[string]*sync.Mutex keyed by workspaceID + "/" + lakehouseID
+	adminMu        sync.Mutex
 }
 
 // NewFabricClient creates a new FabricClient with normalized endpoint and retry defaults.
@@ -255,6 +314,11 @@ func NewFabricClient(cfg Config) (*FabricClient, error) {
 		baseBackoff:    baseBackoff,
 		itemCache:      make(map[itemCacheKey]map[string]string),
 	}, nil
+}
+
+// BaseBackoff returns the configured base backoff duration for the client.
+func (c *FabricClient) BaseBackoff() time.Duration {
+	return c.baseBackoff
 }
 
 // ToAPIPermission converts a Terraform HCL permission token (or API enum value) to the Fabric REST API enum value.
@@ -954,6 +1018,46 @@ func (c *FabricClient) DeleteDataAccessRole(ctx context.Context, workspaceID, la
 	return fmt.Errorf("exceeded maximum ETag retries (%d) deleting Lakehouse %s Data Access Role %q", c.maxETagRetries, lakehouseID, roleName)
 }
 
+// ListItemAccessDetails retrieves the effective permissions for all users and principals on a workspace item
+// via the Microsoft Fabric Admin API (GET /v1/admin/workspaces/{workspaceId}/items/{itemId}/users).
+func (c *FabricClient) ListItemAccessDetails(ctx context.Context, workspaceID, itemID string, itemType *string) (*ItemAccessDetailsResponse, error) {
+	c.adminMu.Lock()
+	defer c.adminMu.Unlock()
+
+	path := fmt.Sprintf("/v1/admin/workspaces/%s/items/%s/users", workspaceID, itemID)
+	if itemType != nil && *itemType != "" {
+		q := url.Values{}
+		q.Set("type", *itemType)
+		path += "?" + q.Encode()
+	}
+
+	var resp ItemAccessDetailsResponse
+	if _, err := c.doJSON(ctx, http.MethodGet, path, nil, nil, &resp); err != nil {
+		var apiErr *APIError
+		if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusForbidden {
+			var msg string
+			if apiErr.Message != "" {
+				msg = apiErr.Message
+			}
+			return nil, &AdminAPIAccessDeniedError{
+				WorkspaceID: workspaceID,
+				ItemID:      itemID,
+				Message:     msg,
+			}
+		}
+		if IsNotFound(err) {
+			return nil, &NotFoundError{
+				ResourceType: "item",
+				ResourceID:   itemID,
+				WorkspaceID:  workspaceID,
+			}
+		}
+		return nil, err
+	}
+
+	return &resp, nil
+}
+
 func (c *FabricClient) doJSON(ctx context.Context, method, path string, headers http.Header, reqBody any, respOut any) (http.Header, error) {
 	var bodyBytes []byte
 	if reqBody != nil {
@@ -1051,12 +1155,23 @@ func shouldRetryStatus(code int) bool {
 
 func (c *FabricClient) retryDelay(retryAfterHeader string, attempt int) time.Duration {
 	if retryAfterHeader != "" {
-		if secs, err := strconv.Atoi(strings.TrimSpace(retryAfterHeader)); err == nil && secs > 0 {
+		header := strings.TrimSpace(retryAfterHeader)
+		if secs, err := strconv.Atoi(header); err == nil && secs > 0 {
 			// Cap Retry-After during unit/acc tests if BaseBackoff was configured below 50ms.
 			if c.baseBackoff < 50*time.Millisecond {
 				return time.Duration(secs) * c.baseBackoff
 			}
 			return time.Duration(secs) * time.Second
+		}
+		if t, err := http.ParseTime(header); err == nil {
+			delay := time.Until(t)
+			if delay > 0 {
+				if c.baseBackoff < 50*time.Millisecond {
+					return 5 * c.baseBackoff
+				}
+				return delay
+			}
+			return 0
 		}
 	}
 	shift := min(attempt, 5)

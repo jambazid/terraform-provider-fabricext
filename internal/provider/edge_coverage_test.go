@@ -5,10 +5,12 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"regexp"
 	"testing"
+	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	tfsdkprovider "github.com/hashicorp/terraform-plugin-framework/provider"
@@ -1189,5 +1191,224 @@ func TestResource_APIErrors_Exhaustive(t *testing.T) {
 		if !createRespBoth.Diagnostics.HasError() {
 			t.Fatal("expected error on Lakehouse Create with both ID and Name lookup failure")
 		}
+	}
+}
+
+func TestItemShareGateAndAccessDetails_EdgeCoverage(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	// 1. Unconfigured client diagnostics
+	gateRes := &ItemShareGateResource{}
+	var schemaResp tfsdkresource.SchemaResponse
+	gateRes.Schema(ctx, tfsdkresource.SchemaRequest{}, &schemaResp)
+
+	expectedPerms, _ := types.SetValueFrom(ctx, types.StringType, []string{"Read"})
+	planModel := ItemShareGateResourceModel{
+		WorkspaceID:         types.StringValue("11111111-1111-1111-1111-111111111111"),
+		ItemID:              types.StringValue("22222222-2222-2222-2222-222222222222"),
+		PrincipalID:         types.StringValue("33333333-3333-3333-3333-333333333333"),
+		ExpectedPermissions: expectedPerms,
+		MatchType:           types.StringValue("subset"),
+	}
+	plan := tfsdk.Plan{Schema: schemaResp.Schema}
+	_ = plan.Set(ctx, &planModel)
+	state := tfsdk.State{Schema: schemaResp.Schema}
+	_ = state.Set(ctx, &planModel)
+
+	var gCreateResp tfsdkresource.CreateResponse
+	gateRes.Create(ctx, tfsdkresource.CreateRequest{Plan: plan}, &gCreateResp)
+	if !gCreateResp.Diagnostics.HasError() {
+		t.Fatal("expected error on unconfigured Create")
+	}
+
+	var gReadResp tfsdkresource.ReadResponse
+	gateRes.Read(ctx, tfsdkresource.ReadRequest{State: state}, &gReadResp)
+	if !gReadResp.Diagnostics.HasError() {
+		t.Fatal("expected error on unconfigured Read")
+	}
+
+	var gUpdateResp tfsdkresource.UpdateResponse
+	gateRes.Update(ctx, tfsdkresource.UpdateRequest{Plan: plan, State: state}, &gUpdateResp)
+	if !gUpdateResp.Diagnostics.HasError() {
+		t.Fatal("expected error on unconfigured Update")
+	}
+
+	var gImportResp tfsdkresource.ImportStateResponse
+	gateRes.ImportState(ctx, tfsdkresource.ImportStateRequest{}, &gImportResp)
+	if !gImportResp.Diagnostics.HasError() {
+		t.Fatal("expected error on unconfigured ImportState")
+	}
+
+	detailsDS := &ItemAccessDetailsDataSource{}
+	var dsSchemaResp datasource.SchemaResponse
+	detailsDS.Schema(ctx, datasource.SchemaRequest{}, &dsSchemaResp)
+	dsConfigModel := ItemAccessDetailsDataSourceModel{
+		WorkspaceID:          types.StringValue("11111111-1111-1111-1111-111111111111"),
+		ItemID:               types.StringValue("22222222-2222-2222-2222-222222222222"),
+		Type:                 types.StringNull(),
+		AccessDetails:        types.ListNull(types.ObjectType{AttrTypes: accessDetailElemAttrTypes}),
+		PrincipalPermissions: types.MapNull(types.SetType{ElemType: types.StringType}),
+	}
+	dsState := tfsdk.State{Schema: dsSchemaResp.Schema}
+	if diags := dsState.Set(ctx, &dsConfigModel); diags.HasError() {
+		t.Fatalf("failed to set dsState: %v", diags)
+	}
+	dsConfig := tfsdk.Config{
+		Schema: dsSchemaResp.Schema,
+		Raw:    dsState.Raw,
+	}
+	var dsReadResp datasource.ReadResponse
+	detailsDS.Read(ctx, datasource.ReadRequest{Config: dsConfig}, &dsReadResp)
+	if !dsReadResp.Diagnostics.HasError() {
+		t.Fatal("expected error on unconfigured DataSource Read")
+	}
+
+	// 2. Configure with invalid ProviderData
+	var gConfResp tfsdkresource.ConfigureResponse
+	gateRes.Configure(ctx, tfsdkresource.ConfigureRequest{ProviderData: "invalid"}, &gConfResp)
+	if !gConfResp.Diagnostics.HasError() {
+		t.Fatal("expected error on invalid gate ProviderData")
+	}
+
+	var dsConfResp datasource.ConfigureResponse
+	detailsDS.Configure(ctx, datasource.ConfigureRequest{ProviderData: "invalid"}, &dsConfResp)
+	if !dsConfResp.Diagnostics.HasError() {
+		t.Fatal("expected error on invalid data source ProviderData")
+	}
+
+	// 3. backoffWithJitter coverage in production mode
+	bProd := backoffWithJitter(100*time.Second, false)
+	if bProd < 70*time.Second || bProd > 130*time.Second {
+		t.Errorf("unexpected production backoff with jitter: %v", bProd)
+	}
+	bFloor := backoffWithJitter(5*time.Second, false)
+	if bFloor < 10*time.Second {
+		t.Errorf("expected clamp to 10s floor: %v", bFloor)
+	}
+	bTest := backoffWithJitter(5*time.Millisecond, true)
+	if bTest != 5*time.Millisecond {
+		t.Errorf("expected test backoff to remain unchanged: %v", bTest)
+	}
+
+	// 4. normalizePermission coverage
+	if normalizePermission(" Read_Data ") != "readdata" {
+		t.Errorf("unexpected normalizePermission output: %s", normalizePermission(" Read_Data "))
+	}
+	if normalizePermission("ReadAll") != "readall" {
+		t.Errorf("unexpected normalizePermission output: %s", normalizePermission("ReadAll"))
+	}
+
+	// 5. stringOrNull helper coverage
+	if !stringOrNull("").IsNull() {
+		t.Fatal("expected empty string to yield StringNull")
+	}
+	if stringOrNull("valid").ValueString() != "valid" {
+		t.Fatal("expected StringValue for non-empty string")
+	}
+
+	// 6. checkPrincipalMatch unit branches
+	emptyMatch, _ := checkPrincipalMatch(nil, "pid", "", []string{"Read"}, "subset")
+	if emptyMatch {
+		t.Fatal("expected false for empty access details")
+	}
+
+	sampleDetails := []client.ItemAccessDetailsItem{
+		{
+			Principal: client.PrincipalDetail{
+				ID:   "33333333-3333-3333-3333-333333333333",
+				Type: "User",
+			},
+			ItemAccessDetails: client.ItemAccessDetailModel{
+				Type:        "Warehouse",
+				Permissions: []string{"Read"},
+			},
+		},
+	}
+
+	// Wrong principal ID
+	idMismatch, _ := checkPrincipalMatch(sampleDetails, "44444444-4444-4444-4444-444444444444", "", []string{"Read"}, "subset")
+	if idMismatch {
+		t.Fatal("expected false for ID mismatch")
+	}
+
+	// Principal type filter mismatch
+	typeMismatch, _ := checkPrincipalMatch(sampleDetails, "33333333-3333-3333-3333-333333333333", "Group", []string{"Read"}, "subset")
+	if typeMismatch {
+		t.Fatal("expected false for principal type mismatch")
+	}
+
+	// Exact match with count mismatch
+	exactFail, _ := checkPrincipalMatch(sampleDetails, "33333333-3333-3333-3333-333333333333", "User", []string{"Read", "Write"}, "exact")
+	if exactFail {
+		t.Fatal("expected false for exact match count mismatch")
+	}
+
+	// Exact match with wrong permission
+	exactWrong, _ := checkPrincipalMatch(sampleDetails, "33333333-3333-3333-3333-333333333333", "User", []string{"Write"}, "exact")
+	if exactWrong {
+		t.Fatal("expected false for exact match wrong permission")
+	}
+
+	// Subset match with missing permission
+	subsetMissing, _ := checkPrincipalMatch(sampleDetails, "33333333-3333-3333-3333-333333333333", "User", []string{"Read", "Write"}, "subset")
+	if subsetMissing {
+		t.Fatal("expected false for subset match with missing permission")
+	}
+
+	// 7. ImportState validation error paths with configured client
+	srv := fabricmock.NewServer(t)
+	c, err := client.NewFabricClient(client.Config{
+		Endpoint: srv.URL(),
+		TokenProvider: func(context.Context) (string, error) {
+			return "mock-token", nil
+		},
+		BaseBackoff: 5 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+	configuredGate := &ItemShareGateResource{client: c}
+
+	invalidIDs := []string{
+		"only-two/parts",
+		"not-uuid/22222222-2222-2222-2222-222222222222/33333333-3333-3333-3333-333333333333",
+		"11111111-1111-1111-1111-111111111111/not-uuid/33333333-3333-3333-3333-333333333333",
+		"11111111-1111-1111-1111-111111111111/22222222-2222-2222-2222-222222222222/not-uuid",
+	}
+	for _, invID := range invalidIDs {
+		var impResp tfsdkresource.ImportStateResponse
+		configuredGate.ImportState(ctx, tfsdkresource.ImportStateRequest{ID: invID}, &impResp)
+		if !impResp.Diagnostics.HasError() {
+			t.Fatalf("expected ImportState error for invalid ID %q", invID)
+		}
+	}
+
+	// Principal not found on item during import
+	wsID := "11111111-1111-1111-1111-111111111111"
+	itemID := "22222222-2222-2222-2222-222222222222"
+	srv.UpsertItem(fabricmock.Item{
+		ID:          itemID,
+		WorkspaceID: wsID,
+		DisplayName: "empty_item",
+		Type:        "Warehouse",
+	})
+	var impMissingResp tfsdkresource.ImportStateResponse
+	configuredGate.ImportState(ctx, tfsdkresource.ImportStateRequest{
+		ID: fmt.Sprintf("%s/%s/99999999-9999-9999-9999-999999999999", wsID, itemID),
+	}, &impMissingResp)
+	if !impMissingResp.Diagnostics.HasError() {
+		t.Fatal("expected ImportState error for missing principal")
+	}
+
+	// 8. pollForItemShare context canceled branch
+	cancCtx, cancel := context.WithCancel(ctx)
+	cancel()
+	_, _, pollErr := configuredGate.pollForItemShare(
+		cancCtx, wsID, itemID, nil, "33333333-3333-3333-3333-333333333333", "", []string{"Read"}, "subset", 1*time.Minute,
+	)
+	if pollErr == nil || !errors.Is(pollErr, context.Canceled) {
+		t.Fatalf("expected context.Canceled error, got: %v", pollErr)
 	}
 }
