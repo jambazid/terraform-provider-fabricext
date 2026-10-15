@@ -43,13 +43,13 @@ Comparative architecture analysis between Microsoft's official Terraform provide
 
 A common misconception in early provider prototypes was that Microsoft Fabric exposed public REST endpoints for item-level permissions on Warehouses and SQL Databases. Comprehensive factual audits against upstream [`microsoft/fabric-rest-api-specs`](https://github.com/microsoft/fabric-rest-api-specs) confirmed that **no such REST endpoints exist in Microsoft Fabric**:
 
-1. **Neither Provider Automates Item Sharing via REST**: The official provider does not offer item-sharing resources for Warehouses or SQL Databases because Microsoft Fabric lacks the underlying REST API. `jambazid/fabricext` tombstoned its early prototype resources (`fabricext_warehouse_permission` and `fabricext_sql_database_permission`) in `v0.3.0` and scheduled them for removal in `v0.5.0`.
+1. **Neither Provider Automates Item Sharing via REST**: The official provider does not offer item-sharing resources for Warehouses or SQL Databases because Microsoft Fabric lacks the underlying REST API. `jambazid/fabricext` removed its early prototype resources (`fabricext_warehouse_permission` and `fabricext_sql_database_permission`) in `v0.5.0`.
 2. **Supported Administration Pattern**: For Warehouses and SQL Databases, item connectivity must be granted via the Fabric Portal UI Share quick action, while all fine-grained authorization is configured in-database using standard T-SQL permissions (`GRANT`, `REVOKE`, `DENY`).
 3. **Where `fabricext` Provides Technical Value**: `fabricext` focuses entirely on areas where the Fabric platform exposes robust, public REST APIs: Lakehouse OneLake Data Access Roles (`/dataAccessRoles`), automated `DefaultReader` purging, RFC 9110 ETag optimistic locking, and cycle-safe multi-page role pagination.
 
 ### OneLake Roles Comparison
 
-| Aspect | `microsoft/fabric` (`fabric_onelake_data_access_security`) | `jambazid/fabricext` (`fabricext_lakehouse_permission`) |
+| Aspect | `microsoft/fabric` (`fabric_onelake_data_access_security`) | `jambazid/fabricext` (`fabricext_lakehouse_data_access_role`) |
 | :--- | :--- | :--- |
 | **Maturity Gate** | Preview-only (`preview = true` required) | GA endpoints by default |
 | **DefaultReader Lifecycle** | None (manual portal intervention required) | Automated verification & zero-trust purge (`fabricext_lakehouse_onelake_security`) |
@@ -67,7 +67,7 @@ A common misconception in early provider prototypes was that Microsoft Fabric ex
 
 Practitioners sometimes conflate Fabric item-level sharing with OneLake Data Access Roles:
 
-- **OneLake Data Access Roles** (Storage Layer): Both `microsoft/fabric` (`fabric_onelake_data_access_security`) and `jambazid/fabricext` (`fabricext_lakehouse_permission`) manage OneLake Data Access Roles via the OneLake Data Access Security API (`/v1/.../items/{id}/dataAccessRoles`). These roles govern fine-grained access to Parquet tables, folders, rows (RLS), and columns (CLS) in OneLake storage.
+- **OneLake Data Access Roles** (Storage Layer): Both `microsoft/fabric` (`fabric_onelake_data_access_security`) and `jambazid/fabricext` (`fabricext_lakehouse_data_access_role`) manage OneLake Data Access Roles via the OneLake Data Access Security API (`/v1/.../items/{id}/dataAccessRoles`). These roles govern fine-grained access to Parquet tables, folders, rows (RLS), and columns (CLS) in OneLake storage.
 - **Lakehouse Item-Level Sharing** (Workspace Layer): Fabric item-level sharing (`ReadAll` workspace share grants at the Fabric item level) does not currently have a public REST API for Lakehouses, as discussed in [microsoft/terraform-provider-fabric#425](https://github.com/microsoft/terraform-provider-fabric/issues/425). Neither provider manages Lakehouse item-level sharing until Microsoft makes that API available.
 
 ---
@@ -204,12 +204,12 @@ For Lakehouse OneLake Data Access Roles, when `microsoft/fabric` promotes its pr
 
 ### Lakehouse Role Migration
 
-Because `fabricext_lakehouse_permission` and `fabric_onelake_data_access_security` share the exact `{workspace_id}/{lakehouse_id}/{role_name}` composite import ID:
+Because `fabricext_lakehouse_data_access_role` and `fabric_onelake_data_access_security` share the exact `{workspace_id}/{lakehouse_id}/{role_name}` composite import ID:
 
 ```hcl
 # 1. Detach from jambazid/fabricext state without deleting the OneLake role in Fabric
 removed {
-  from = fabricext_lakehouse_permission.bronze_readers
+  from = fabricext_lakehouse_data_access_role.bronze_readers
 
   lifecycle {
     destroy = false
@@ -233,7 +233,7 @@ import {
 
 ### Warehouse State Detachment Playbook
 
-`fabricext_warehouse_permission` was tombstoned in `v0.3.0` because Microsoft Fabric does not offer a public REST API for Warehouse item sharing. Existing configurations should detach the resource from Terraform state using Terraform 1.7+ `removed` blocks:
+`fabricext_warehouse_permission` was removed in `v0.5.0` because Microsoft Fabric does not offer a public REST API for Warehouse item sharing. Existing configurations can detach legacy state using Terraform 1.7+ `removed` blocks:
 
 ```hcl
 # Detach from Terraform state without attempting to revoke in Fabric
@@ -250,7 +250,7 @@ Item connectivity must be granted via the Fabric Portal UI Share quick action, w
 
 ### SQL Database State Detachment Playbook
 
-`fabricext_sql_database_permission` was tombstoned in `v0.3.0` because Microsoft Fabric does not offer a public REST API for SQL Database item sharing. Existing configurations should detach the resource from Terraform state using Terraform 1.7+ `removed` blocks:
+`fabricext_sql_database_permission` was removed in `v0.5.0` because Microsoft Fabric does not offer a public REST API for SQL Database item sharing. Existing configurations can detach legacy state using Terraform 1.7+ `removed` blocks:
 
 ```hcl
 # Detach from Terraform state without attempting to revoke in Fabric
@@ -264,4 +264,18 @@ removed {
 ```
 
 Item connectivity must be granted via the Fabric Portal UI Share quick action, while table and schema access is governed via in-database T-SQL permissions or Microsoft Purview policies.
+
+---
+
+## Related Guides
+
+| Guide | Core Focus |
+| :--- | :--- |
+| **[Access Control Playbook](access_control_playbook.md)** | Start Here routing table and 11 verified scenario execution cards. |
+| **[Enterprise Access Control Overview](use_case_overview.md)** | Master comparison matrix and 6-tier perimeter overview. |
+| **[Security Controls & Interactions](use_case_controls_and_interactions.md)** | Precedence rules and override behaviors across tiers. |
+| **[Warehouse Schema Isolation](use_case_warehouse_schema_isolation.md)** | Least-privilege `read` connectivity, Entra ID naming, and SQL RBAC. |
+| **[Lakehouse OneLake Security](use_case_lakehouse_onelake_security.md)** | Data Access Roles, path filters, storage RLS/CLS, and shortcuts. |
+| **[Declarative Matrix Composition](matrix_composition.md)** | Scaling OneLake roles across Lakehouses using HCL `for_each` and module. |
+
 

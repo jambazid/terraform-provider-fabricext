@@ -1,6 +1,6 @@
 ---
-page_title: "Use Cases: Power BI Identity Flow"
-subcategory: "Use Cases"
+page_title: "Power BI Identity Flow"
+subcategory: "Guides"
 description: |-
   How Microsoft Fabric security controls propagate to Power BI reports and semantic models, contrasting DirectQuery over Warehouse TDS endpoints with Direct Lake over Lakehouse Parquet files.
 ---
@@ -57,7 +57,7 @@ Analyst               Power BI Service (Analysis Services)   Warehouse SQL Engin
 
 **Dual Consequence of DirectQuery Fallback**:
 - **Without SSO**: If Single Sign-On is not enabled, Power BI executes all report queries using the fixed credentials of the dataset owner. Because dataset creators typically hold workspace Contributor or Admin roles (`db_owner`), **queries run as `db_owner`, completely bypassing the end-user's T-SQL RLS predicates and schema isolation** (unintended query execution under elevated dataset-owner privileges).
-- **With SSO**: When Single Sign-On is enabled, every report viewer must hold an item-level `Read` share (granted via Fabric web portal) AND database-level T-SQL grants. Prototype resource `fabricext_warehouse_permission` was tombstoned in v0.3.0 and is scheduled for removal in v0.5.0 because Microsoft Fabric does not offer public item-sharing REST APIs. Users granted report access in Power BI without an underlying item share will experience visual errors (`Cannot connect to the data source`).
+- **With SSO**: When Single Sign-On is enabled, every report viewer must hold an item-level `Read` share (granted via Fabric web portal) AND database-level T-SQL grants. Prototype resource `fabricext_warehouse_permission` was tombstoned in v0.3.0 and removed in v0.5.0 because Microsoft Fabric does not offer public item-sharing REST APIs. Users granted report access in Power BI without an underlying item share will experience visual errors (`Cannot connect to the data source`).
 
 ### Identity & Enforcement Rules
 
@@ -86,12 +86,12 @@ Analyst               Power BI Direct Lake (Analysis Services) OneLake Storage S
    │◄── 5. Render Visual ─────────────│
 ```
 
-!> **Warning:** **Direct Lake Identity Delegation & Fixed-Identity Risks**: In Microsoft Fabric, Direct Lake semantic models operate under Single Sign-On (SSO) by default, passing the active viewer's Microsoft Entra ID token to evaluate OneLake Data Access Roles. However, if the semantic model connection is modified to use a **Fixed Identity** (such as a shared connection or model owner credentials in **Semantic Model Settings > Gateway and Cloud Connections**), Analysis Services queries OneLake as that fixed identity (often an administrative account), **bypassing all OneLake Data Access Roles** configured via `fabricext_lakehouse_permission` for report viewers. Maintain Single Sign-On on the Direct Lake connection whenever granular OneLake roles must govern end-user data visibility.
+!> **Warning:** **Direct Lake Identity Delegation & Fixed-Identity Risks**: In Microsoft Fabric, Direct Lake semantic models operate under Single Sign-On (SSO) by default, passing the active viewer's Microsoft Entra ID token to evaluate OneLake Data Access Roles. However, if the semantic model connection is modified to use a **Fixed Identity** (such as a shared connection or model owner credentials in **Semantic Model Settings > Gateway and Cloud Connections**), Analysis Services queries OneLake as that fixed identity (often an administrative account), **bypassing all OneLake Data Access Roles** configured via `fabricext_lakehouse_data_access_role` for report viewers. Maintain Single Sign-On on the Direct Lake connection whenever granular OneLake roles must govern end-user data visibility.
 
 ### OneLake Enforcement Rules
 
 1. **Storage-Level Access**: Analysis Services reads Delta Lake Parquet metadata and columnar files directly from OneLake storage without passing through a SQL query engine.
-2. **OneLake Role Enforcement**: OneLake evaluates the user's Entra identity against the Lakehouse's **OneLake Data Access Roles** (configured via `fabricext_lakehouse_permission`).
+2. **OneLake Role Enforcement**: OneLake evaluates the user's Entra identity against the Lakehouse's **OneLake Data Access Roles** (configured via `fabricext_lakehouse_data_access_role`).
 3. **No DirectQuery Fallback on OneLake**: Direct Lake on OneLake operates exclusively in `DirectLakeOnly` mode. If a query encounters unsupported operations, guardrail violations, or security incompatibilities, **the query fails with an error**. DirectQuery fallback is not supported in this mode because the model binds directly to storage files rather than a relational TDS endpoint.
 
 ---
@@ -117,7 +117,7 @@ If the semantic model uses a **Fixed Identity** (such as a Service Principal or 
 | **Security Layer** | T-SQL RBAC, SQL RLS, SQL CLS | OneLake Data Access Roles | Power BI Dataset RLS / OLS |
 | **Direct Lake Support** | Falls back to DirectQuery on RLS/CLS | Supported Natively (`DirectLakeOnly`) | Supported (Fixed Identity Mode) |
 | **Fallback Path** | N/A (Executes over TDS) | **None** (Fails if unsupported) | N/A (Cached / Fixed Model) |
-| **`fabricext` Role** | Portal UI Share (REST unsupported; `fabricext_warehouse_permission` deprecated) | `fabricext_lakehouse_permission` & `fabricext_lakehouse_onelake_security` | Manages Lakehouse OneLake security |
+| **`fabricext` Role** | Portal UI Share (REST unsupported; `fabricext_warehouse_permission` removed in v0.5.0) | `fabricext_lakehouse_data_access_role` & `fabricext_lakehouse_onelake_security` | Manages Lakehouse OneLake security |
 
 ---
 
@@ -125,7 +125,8 @@ If the semantic model uses a **Fixed Identity** (such as a Service Principal or 
 
 | Guide | Core Focus |
 | :--- | :--- |
-| **[Use Cases Overview](./use_case_overview.md)** | Master comparison matrix and 6-tier perimeter overview. |
+| **[Access Control Playbook](./access_control_playbook.md)** | Start Here routing table and 11 verified scenario execution cards. |
+| **[Enterprise Access Control Overview](./use_case_overview.md)** | Master comparison matrix and 6-tier perimeter overview. |
 | **[Security Controls & Interactions](./use_case_controls_and_interactions.md)** | Precedence rules and override behaviors across tiers. |
 | **[Warehouse Schema Isolation](./use_case_warehouse_schema_isolation.md)** | Isolating schemas using `role_type = "read"` and T-SQL RBAC. |
 | **[Lakehouse OneLake Security](./use_case_lakehouse_onelake_security.md)** | Granular path filters and storage-level RLS/CLS. |

@@ -1,6 +1,6 @@
 ---
-page_title: "Use Cases: Lakehouse OneLake Security"
-subcategory: "Use Cases"
+page_title: "Lakehouse OneLake Security"
+subcategory: "Guides"
 description: |-
   Comprehensive guide to managing Microsoft Fabric Lakehouse OneLake Data Access Roles with fabricext, including simple vs. advanced modes, path filters, storage-level RLS/CLS, and shortcut delegation.
 ---
@@ -9,9 +9,9 @@ description: |-
 
 Microsoft Fabric Lakehouses store data in OneLake using open Delta Lake (Parquet) format. Unlike Warehouses, which enforce security through the T-SQL query engine, Lakehouses enforce security through **OneLake Data Access Roles**.
 
-This guide explains how [`fabricext_lakehouse_permission`](../resources/lakehouse_permission.md) manages OneLake Data Access Roles declaratively.
+This guide explains how [`fabricext_lakehouse_data_access_role`](../resources/lakehouse_data_access_role.md) manages OneLake Data Access Roles declaratively.
 
-~> **Note:** **Storage Roles vs. Catalog Sharing**: The `fabricext_lakehouse_permission` resource configures storage-layer OneLake Data Access Roles. In Microsoft Fabric, Lakehouse item discovery in the workspace catalog is governed by workspace roles or the Fabric Portal.
+~> **Note:** **Storage Roles vs. Catalog Sharing**: The `fabricext_lakehouse_data_access_role` resource configures storage-layer OneLake Data Access Roles. In Microsoft Fabric, Lakehouse item discovery in the workspace catalog is governed by workspace roles or the Fabric Portal.
 
 ---
 
@@ -48,7 +48,7 @@ When an analyst queries a Lakehouse through Spark or Power BI Direct Lake, the c
 
 ## Configuration Modes Comparison
 
-The `fabricext_lakehouse_permission` resource supports two operational modes:
+The `fabricext_lakehouse_data_access_role` resource supports two operational modes:
 
 | Feature | Simple Mode (`paths`, `actions`, `principal_ids`) | Advanced Mode (`decision_rule`, `entra_member`, `fabric_item_member`) |
 | :--- | :--- | :--- |
@@ -83,7 +83,7 @@ resource "fabricext_lakehouse_onelake_security" "bronze" {
 }
 
 # 2. Grant explicit fine-grained roles
-resource "fabricext_lakehouse_permission" "bronze_readers" {
+resource "fabricext_lakehouse_data_access_role" "bronze_readers" {
   workspace_id   = "00000000-0000-0000-0000-000000000001"
   lakehouse_name = fabricext_lakehouse_onelake_security.bronze.lakehouse_name
   role_name      = "BronzeReaders"
@@ -100,7 +100,7 @@ resource "fabricext_lakehouse_permission" "bronze_readers" {
 
 ---
 
-## Authoring Lakehouse Permissions
+## Authoring OneLake Roles
 
 ### Simple Mode Example
 
@@ -114,7 +114,7 @@ resource "fabricext_lakehouse_onelake_security" "sales" {
   remove_default_reader_role = true
 }
 
-resource "fabricext_lakehouse_permission" "sales_analysts_simple" {
+resource "fabricext_lakehouse_data_access_role" "sales_analysts_simple" {
   workspace_id   = "00000000-0000-0000-0000-000000000001"
   lakehouse_id   = fabricext_lakehouse_onelake_security.sales.lakehouse_id
   role_name      = "SalesTableReaders"
@@ -141,7 +141,7 @@ resource "fabricext_lakehouse_onelake_security" "sales" {
   remove_default_reader_role = true
 }
 
-resource "fabricext_lakehouse_permission" "sales_analysts_advanced" {
+resource "fabricext_lakehouse_data_access_role" "sales_analysts_advanced" {
   workspace_id = "00000000-0000-0000-0000-000000000001"
   lakehouse_id = fabricext_lakehouse_onelake_security.sales.lakehouse_id
   role_name    = "SalesRegionalAuditors"
@@ -187,7 +187,7 @@ resource "fabricext_lakehouse_onelake_security" "shared" {
   remove_default_reader_role = true
 }
 
-resource "fabricext_lakehouse_permission" "cross_workspace_readers" {
+resource "fabricext_lakehouse_data_access_role" "cross_workspace_readers" {
   workspace_id = "00000000-0000-0000-0000-000000000001"
   lakehouse_id = fabricext_lakehouse_onelake_security.shared.lakehouse_id
   role_name    = "CrossWorkspaceAccess"
@@ -212,7 +212,7 @@ resource "fabricext_lakehouse_permission" "cross_workspace_readers" {
 }
 ```
 
-~> **Note:** **Storage Actions vs. Item Access**: `decision_rules.actions` (`Read`, `Write`) defines the **storage-plane access granted** on the Lakehouse files. In contrast, `fabric_item_members.item_access` (`ReadAll`, `Read`) defines the **prerequisite control-plane permission** a user must hold on `source_path` to qualify for role membership.
+~> **Note:** **Storage Actions vs. Item Access**: `decision_rules.actions` (`Read`, `ReadWrite`) defines the **storage-plane access granted** on the Lakehouse files. In contrast, `fabric_item_members.item_access` (`ReadAll`, `Read`) defines the **prerequisite control-plane permission** a user must hold on `source_path` to qualify for role membership.
 
 ---
 
@@ -231,7 +231,8 @@ Under parallel Terraform execution (`for_each`), concurrent requests mutating ro
 
 | Guide | Core Focus |
 | :--- | :--- |
-| **[Use Cases Overview](./use_case_overview.md)** | Master comparison matrix and 6-tier perimeter overview. |
+| **[Access Control Playbook](./access_control_playbook.md)** | Start Here routing table and 11 verified scenario execution cards. |
+| **[Enterprise Access Control Overview](./use_case_overview.md)** | Master comparison matrix and 6-tier perimeter overview. |
 | **[Security Controls & Interactions](./use_case_controls_and_interactions.md)** | Precedence rules and override behaviors across tiers. |
 | **[Warehouse Schema Isolation](./use_case_warehouse_schema_isolation.md)** | Isolating schemas using `role_type = "read"` and T-SQL RBAC. |
 | **[Power BI Identity Flow](./use_case_powerbi_identity_propagation.md)** | End-to-end token flow to semantic models and query fallback. |

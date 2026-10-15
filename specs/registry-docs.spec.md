@@ -3,6 +3,7 @@ name: registry-documentation
 description: Behavioral specification and factual accuracy requirements for Terraform Registry documentation, Access Control Playbook, and guides.
 targets:
   - ../templates/**
+  - ../guides/**
   - ../specs/citations.md
   - ../README.md
 ---
@@ -33,6 +34,7 @@ Because `fabricext` is a community extension operating in a pre-`v1.0.0` state t
   - Lakehouses: OneLake Data Access Roles (`fabricext_lakehouse_data_access_role`, `fabricext_lakehouse_onelake_security`).
 - **REQ-DOCS-008 (No Active Item-Sharing Claims)**: Documentation, templates, guides, and README must contain zero claims that `/permissions`, `/grantPermissions`, or `/revokePermissions` exist via REST or that `fabricext` bridges them via an overlay.
 - **REQ-DOCS-009 (Honest Technical Comparison Narrative)**: Official provider comparison documentation must present an honest technical comparison focusing on OneLake security `DefaultReader` purging, RFC 9110 ETag Read-Modify-Write concurrency, multi-page pagination, and offline contract testing, with zero nonexistent REST sequence diagrams.
+- **REQ-DOCS-010 (Guides Reorganization & Phrasing Standards)**: All access control and use-case guide templates under `templates/guides/` must specify `subcategory: "Guides"` (and no guide template may retain `subcategory: "Use Cases"`), contain no `Use Cases:` prefixes in `page_title`, include `Atlas` alongside database migration tools (Flyway/Liquibase/sqlcmd), and express connectivity tools using open-ended phrasing (`any ODBC or JDBC client`).
 
 ## 4. Verification Requirements
 
@@ -53,3 +55,6 @@ Because `fabricext` is a community extension operating in a pre-`v1.0.0` state t
 
 - `[@test] ../internal/provider/registry_docs_test.go::TestRegistryDocs_HonestComparisonNarrative`
   [REQ-DOCS-009] Verifies that the comparison guide details honest differentiators (DefaultReader lifecycle, ETag concurrency, offline testing) without fake REST sequence diagrams.
+
+- `[@test] ../internal/provider/registry_docs_test.go::TestRegistryDocs_GuidesReorganizationAndPhrasing`
+  [REQ-DOCS-010] Verifies that access control and use-case guides belong to subcategory "Guides" (with zero retaining "Use Cases"), carry no "Use Cases:" title prefixes, use open-ended connectivity phrasing, include Atlas, and purge legacy role names.

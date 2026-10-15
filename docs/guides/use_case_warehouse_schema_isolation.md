@@ -1,6 +1,6 @@
 ---
-page_title: "Use Cases: Warehouse Schema Isolation"
-subcategory: "Use Cases"
+page_title: "Warehouse Schema Isolation"
+subcategory: "Guides"
 description: |-
   Technical guide to implementing granular schema isolation in Microsoft Fabric Warehouses using Fabric web portal for item connectivity and T-SQL for database RBAC, including Entra ID identity binding and declarative schema-as-code automation.
 ---
@@ -11,7 +11,7 @@ In enterprise data platforms, multi-tenant databases frequently host datasets ac
 
 This guide demonstrates how to achieve strict schema isolation in Microsoft Fabric Warehouses: granting an identity access to a single schema (e.g. `finance`) while completely hiding and denying access to all other schemas.
 
-!> **Important:** **Item Sharing via Portal UI**: Declarative item sharing via REST (`fabricext_warehouse_permission`) is deprecated because Microsoft Fabric does not offer a public item-sharing REST endpoint for Warehouses. Item-level sharing must be configured using the Fabric web portal interface, and fine-grained data access should be implemented using in-database T-SQL permissions (`GRANT`/`REVOKE`/`DENY`). Refer to the [Access Control Playbook](./access_control_playbook.md) for full scenario walkthroughs.
+!> **Important:** **Item Sharing via Portal UI**: Declarative item sharing via REST (`fabricext_warehouse_permission`) was removed in provider v0.5.0 because Microsoft Fabric does not offer a public item-sharing REST endpoint for Warehouses. Item-level sharing must be configured using the Fabric web portal interface, and fine-grained data access should be implemented using in-database T-SQL permissions (`GRANT`/`REVOKE`/`DENY`). Refer to the [Access Control Playbook](./access_control_playbook.md) for full scenario walkthroughs.
 
 ---
 
@@ -73,7 +73,7 @@ A frequent practitioner question is how Microsoft Entra ID identities map betwee
 
 ### In Terraform Providers
 
-~> **Important:** Declarative management via `fabricext_warehouse_permission` was tombstoned in v0.3.0 and is scheduled for removal in v0.5.0. For existing state, the resource can be safely detached using Terraform 1.7+ `removed` blocks:
+~> **Important:** Declarative management via `fabricext_warehouse_permission` was removed in v0.5.0. Existing Terraform state can be safely detached using Terraform 1.7+ `removed` blocks:
 
 ```hcl
 removed {
@@ -102,7 +102,7 @@ GRANT SELECT ON SCHEMA::finance TO [bob@contoso.com];
 GRANT SELECT ON SCHEMA::finance TO [external_user#EXT#@tenant.onmicrosoft.com];
 ```
 
-~> **Note:** Explicit `CREATE USER [name] FROM EXTERNAL PROVIDER` is supported in **Microsoft Fabric SQL Database**, but not in Fabric Data Warehouse (C01b, C02, C03).
+~> **Note:** Explicit `CREATE USER [name] FROM EXTERNAL PROVIDER` is supported in **Microsoft Fabric SQL Database**, but not in Fabric Data Warehouse.
 
 **Identity Resolution Rules & Caveats**:
 - **Display Names vs. UPNs**: Microsoft Entra Security Groups resolve by `displayName`. Individual user accounts **strictly require the UserPrincipalName (UPN)**.
@@ -190,7 +190,7 @@ When an Entra security group receives **Read** connectivity via the Fabric web p
 1. **OneLake Data Hub**: The Warehouse appears under the **"Shared with me"** tab and in the OneLake Data Hub catalog.
 2. **Workspace Navigation**: The user **cannot** see the parent workspace in the workspace flyout menu.
 3. **Web Query Editor**: Clicking the Warehouse opens the Web Query Editor. The object explorer renders only the schemas and tables that the user's Entra credentials have SQL permissions to view (metadata hiding). Schemas without `GRANT` permissions do not appear in the tree.
-4. **Connection Endpoints**: The user can copy the TDS connection string (`*.datawarehouse.fabric.microsoft.com`) and connect via SQL Server Management Studio (SSMS), Azure Data Studio, VS Code, Python, or DBeaver.
+4. **Connection Endpoints**: The user can copy the TDS connection string (`*.datawarehouse.fabric.microsoft.com`) and connect via any ODBC or JDBC client (such as Atlas, sqlcmd, SSMS, Azure Data Studio, VS Code, Python, or DBeaver).
 
 ---
 
@@ -198,7 +198,8 @@ When an Entra security group receives **Read** connectivity via the Fabric web p
 
 | Guide | Core Focus |
 | :--- | :--- |
-| **[Use Cases Overview](./use_case_overview.md)** | Master comparison matrix and 6-tier perimeter overview. |
+| **[Access Control Playbook](./access_control_playbook.md)** | Start Here routing table and 11 verified scenario execution cards. |
+| **[Enterprise Access Control Overview](./use_case_overview.md)** | Master comparison matrix and 6-tier perimeter overview. |
 | **[Security Controls & Interactions](./use_case_controls_and_interactions.md)** | Precedence rules and override behaviors across tiers. |
 | **[Lakehouse OneLake Security](./use_case_lakehouse_onelake_security.md)** | Granular path filters and storage-level RLS/CLS. |
 | **[Power BI Identity Flow](./use_case_powerbi_identity_propagation.md)** | End-to-end token flow to semantic models. |

@@ -16,9 +16,8 @@ body:
       label: "Component"
       description: "Which resource, data source, or module is affected?"
       options:
-        - "fabricext_warehouse_permission"
-        - "fabricext_sql_database_permission"
-        - "fabricext_lakehouse_permission"
+        - "fabricext_lakehouse_data_access_role"
+        - "fabricext_lakehouse_onelake_security"
         - "fabricext_item (data source)"
         - "modules/permissions (wrapper module)"
         - "Provider Configuration / Authentication"

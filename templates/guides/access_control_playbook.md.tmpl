@@ -1,6 +1,6 @@
 ---
-page_title: "Use Cases: Access Control Playbook"
-subcategory: "Use Cases"
+page_title: "Access Control Playbook"
+subcategory: "Guides"
 description: |-
   A practitioner guide to enterprise Microsoft Fabric access control patterns, mapping 11 common organizational personas and security perimeters to verified Terraform, portal, and T-SQL configurations.
 ---
@@ -23,7 +23,7 @@ Find your target scenario based on the engine, the identity type, and the desire
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **P1** | Warehouse | Analyst | Single schema read | Portal share (Read) + T-SQL `GRANT SELECT ON SCHEMA` | [Jump to P1](#p1-warehouse-schema-isolation) |
 | **P2** | Warehouse | Sensitive table | Single table read | Portal share (Read) + T-SQL `GRANT SELECT ON table` | [Jump to P2](#p2-warehouse-table-isolation) |
-| **P3** | Lakehouse | Analyst (Spark / Direct Lake) | Table subset + RLS/CLS | `fabricext_lakehouse_permission` OneLake Data Access Role | [Jump to P3](#p3-lakehouse-onelake-security) |
+| **P3** | Lakehouse | Analyst (Spark / Direct Lake) | Table subset + RLS/CLS | `fabricext_lakehouse_data_access_role` OneLake role | [Jump to P3](#p3-lakehouse-onelake-security) |
 | **P4** | Lakehouse / Warehouse | Business user | Power BI report only | Fixed-identity Direct Lake semantic model | [Jump to P4](#p4-power-bi-report-only-consumers) |
 | **P5** | Lakehouse | Cross-workspace team | Lakehouse shortcut | `ReadAll` item share on target lakehouse | [Jump to P5](#p5-cross-workspace-shortcuts) |
 | **P6** | Warehouse | Ingestion pipeline (SPN) | Staging schema write | Portal share (Read) + T-SQL `INSERT`/`UPDATE`/`ADMINISTER DATABASE BULK OPERATIONS` | [Jump to P6](#p6-warehouse-pipeline-ingestion) |
@@ -38,19 +38,19 @@ Find your target scenario based on the engine, the identity type, and the desire
 ## P1: Warehouse Schema Isolation
 
 - **Goal**: Grant an analyst read-only access to a single schema (e.g. `finance`) while hiding all other schemas.
-- **Provider Support**: Out of scope for automated Terraform item-sharing (`fabricext_warehouse_permission` is deprecated because Microsoft Fabric does not offer a public item-sharing REST API). Connectivity must be granted via the portal; authorization is handled in T-SQL.
+- **Provider Support**: Out of scope for automated Terraform item-sharing (`fabricext_warehouse_permission` was removed in `v0.5.0` because Microsoft Fabric does not offer a public item-sharing REST API). Connectivity must be granted via the portal; authorization is handled in T-SQL.
 - **Prerequisites**: Microsoft Entra ID Security Group for analysts; Fabric Warehouse created.
 - **Workspace Role**: None (`None`). Assigning `Admin`, `Member`, or `Contributor` grants `CONTROL` (`db_owner`), bypassing all internal SQL grants. Assigning `Viewer` grants workspace-wide `ReadData` (`db_datareader`), exposing all tables across all warehouses.
 - **Terraform Configuration**: None. Manage warehouse provisioning in `microsoft/fabric`.
 - **Portal & T-SQL Steps**:
   1. In the Fabric web portal, locate the Warehouse, click **Share**, enter the Entra Group name, and check **Read** only (do not check "Read all data using SQL").
-  2. Connect to the Warehouse TDS endpoint (port 1433) using `sqlcmd` or SSMS as a workspace Admin.
+  2. Connect to the Warehouse TDS endpoint (port 1433) using any ODBC or JDBC client (such as Atlas, sqlcmd, SSMS, Azure Data Studio, or Python) as a workspace Admin.
   3. Execute T-SQL grants:
      ```sql
      -- In Fabric Data Warehouse, users are created implicitly upon GRANT
      GRANT SELECT ON SCHEMA::finance TO [SEC-Fabric-Finance-Analysts];
      ```
-- **Managed Elsewhere**: Item share in Fabric Portal UI; T-SQL grants via CI/CD migration script (e.g., Flyway/Liquibase/sqlcmd).
+- **Managed Elsewhere**: Item share in Fabric Portal UI; T-SQL grants via CI/CD migration script (e.g., Atlas, Flyway, Liquibase, or sqlcmd).
 - **Verify**:
   ```bash
   sqlcmd -S <guid>.datawarehouse.fabric.microsoft.com -d <warehouse_name> -G -Q "SELECT TOP 5 * FROM finance.revenue;"
@@ -61,8 +61,8 @@ Find your target scenario based on the engine, the identity type, and the desire
   REVOKE SELECT ON SCHEMA::finance FROM [SEC-Fabric-Finance-Analysts];
   ```
 - **Traps**:
-  - Do not run `CREATE USER [name] FROM EXTERNAL PROVIDER`; Fabric Data Warehouse does not support `CREATE USER` and returns an error (C01b, C02).
-  - Do not assign workspace `Viewer`; it grants `CONNECT` and `ReadData` on all warehouses in the workspace (C08).
+  - Do not run `CREATE USER [name] FROM EXTERNAL PROVIDER`; Fabric Data Warehouse does not support `CREATE USER` and returns an error.
+  - Do not assign workspace `Viewer`; it grants `CONNECT` and `ReadData` on all warehouses in the workspace.
 - **Why Least Privilege**: Decoupling connectivity (portal Read) from data authorization (T-SQL schema grant) prevents unauthorized exposure of adjacent domains within the same database engine.
 
 ---
@@ -76,11 +76,12 @@ Find your target scenario based on the engine, the identity type, and the desire
 - **Terraform Configuration**: None.
 - **Portal & T-SQL Steps**:
   1. Share the Warehouse via the Fabric portal with **Read** connectivity only.
-  2. Execute T-SQL table grants:
+  2. Connect to the Warehouse TDS endpoint (port 1433) using any ODBC or JDBC client (such as Atlas, sqlcmd, SSMS, Azure Data Studio, or Python).
+  3. Execute T-SQL table grants:
      ```sql
      GRANT SELECT ON OBJECT::sales.public_metrics TO [SEC-Fabric-Sales-Auditors];
      ```
-- **Managed Elsewhere**: Item share in Fabric Portal UI; T-SQL permissions via SQL deployment tools.
+- **Managed Elsewhere**: Item share in Fabric Portal UI; T-SQL permissions via SQL deployment tools (e.g., Atlas, Flyway, Liquibase, or sqlcmd).
 - **Verify**:
   ```bash
   sqlcmd -S <guid>.datawarehouse.fabric.microsoft.com -d <warehouse_name> -G -Q "SELECT TOP 5 * FROM sales.public_metrics;"
@@ -98,18 +99,18 @@ Find your target scenario based on the engine, the identity type, and the desire
 ## P3: Lakehouse OneLake Security
 
 - **Goal**: Grant read access to specific Delta tables and folders in a Lakehouse with Row-Level Security (RLS) and Column-Level Security (CLS).
-- **Provider Support**: Fully supported via `fabricext_lakehouse_permission` and `fabricext_lakehouse_onelake_security`.
+- **Provider Support**: Fully supported via `fabricext_lakehouse_data_access_role` and `fabricext_lakehouse_onelake_security`.
 - **Prerequisites**: OneLake Data Access Security enabled in Lakehouse via Fabric web portal (**Manage OneLake security**).
-- **Workspace Role**: `Viewer` or `None` (with item `Read` permission). Workspace `Admin`, `Member`, and `Contributor` bypass OneLake security roles completely (C21).
+- **Workspace Role**: `Viewer` or `None` (with item `Read` permission). Workspace `Admin`, `Member`, and `Contributor` bypass OneLake security roles completely.
 - **Terraform Configuration**:
   ```hcl
   resource "fabricext_lakehouse_onelake_security" "main" {
-    workspace_id                = var.workspace_id
-    lakehouse_id                = var.lakehouse_id
-    remove_default_reader_role  = true
+    workspace_id               = var.workspace_id
+    lakehouse_id               = var.lakehouse_id
+    remove_default_reader_role = true
   }
 
-  resource "fabricext_lakehouse_permission" "uk_analysts" {
+  resource "fabricext_lakehouse_data_access_role" "uk_analysts" {
     depends_on   = [fabricext_lakehouse_onelake_security.main]
     workspace_id = var.workspace_id
     lakehouse_id = var.lakehouse_id
@@ -132,9 +133,9 @@ Find your target scenario based on the engine, the identity type, and the desire
 
     column_constraints = [
       {
-        table_name     = "silver_sales"
-        column_names   = ["SaleID", "Date", "Country", "Amount"]
-        column_effect  = "Permit"
+        table_name    = "silver_sales"
+        column_names  = ["SaleID", "Date", "Country", "Amount"]
+        column_effect = "Permit"
       }
     ]
 
@@ -156,12 +157,12 @@ Find your target scenario based on the engine, the identity type, and the desire
   assert df.filter("Country != 'UK'").count() == 0
   ```
 - **Undo**:
-  Destroy the Terraform resource `fabricext_lakehouse_permission.uk_analysts`.
+  Destroy the Terraform resource `fabricext_lakehouse_data_access_role.uk_analysts`.
 - **Traps**:
-  - If `remove_default_reader_role` is not set to `true`, the auto-generated `DefaultReader` role grants full table reads to all `ReadAll` holders, defeating custom RLS/CLS (C22).
-  - RLS/CLS cannot be applied to roles with `ReadWrite` action; `fabricext` rejects this at plan time (C16).
-  - Role names must be alphanumeric and length $\le 128$ characters (C28).
-- **Why Least Privilege**: OneLake security roles enforce storage-level access across Spark, SQL Analytics Endpoints, and Power BI Direct Lake without maintaining duplicate access control engines (C25).
+  - If `remove_default_reader_role` is not set to `true`, the auto-generated `DefaultReader` role grants full table reads to all `ReadAll` holders, defeating custom RLS/CLS.
+  - RLS/CLS cannot be applied to roles with `ReadWrite` action; `fabricext` rejects this at plan time.
+  - Role names must be alphanumeric and length $\le 128$ characters.
+- **Why Least Privilege**: OneLake security roles enforce storage-level access across Spark, SQL Analytics Endpoints, and Power BI Direct Lake without maintaining duplicate access control engines.
 
 ---
 
@@ -175,7 +176,7 @@ Find your target scenario based on the engine, the identity type, and the desire
 - **Portal & Architecture Steps**:
   1. Build a custom Power BI semantic model using **Direct Lake** in Fixed Identity mode (where the dataset owner or Service Principal connects to the storage).
   2. Publish the report to an organizational Power BI App.
-  3. Grant report consumers access to the Power BI App without granting `Build` permission on the semantic model (C41).
+  3. Grant report consumers access to the Power BI App without granting `Build` permission on the semantic model.
 - **Managed Elsewhere**: Power BI App audience configuration in portal.
 - **Verify**:
   Confirm that business users can render the report visuals, but cannot discover the Warehouse or Lakehouse items in the OneLake Data Hub.
@@ -190,14 +191,14 @@ Find your target scenario based on the engine, the identity type, and the desire
 ## P5: Cross Workspace Shortcuts
 
 - **Goal**: Enable Lakehouse A in Workspace A to consume Delta tables from Lakehouse B in Workspace B via OneLake shortcuts without duplicating data.
-- **Provider Support**: Target Lakehouse OneLake security managed via `fabricext_lakehouse_permission`.
+- **Provider Support**: Target Lakehouse OneLake security managed via `fabricext_lakehouse_data_access_role`.
 - **Prerequisites**: Lakehouse A and Lakehouse B created.
 - **Workspace Role**: `Viewer` or `None` on Workspace B.
 - **Terraform Configuration**:
   ```hcl
   # In Workspace B (Target Lakehouse):
   # Grant virtualized member access derived from item ReadAll sharing
-  resource "fabricext_lakehouse_permission" "cross_workspace_readers" {
+  resource "fabricext_lakehouse_data_access_role" "cross_workspace_readers" {
     workspace_id = var.target_workspace_id
     lakehouse_id = var.target_lakehouse_id
     role_name    = "CrossWorkspaceReaders"
@@ -224,7 +225,7 @@ Find your target scenario based on the engine, the identity type, and the desire
 - **Undo**:
   Delete the shortcut in Lakehouse A or remove the role in Lakehouse B.
 - **Traps**:
-  - You cannot define OneLake security permissions directly on a OneLake-to-OneLake shortcut; permissions on the folder containing the shortcut combine with permissions defined on the target path (C14).
+  - You cannot define OneLake security permissions directly on a OneLake-to-OneLake shortcut; permissions on the folder containing the shortcut combine with permissions defined on the target path.
 - **Why Least Privilege**: Allows centralized master data management without creating fragmented, out-of-sync ETL copies.
 
 ---
@@ -238,18 +239,18 @@ Find your target scenario based on the engine, the identity type, and the desire
 - **Terraform Configuration**: None.
 - **Portal & T-SQL Steps**:
   1. Share the Warehouse via the Fabric portal with the Service Principal with **Read** access.
-  2. Execute T-SQL grants over TDS:
+  2. Execute T-SQL grants over TDS using any ODBC or JDBC client (such as Atlas, sqlcmd, SSMS, Azure Data Studio, or Python):
      ```sql
      GRANT INSERT, UPDATE, DELETE ON SCHEMA::staging TO [ETL-Ingestion-SPN];
-     GRANT ADMINISTER DATABASE BULK OPERATIONS TO [ETL-Ingestion-SPN]; -- Required for COPY INTO (C48)
+     GRANT ADMINISTER DATABASE BULK OPERATIONS TO [ETL-Ingestion-SPN]; -- Required for COPY INTO
      ```
-- **Managed Elsewhere**: T-SQL schema migrations.
+- **Managed Elsewhere**: T-SQL schema migrations (e.g., Atlas, Flyway, Liquibase, or sqlcmd).
 - **Verify**:
   Execute ingestion pipeline via Service Principal bearer token; confirm writes to `staging` succeed while writes to `production` fail.
 - **Undo**:
   `REVOKE INSERT, UPDATE, DELETE ON SCHEMA::staging FROM [ETL-Ingestion-SPN];`
 - **Traps**:
-  - `COPY INTO` requires `ADMINISTER DATABASE BULK OPERATIONS` data plane permission when the principal does not hold `CONTROL` (C48).
+  - `COPY INTO` requires `ADMINISTER DATABASE BULK OPERATIONS` data plane permission when the principal does not hold `CONTROL`.
 - **Why Least Privilege**: Prevents automated ingestion pipelines from overwriting production consumption tables or altering database schemas.
 
 ---
@@ -257,30 +258,30 @@ Find your target scenario based on the engine, the identity type, and the desire
 ## P7: SQL Database Application Backend
 
 - **Goal**: Allow an application backend service principal to read and write tables in a Microsoft Fabric SQL Database.
-- **Provider Support**: Out of scope for automated Terraform item-sharing (`fabricext_sql_database_permission` is deprecated). Configured via Fabric Portal Share quick action + T-SQL.
+- **Provider Support**: Out of scope for automated Terraform item-sharing (`fabricext_sql_database_permission` was removed in `v0.5.0`). Configured via Fabric Portal Share quick action + T-SQL.
 - **Prerequisites**: Fabric SQL Database; Microsoft Entra Service Principal.
 - **Workspace Role**: None (`None`).
 - **Terraform Configuration**: None.
 - **Portal & T-SQL Steps**:
-  1. Share the SQL Database in the Fabric portal using the **Share** quick action with minimum permissions (C12, C47).
-  2. Connect to the SQL Database as an Entra admin user and create the database user:
+  1. Share the SQL Database in the Fabric portal using the **Share** quick action with minimum permissions.
+  2. Connect to the SQL Database as an Entra admin user using any ODBC or JDBC client (such as Atlas, sqlcmd, SSMS, Azure Data Studio, or Python) and create the database user:
      ```sql
      -- When connected as an Entra user with Directory Readers:
      CREATE USER [app-backend-spn] FROM EXTERNAL PROVIDER;
 
-     -- Alternatively, when connected via pipeline service principal (C04):
+     -- Alternatively, when connected via pipeline service principal:
      -- CREATE USER [app-backend-spn] WITH SID = <spn_sid>, TYPE = E;
 
      ALTER ROLE db_datareader ADD MEMBER [app-backend-spn];
      ALTER ROLE db_datawriter ADD MEMBER [app-backend-spn];
      ```
-- **Managed Elsewhere**: Fabric portal Share quick action; SQL migration scripts.
+- **Managed Elsewhere**: Fabric portal Share quick action; T-SQL schema migrations (e.g., Atlas, Flyway, Liquibase, or sqlcmd).
 - **Verify**:
-  Connect using the application connection string; verify read and write operations.
+  Connect using the application connection string via any ODBC or JDBC client (such as Atlas, sqlcmd, SSMS, Azure Data Studio, or Python); verify read and write operations.
 - **Undo**:
   `DROP USER [app-backend-spn];`
 - **Traps**:
-  - Propagation of item-level sharing for Fabric SQL Databases can take up to 2 hours (C47).
+  - Propagation of item-level sharing for Fabric SQL Databases can take up to 2 hours.
 - **Why Least Privilege**: Keeps operational OLTP application accounts isolated from workspace administrative privileges.
 
 ---
@@ -305,11 +306,11 @@ Find your target scenario based on the engine, the identity type, and the desire
 - **Portal & T-SQL Steps**: None.
 - **Managed Elsewhere**: Core workspace governance in `microsoft/fabric`.
 - **Verify**:
-  Inspect workspace access in Fabric Admin portal or via REST API (C49).
+  Inspect workspace access in Fabric Admin portal or via REST API.
 - **Undo**:
   Destroy `fabric_workspace_role_assignment.platform_engineers`.
 - **Traps**:
-  - Workspace `Admin` confers complete control over all workspace items and bypasses all OneLake and SQL permissions (C09, C21).
+  - Workspace `Admin` confers complete control over all workspace items and bypasses all OneLake and SQL permissions.
 - **Why Least Privilege**: Restricts broad workspace-level roles strictly to infrastructure and platform custodians.
 
 ---
@@ -317,13 +318,13 @@ Find your target scenario based on the engine, the identity type, and the desire
 ## P9: Semantic Model Authoring
 
 - **Goal**: Allow business intelligence developers to author and publish semantic models against curated Lakehouse tables.
-- **Provider Support**: OneLake table access managed via `fabricext_lakehouse_permission`; workspace roles managed via `microsoft/fabric`.
+- **Provider Support**: OneLake table access managed via `fabricext_lakehouse_data_access_role`; workspace roles managed via `microsoft/fabric`.
 - **Prerequisites**: Curated Lakehouse; Entra security group.
 - **Workspace Role**: `Contributor` or `Viewer` + `Build` permission on semantic models.
 - **Terraform Configuration**:
   ```hcl
   # In production workspaces, assign Viewer role and define explicit OneLake security roles
-  resource "fabricext_lakehouse_permission" "bi_readers" {
+  resource "fabricext_lakehouse_data_access_role" "bi_readers" {
     workspace_id = var.workspace_id
     lakehouse_id = var.lakehouse_id
     role_name    = "BIDevelopers"
@@ -349,9 +350,9 @@ Find your target scenario based on the engine, the identity type, and the desire
 - **Verify**:
   Confirm BI developer can connect Power BI Desktop to curated tables and cannot read raw or staging folders.
 - **Undo**:
-  Destroy `fabricext_lakehouse_permission.bi_readers`.
+  Destroy `fabricext_lakehouse_data_access_role.bi_readers`.
 - **Traps**:
-  - Assigning Contributor in the production workspace bypasses OneLake security roles (C21). Use dedicated development workspaces for authors.
+  - Assigning Contributor in the production workspace bypasses OneLake security roles. Use dedicated development workspaces for authors.
 - **Why Least Privilege**: Protects raw data ingestion perimeters while enabling self-service reporting on certified datasets.
 
 ---
@@ -359,12 +360,12 @@ Find your target scenario based on the engine, the identity type, and the desire
 ## P10: External B2B Guests
 
 - **Goal**: Securely share specific Lakehouse tables with an external partner Entra ID B2B guest account.
-- **Provider Support**: Fully supported via `fabricext_lakehouse_permission`.
-- **Prerequisites**: Fabric tenant settings configured to allow external B2B guest sharing (C45); Guest user invited to Entra tenant.
+- **Provider Support**: Fully supported via `fabricext_lakehouse_data_access_role`.
+- **Prerequisites**: Fabric tenant settings configured to allow external B2B guest sharing; Guest user invited to Entra tenant.
 - **Workspace Role**: None (`None`).
 - **Terraform Configuration**:
   ```hcl
-  resource "fabricext_lakehouse_permission" "partner_readers" {
+  resource "fabricext_lakehouse_data_access_role" "partner_readers" {
     workspace_id = var.workspace_id
     lakehouse_id = var.lakehouse_id
     role_name    = "PartnerAuditors"
@@ -390,9 +391,9 @@ Find your target scenario based on the engine, the identity type, and the desire
 - **Verify**:
   External guest signs into Fabric portal; verifies visibility of `Tables/audit_export` only.
 - **Undo**:
-  Destroy `fabricext_lakehouse_permission.partner_readers`.
+  Destroy `fabricext_lakehouse_data_access_role.partner_readers`.
 - **Traps**:
-  - B2B guests must be invited into the resource tenant; use the guest user's Object ID in the resource tenant (C29).
+  - B2B guests must be invited into the resource tenant; use the guest user's Object ID in the resource tenant.
 - **Why Least Privilege**: Limits external access strictly to targeted export tables without exposing workspace internal assets.
 
 ---
@@ -401,8 +402,8 @@ Find your target scenario based on the engine, the identity type, and the desire
 
 - **Goal**: Enable an automated GitHub Actions or Azure DevOps pipeline Service Principal to deploy Fabric workspace items.
 - **Provider Support**: Out of scope for `fabricext`. Managed via `microsoft/fabric`.
-- **Prerequisites**: Service Principal tenant setting enabled in Fabric Admin Portal ("Allow service principals to use Fabric APIs", C50).
-- **Workspace Role**: `Contributor` or `Admin` across deployment pipeline stages (C44).
+- **Prerequisites**: Service Principal tenant setting enabled in Fabric Admin Portal ("Allow service principals to use Fabric APIs").
+- **Workspace Role**: `Contributor` or `Admin` across deployment pipeline stages.
 - **Terraform Configuration**:
   ```hcl
   resource "fabric_workspace_role_assignment" "cicd_spn" {
@@ -421,5 +422,5 @@ Find your target scenario based on the engine, the identity type, and the desire
 - **Undo**:
   Destroy `fabric_workspace_role_assignment.cicd_spn`.
 - **Traps**:
-  - Fabric APIs will reject Service Principal calls with 401/403 if the tenant setting is disabled in the Admin portal (C50).
+  - Fabric APIs will reject Service Principal calls with 401/403 if the tenant setting is disabled in the Admin portal.
 - **Why Least Privilege**: Scopes automated deployment identities to Contributor privileges in specific workspace environments.
