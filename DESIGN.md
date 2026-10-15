@@ -41,6 +41,7 @@ Microsoft's official [`microsoft/fabric` Terraform provider](https://registry.te
 | **REQ-008** | Document contributor extensibility, roadmap/deprecation policy, and security posture | [`CONTRIBUTING.md`](CONTRIBUTING.md), [`ROADMAP.md`](ROADMAP.md), [`SECURITY.md`](SECURITY.md) | `mise run lint` |
 | **REQ-DOCS-008** | Purge active item-sharing implications for Warehouse and SQL Database across documentation, guides, module, and examples | `templates/**`, `docs/**`, `guides/`, `examples/`, `modules/permissions/` | `go test -run TestRegistryDocs_NoActiveItemSharingClaims`, `mise run docs:check` |
 | **REQ-DOCS-009** | Document honest technical comparison narrative against official provider, detailing OneLake zero-trust purging, ETag concurrency, and contract testing | `templates/guides/official_provider_comparison.md.tmpl`, `guides/official_provider_comparison.md` | `go test -run TestRegistryDocs_HonestComparisonNarrative`, `mise run docs:check` |
+| **REQ-DOCS-010** | Reorganize access control guides under subcategory Guides, remove Use Cases title prefixes, apply open-ended connectivity phrasing, include Atlas, and purge legacy role names | `templates/guides/`, `docs/guides/`, `guides/` | `go test -run TestRegistryDocs_GuidesReorganizationAndPhrasing`, `mise run docs:check` |
 
 ---
 

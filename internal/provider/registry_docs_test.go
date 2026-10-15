@@ -221,3 +221,91 @@ func TestRegistryDocs_HonestComparisonNarrative(t *testing.T) {
 		}
 	}
 }
+
+// TestRegistryDocs_GuidesReorganizationAndPhrasing verifies that all guides are organized under
+// subcategory "Guides", carry no "Use Cases:" prefix in titles, use open-ended connectivity phrasing,
+// include Atlas alongside SQL migration tools, and contain zero legacy fabricext_lakehouse_permission references.
+func TestRegistryDocs_GuidesReorganizationAndPhrasing(t *testing.T) {
+	guidesDir := "../../templates/guides"
+	entries, err := os.ReadDir(guidesDir)
+	if err != nil {
+		t.Fatalf("failed to read guides dir: %v", err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md.tmpl") {
+			continue
+		}
+
+		filePath := filepath.Join(guidesDir, entry.Name())
+		content, err := os.ReadFile(filePath)
+		if err != nil {
+			t.Fatalf("failed to read %s: %v", filePath, err)
+		}
+		str := string(content)
+
+		// 1. Verify no file has "Use Cases" subcategory
+		if strings.Contains(str, `subcategory: "Use Cases"`) {
+			t.Errorf("guide %s still has subcategory: %q", entry.Name(), "Use Cases")
+		}
+
+		// Former use case files and playbook must be in subcategory "Guides"
+		if strings.HasPrefix(entry.Name(), "use_case_") || entry.Name() == "access_control_playbook.md.tmpl" {
+			if !strings.Contains(str, `subcategory: "Guides"`) {
+				t.Errorf("guide %s should have subcategory: %q", entry.Name(), "Guides")
+			}
+		}
+
+		// 2. Verify no "Use Cases:" prefix in page_title
+		if strings.Contains(str, `page_title: "Use Cases:`) {
+			t.Errorf("guide %s still has 'Use Cases:' prefix in page_title", entry.Name())
+		}
+
+		// 3. Verify zero legacy fabricext_lakehouse_permission references
+		if strings.Contains(str, "fabricext_lakehouse_permission") {
+			t.Errorf("guide %s still contains legacy 'fabricext_lakehouse_permission'", entry.Name())
+		}
+	}
+
+	// 4. Verify open-ended connectivity phrasing and Atlas in key guides
+	keyGuides := []string{
+		"../../templates/guides/access_control_playbook.md.tmpl",
+		"../../templates/guides/use_case_warehouse_schema_isolation.md.tmpl",
+	}
+
+	citationPattern := regexp.MustCompile(`\(C[0-9]`)
+
+	for _, path := range keyGuides {
+		content, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("failed to read %s: %v", path, err)
+		}
+		str := string(content)
+
+		if !strings.Contains(str, "any ODBC or JDBC client") && !strings.Contains(str, "Any ODBC or JDBC client") {
+			t.Errorf("guide %s missing open-ended connectivity phrasing ('any ODBC or JDBC client')", path)
+		}
+
+		if !strings.Contains(str, "Atlas") {
+			t.Errorf("guide %s missing 'Atlas' tool reference", path)
+		}
+
+		// 5. Verify zero raw citation codes leak into user-facing guides
+		if citationPattern.MatchString(str) {
+			t.Errorf("guide %s contains unpurged raw citation code (e.g., (Cxx))", path)
+		}
+	}
+
+	// 6. Verify companion guide granular_access_control.md
+	compPath := "../../guides/granular_access_control.md"
+	compContent, err := os.ReadFile(compPath)
+	if err == nil {
+		compStr := string(compContent)
+		if strings.Contains(compStr, `subcategory: "Use Cases"`) {
+			t.Errorf("companion guide %s still has subcategory: %q", compPath, "Use Cases")
+		}
+		if citationPattern.MatchString(compStr) {
+			t.Errorf("companion guide %s contains unpurged raw citation code", compPath)
+		}
+	}
+}

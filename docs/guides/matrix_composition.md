@@ -2,7 +2,7 @@
 page_title: "Declarative Matrix Composition"
 subcategory: "Guides"
 description: |-
-  How to declaratively manage workspace-level permission matrices across Warehouses, SQL Databases, and Lakehouses using native HCL for_each and the reusable permissions module.
+  How to declaratively manage workspace-level permission matrices across Lakehouses using native HCL for_each and the reusable permissions module.
 ---
 
 # Declarative Matrix Composition
@@ -17,11 +17,11 @@ This guide outlines architectural patterns for composing permissions matrices ac
 
 Following HashiCorp Provider Design Principles, each active `fabricext_*` resource manages a single, atomic OneLake security component:
 
-- `fabricext_lakehouse_permission`: Manages a single OneLake Data Access Role on a Lakehouse.
+- `fabricext_lakehouse_data_access_role`: Manages a single OneLake Data Access Role on a Lakehouse.
 - `fabricext_lakehouse_onelake_security`: Manages OneLake Data Access Security enablement verification and `DefaultReader` role purging.
 - `fabricext_item`: (Data Source) Resolves Microsoft Fabric items by workspace and display name.
 
-~> **Note:** Early prototype resources `fabricext_warehouse_permission` and `fabricext_sql_database_permission` were tombstoned in v0.3.0 and are scheduled for removal in v0.5.0 because Microsoft Fabric does not offer public item-sharing REST APIs for Warehouses or SQL Databases. Existing configurations should detach them using Terraform 1.7+ `removed` blocks.
+~> **Note:** Early prototype resources `fabricext_warehouse_permission` and `fabricext_sql_database_permission` were removed in v0.5.0 because Microsoft Fabric does not offer public item-sharing REST APIs for Warehouses or SQL Databases. Existing configurations should detach them using Terraform 1.7+ `removed` blocks.
 
 This atomic resource model decouples individual permission bindings from one another. An issue granting permissions to one item does not block or destroy grants on unrelated items.
 
@@ -90,7 +90,7 @@ resource "fabricext_lakehouse_onelake_security" "security" {
   remove_default_reader_role = true
 }
 
-resource "fabricext_lakehouse_permission" "roles" {
+resource "fabricext_lakehouse_data_access_role" "roles" {
   for_each = local.lakehouse_roles
 
   workspace_id   = local.workspace_id
@@ -437,7 +437,8 @@ Entries within `fabric_item_members` support:
 
 | Guide | Core Focus |
 | :--- | :--- |
-| **[Use Cases Overview](use_case_overview.md)** | Master comparison matrix and 6-tier perimeter overview. |
+| **[Access Control Playbook](access_control_playbook.md)** | Start Here routing table and 11 verified scenario execution cards. |
+| **[Enterprise Access Control Overview](use_case_overview.md)** | Master comparison matrix and 6-tier perimeter overview. |
 | **[Security Controls & Interactions](use_case_controls_and_interactions.md)** | Precedence rules and override behaviors across tiers. |
 | **[Warehouse Schema Isolation](use_case_warehouse_schema_isolation.md)** | Least-privilege `read` connectivity, Entra ID naming, and SQL RBAC. |
 | **[Lakehouse OneLake Security](use_case_lakehouse_onelake_security.md)** | Data Access Roles, path filters, storage RLS/CLS, and shortcuts. |
