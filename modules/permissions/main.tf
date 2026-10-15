@@ -4,40 +4,6 @@
 locals {
   uuid_regex = "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
 
-  warehouse_permissions = {
-    for entry in flatten([
-      for wh_key, roles in coalesce(var.fabric_permissions_matrix.warehouses, {}) : [
-        for role_type, principals in coalesce(roles, {}) : [
-          for p in coalesce(principals, []) : {
-            key            = "${wh_key}/${coalesce(p.type, "Group")}/${p.id}"
-            warehouse_name = can(regex(local.uuid_regex, wh_key)) ? null : wh_key
-            warehouse_id   = can(regex(local.uuid_regex, wh_key)) ? wh_key : null
-            role_type      = role_type
-            principal_id   = p.id
-            principal_type = coalesce(p.type, "Group")
-          }
-        ]
-      ]
-    ]) : entry.key => entry
-  }
-
-  sql_database_permissions = {
-    for entry in flatten([
-      for db_key, roles in coalesce(var.fabric_permissions_matrix.sql_databases, {}) : [
-        for role_type, principals in coalesce(roles, {}) : [
-          for p in coalesce(principals, []) : {
-            key               = "${db_key}/${coalesce(p.type, "Group")}/${p.id}"
-            sql_database_name = can(regex(local.uuid_regex, db_key)) ? null : db_key
-            sql_database_id   = can(regex(local.uuid_regex, db_key)) ? db_key : null
-            role_type         = role_type
-            principal_id      = p.id
-            principal_type    = coalesce(p.type, "Group")
-          }
-        ]
-      ]
-    ]) : entry.key => entry
-  }
-
   lakehouse_permissions = {
     for entry in flatten([
       for lh_key, roles in coalesce(var.fabric_permissions_matrix.lakehouses, {}) : [
@@ -78,7 +44,7 @@ resource "fabricext_lakehouse_onelake_security" "this" {
   remove_default_reader_role = coalesce(var.fabric_permissions_matrix.remove_lakehouse_default_reader_role, true)
 }
 
-resource "fabricext_lakehouse_permission" "this" {
+resource "fabricext_lakehouse_data_access_role" "this" {
   for_each = local.lakehouse_permissions
 
   workspace_id   = var.fabric_permissions_matrix.workspace_id

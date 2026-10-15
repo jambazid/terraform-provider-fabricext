@@ -483,9 +483,7 @@ func (p *FabricProvider) Configure(ctx context.Context, req provider.ConfigureRe
 // Resources returns the managed resource constructors registered with the provider.
 func (p *FabricProvider) Resources(_ context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
-		NewWarehousePermissionResource,
-		NewSQLDatabasePermissionResource,
-		NewLakehousePermissionResource,
+		NewLakehouseDataAccessRoleResource,
 		NewLakehouseOnelakeSecurityResource,
 	}
 }

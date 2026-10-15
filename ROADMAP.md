@@ -10,12 +10,12 @@
 
 | Artifact | Type | Fabric Item Type | Underlying Fabric API Surface | Status |
 | :--- | :--- | :--- | :--- | :--- |
-| `fabricext_lakehouse_permission` | Resource | `Lakehouse` | OneLake Data Access Security (`GET` & `PUT /dataAccessRoles` with per-item mutex & `If-Match` ETag RMW) | Active (`v0.1.x`) |
+| `fabricext_lakehouse_data_access_role` | Resource | `Lakehouse` | OneLake Data Access Security (`GET` & `PUT /dataAccessRoles` with per-item mutex & `If-Match` ETag RMW) | Active (`v0.5.0`) |
 | `fabricext_lakehouse_onelake_security` | Resource | `Lakehouse` | OneLake Data Access Security Enablement Verification & `DefaultReader` Purge | Active (`v0.3.x`) |
 | `fabricext_item` | Data Source | `Warehouse`, `Lakehouse`, `SQLDatabase`, `SQLEndpoint`, `SemanticModel` | Workspace Items (`GET /v1/workspaces/{workspaceId}/items?type={type}`) | Active (`v0.1.x`) |
 | `modules/permissions` | HCL Module | `Lakehouse` | Flattens declarative workspace Lakehouse role matrix into `for_each` resource bindings | Active (`v0.1.x`) |
-| `fabricext_warehouse_permission` | Resource | `Warehouse` | REST API unsupported in Microsoft Fabric; configured via portal UI and in-database T-SQL | Tombstoned (`v0.3.0`, removal `v0.5.0`) |
-| `fabricext_sql_database_permission` | Resource | `SQLDatabase` | REST API unsupported in Microsoft Fabric; configured via portal UI and in-database SQL roles | Tombstoned (`v0.3.0`, removal `v0.5.0`) |
+| `fabricext_warehouse_permission` | Resource | `Warehouse` | REST API unsupported in Microsoft Fabric; configured via portal UI and in-database T-SQL | Removed (`v0.5.0`) |
+| `fabricext_sql_database_permission` | Resource | `SQLDatabase` | REST API unsupported in Microsoft Fabric; configured via portal UI and in-database SQL roles | Removed (`v0.5.0`) |
 
 ---
 

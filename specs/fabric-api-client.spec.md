@@ -1,6 +1,6 @@
 ---
 name: Microsoft Fabric REST API Client and OpenAPI Contract Mock
-description: Paginated item lookup cache, Retry-After HTTP backoff, Warehouse/SQLDatabase permission CRUD, Lakehouse ETag RMW concurrency, and kin-openapi contract validation
+description: Paginated item lookup cache, Retry-After HTTP backoff, Lakehouse ETag RMW concurrency, and kin-openapi contract validation
 targets:
   - ../internal/client/fabric_client.go
   - ../internal/client/fabric_client_test.go

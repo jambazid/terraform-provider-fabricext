@@ -26,12 +26,12 @@ description: |-
 
 ## Migrating to Official `microsoft/fabric`
 
-When standardizing on Microsoft's official provider (`registry.terraform.io/microsoft/fabric`) with `preview = true`, you can migrate existing roles managed by `fabricext_lakehouse_permission` to `fabric_onelake_data_access_security` with **zero role recreation or downtime** using Terraform 1.7+ `removed` and `import` blocks:
+When standardizing on Microsoft's official provider (`registry.terraform.io/microsoft/fabric`) with `preview = true`, you can migrate existing roles managed by `fabricext_lakehouse_data_access_role` to `fabric_onelake_data_access_security` with **zero role recreation or downtime** using Terraform 1.7+ `removed` and `import` blocks:
 
 ```hcl
 # 1. Detach from fabricext state without deleting the role in Fabric
 removed {
-  from = fabricext_lakehouse_permission.bronze_readers
+  from = fabricext_lakehouse_data_access_role.bronze_readers
 
   lifecycle {
     destroy = false

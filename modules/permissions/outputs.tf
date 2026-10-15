@@ -11,9 +11,14 @@ output "sql_database_permission_ids" {
   value       = {}
 }
 
-output "lakehouse_permission_ids" {
+output "lakehouse_data_access_role_ids" {
   description = "Map of flattened Lakehouse Data Access Role keys to composite resource IDs."
-  value       = { for k, v in fabricext_lakehouse_permission.this : k => v.id }
+  value       = { for k, v in fabricext_lakehouse_data_access_role.this : k => v.id }
+}
+
+output "lakehouse_permission_ids" {
+  description = "Deprecated alias for lakehouse_data_access_role_ids retained for backwards compatibility."
+  value       = { for k, v in fabricext_lakehouse_data_access_role.this : k => v.id }
 }
 
 output "lakehouse_onelake_security_ids" {

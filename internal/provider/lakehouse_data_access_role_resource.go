@@ -26,11 +26,11 @@ import (
 )
 
 var (
-	_ resource.Resource                   = &LakehousePermissionResource{}
-	_ resource.ResourceWithConfigure      = &LakehousePermissionResource{}
-	_ resource.ResourceWithImportState    = &LakehousePermissionResource{}
-	_ resource.ResourceWithValidateConfig = &LakehousePermissionResource{}
-	_ resource.ResourceWithModifyPlan     = &LakehousePermissionResource{}
+	_ resource.Resource                   = &LakehouseDataAccessRoleResource{}
+	_ resource.ResourceWithConfigure      = &LakehouseDataAccessRoleResource{}
+	_ resource.ResourceWithImportState    = &LakehouseDataAccessRoleResource{}
+	_ resource.ResourceWithValidateConfig = &LakehouseDataAccessRoleResource{}
+	_ resource.ResourceWithModifyPlan     = &LakehouseDataAccessRoleResource{}
 )
 
 var (
@@ -71,8 +71,8 @@ var (
 	fabricItemMemberElemType = types.ObjectType{AttrTypes: fabricItemMemberAttrTypes}
 )
 
-// LakehousePermissionResource manages a OneLake Data Access Role on a Microsoft Fabric Lakehouse.
-type LakehousePermissionResource struct {
+// LakehouseDataAccessRoleResource manages a OneLake Data Access Role on a Microsoft Fabric Lakehouse.
+type LakehouseDataAccessRoleResource struct {
 	client   *client.FabricClient
 	tenantID string
 }
@@ -113,8 +113,8 @@ type FabricItemMemberModel struct {
 	ItemAccess types.Set    `tfsdk:"item_access"`
 }
 
-// LakehousePermissionResourceModel describes the Terraform state model for fabricext_lakehouse_permission.
-type LakehousePermissionResourceModel struct {
+// LakehouseDataAccessRoleResourceModel describes the Terraform state model for fabricext_lakehouse_data_access_role.
+type LakehouseDataAccessRoleResourceModel struct {
 	ID            types.String `tfsdk:"id"`
 	WorkspaceID   types.String `tfsdk:"workspace_id"`
 	LakehouseName types.String `tfsdk:"lakehouse_name"`
@@ -134,18 +134,18 @@ type LakehousePermissionResourceModel struct {
 	FabricItemMember types.Set  `tfsdk:"fabric_item_member"`
 }
 
-// NewLakehousePermissionResource constructs a new fabricext_lakehouse_permission resource.
-func NewLakehousePermissionResource() resource.Resource {
-	return &LakehousePermissionResource{}
+// NewLakehouseDataAccessRoleResource constructs a new fabricext_lakehouse_data_access_role resource.
+func NewLakehouseDataAccessRoleResource() resource.Resource {
+	return &LakehouseDataAccessRoleResource{}
 }
 
 // Metadata sets the resource type name.
-func (r *LakehousePermissionResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
-	resp.TypeName = req.ProviderTypeName + "_lakehouse_permission"
+func (r *LakehouseDataAccessRoleResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
+	resp.TypeName = req.ProviderTypeName + "_lakehouse_data_access_role"
 }
 
-// Schema defines the schema for fabricext_lakehouse_permission.
-func (r *LakehousePermissionResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
+// Schema defines the schema for fabricext_lakehouse_data_access_role.
+func (r *LakehouseDataAccessRoleResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Description: "Manages a OneLake Data Access Role on a Microsoft Fabric Lakehouse to grant fine-grained folder, table, row-level (RLS), and column-level (CLS) access control to Microsoft Entra users, groups, service principals, or managed identities.",
 		MarkdownDescription: "Manages a OneLake Data Access Role on a Microsoft Fabric **Lakehouse** to grant fine-grained folder, table, row-level (RLS), and column-level (CLS) access control to Microsoft Entra users, groups, service principals, or managed identities.\n\n" +
@@ -425,8 +425,8 @@ func isSetConfigured(s types.Set) bool {
 }
 
 // ValidateConfig validates cross-attribute requirements, mutually exclusive modes, and required identifiers.
-func (r *LakehousePermissionResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
-	var config LakehousePermissionResourceModel
+func (r *LakehouseDataAccessRoleResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
+	var config LakehouseDataAccessRoleResourceModel
 	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -542,12 +542,12 @@ func (r *LakehousePermissionResource) ValidateConfig(ctx context.Context, req re
 }
 
 // ModifyPlan sets defaults and cleans up mutually exclusive mode attributes in plan.
-func (r *LakehousePermissionResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
+func (r *LakehouseDataAccessRoleResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
 	if req.Plan.Raw.IsNull() {
 		return
 	}
 
-	var plan LakehousePermissionResourceModel
+	var plan LakehouseDataAccessRoleResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -576,8 +576,8 @@ func (r *LakehousePermissionResource) ModifyPlan(ctx context.Context, req resour
 	}
 
 	if !req.State.Raw.IsNull() && !req.Config.Raw.IsNull() {
-		var state LakehousePermissionResourceModel
-		var config LakehousePermissionResourceModel
+		var state LakehouseDataAccessRoleResourceModel
+		var config LakehouseDataAccessRoleResourceModel
 		resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 		resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
 		if !resp.Diagnostics.HasError() {
@@ -593,7 +593,7 @@ func (r *LakehousePermissionResource) ModifyPlan(ctx context.Context, req resour
 }
 
 // Configure wires the provider's FabricClient and default TenantID into the resource.
-func (r *LakehousePermissionResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+func (r *LakehouseDataAccessRoleResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
 	if req.ProviderData == nil {
 		return
 	}
@@ -606,11 +606,11 @@ func (r *LakehousePermissionResource) Configure(_ context.Context, req resource.
 	r.tenantID = pd.TenantID
 }
 
-func (r *LakehousePermissionResource) isAdvancedMode(m *LakehousePermissionResourceModel) bool {
+func (r *LakehouseDataAccessRoleResource) isAdvancedMode(m *LakehouseDataAccessRoleResourceModel) bool {
 	return isListConfigured(m.DecisionRule) || isSetConfigured(m.EntraMember) || isSetConfigured(m.FabricItemMember)
 }
 
-func (r *LakehousePermissionResource) buildRolePayload(ctx context.Context, m *LakehousePermissionResourceModel) (client.DataAccessRole, diag.Diagnostics) {
+func (r *LakehouseDataAccessRoleResource) buildRolePayload(ctx context.Context, m *LakehouseDataAccessRoleResourceModel) (client.DataAccessRole, diag.Diagnostics) {
 	var diags diag.Diagnostics
 
 	kind := "Policy"
@@ -811,14 +811,14 @@ func (r *LakehousePermissionResource) buildRolePayload(ctx context.Context, m *L
 }
 
 // Create upserts the OneLake Data Access Role on the target Lakehouse using ETag RMW.
-func (r *LakehousePermissionResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	var plan LakehousePermissionResourceModel
+func (r *LakehouseDataAccessRoleResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	var plan LakehouseDataAccessRoleResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	var config LakehousePermissionResourceModel
+	var config LakehouseDataAccessRoleResourceModel
 	if !req.Config.Raw.IsNull() {
 		resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
 		if resp.Diagnostics.HasError() {
@@ -912,8 +912,8 @@ func (r *LakehousePermissionResource) Create(ctx context.Context, req resource.C
 }
 
 // Read refreshes the Terraform state from the live Lakehouse OneLake Data Access Role.
-func (r *LakehousePermissionResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
-	var state LakehousePermissionResourceModel
+func (r *LakehouseDataAccessRoleResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+	var state LakehouseDataAccessRoleResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -988,7 +988,7 @@ func isRoleAdvanced(role *client.DataAccessRole) bool {
 	return false
 }
 
-func (r *LakehousePermissionResource) populateLakehouseStateFromRole(ctx context.Context, role *client.DataAccessRole, state *LakehousePermissionResourceModel) diag.Diagnostics {
+func (r *LakehouseDataAccessRoleResource) populateLakehouseStateFromRole(ctx context.Context, role *client.DataAccessRole, state *LakehouseDataAccessRoleResourceModel) diag.Diagnostics {
 	var diags diag.Diagnostics
 
 	advanced := r.isAdvancedMode(state) || isRoleAdvanced(role)
@@ -1269,9 +1269,9 @@ func (r *LakehousePermissionResource) populateLakehouseStateFromRole(ctx context
 }
 
 // Update modifies the OneLake Data Access Role in-place using ETag RMW.
-func (r *LakehousePermissionResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var plan LakehousePermissionResourceModel
-	var state LakehousePermissionResourceModel
+func (r *LakehouseDataAccessRoleResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var plan LakehouseDataAccessRoleResourceModel
+	var state LakehouseDataAccessRoleResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
@@ -1311,8 +1311,8 @@ func (r *LakehousePermissionResource) Update(ctx context.Context, req resource.U
 }
 
 // Delete removes the managed OneLake Data Access Role while preserving sibling roles.
-func (r *LakehousePermissionResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
-	var state LakehousePermissionResourceModel
+func (r *LakehouseDataAccessRoleResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	var state LakehouseDataAccessRoleResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -1330,7 +1330,7 @@ func (r *LakehousePermissionResource) Delete(ctx context.Context, req resource.D
 }
 
 // ImportState imports an existing OneLake Data Access Role by {workspace_id}/{lakehouse_id}/{role_name}.
-func (r *LakehousePermissionResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+func (r *LakehouseDataAccessRoleResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	if r.client == nil {
 		resp.Diagnostics.AddError("Unconfigured Fabric Client", "The provider was not properly configured before resource operation.")
 		return
@@ -1371,7 +1371,7 @@ func (r *LakehousePermissionResource) ImportState(ctx context.Context, req resou
 		return
 	}
 
-	state := LakehousePermissionResourceModel{
+	state := LakehouseDataAccessRoleResourceModel{
 		ID:            types.StringValue(req.ID),
 		WorkspaceID:   types.StringValue(wsID),
 		LakehouseName: types.StringValue(item.DisplayName),

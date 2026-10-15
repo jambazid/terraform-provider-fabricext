@@ -182,7 +182,7 @@ func (r *LakehouseOnelakeSecurityResource) ModifyPlan(ctx context.Context, req r
 				!plan.RemoveDefaultReaderRole.IsNull() && !plan.RemoveDefaultReaderRole.IsUnknown() && !plan.RemoveDefaultReaderRole.ValueBool() {
 				resp.Diagnostics.AddError(
 					"Invalid Attribute Modification",
-					"Cannot revert 'remove_default_reader_role' from true to false: Microsoft Fabric does not provide an API to restore the purged DefaultReader role. If access for all ReadAll holders is needed, define an explicit fabricext_lakehouse_permission resource.",
+					"Cannot revert 'remove_default_reader_role' from true to false: Microsoft Fabric does not provide an API to restore the purged DefaultReader role. If access for all ReadAll holders is needed, define an explicit fabricext_lakehouse_data_access_role resource.",
 				)
 			}
 
