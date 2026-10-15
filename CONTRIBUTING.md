@@ -1,6 +1,6 @@
 # Contributing
 
-> **Stopgap Provider Context:** `terraform-provider-fabricext` is an interim, pre-alpha (`v0.x`) stopgap provider for Microsoft Fabric item-level sharing (`fabricext_*`) while we await equivalent native resources in Microsoft's official [`microsoft/fabric` Terraform provider](https://github.com/microsoft/terraform-provider-fabric). Before proposing a new resource, first verify that the capability does not already exist in the latest release of `microsoft/fabric`.
+> **Provider Context:** `terraform-provider-fabricext` is a Terraform Plugin Framework (Protocol v6) provider for Microsoft Fabric security governance, OneLake Data Access Roles, and platform capability extensions (`fabricext_*`). Before proposing a new resource, first verify whether the capability is already covered in the latest release of the official [`microsoft/fabric` Terraform provider](https://github.com/microsoft/terraform-provider-fabric).
 
 ---
 
@@ -23,44 +23,44 @@ mise run check
 
 ## Adding a Resource
 
-Whenever another Microsoft Fabric item type requires item-level sharing or data-access permission support (for example, `SemanticModel`, `Eventhouse`, `KQLDatabase`, or `MirroredDatabase`), follow this exact six-step workflow:
+Whenever adding a new Microsoft Fabric extension resource (such as User Data Functions, Lakehouse Shortcuts, Capacity Governance, or OneLake security enhancements), follow this exact six-step workflow:
 
-### Step 1: Author the Specification First (`spec-before-code`)
+### Step 1: Spec First
 
 1. Update [`DESIGN.md`](DESIGN.md) and [`ROADMAP.md`](ROADMAP.md) with the API contract, permission mappings, and composite ID format.
-2. Create `specs/<item>-permission-resource.spec.md` with YAML frontmatter (`name`, `description`, `targets`) and inline `[@test]` links pointing to the unit and acceptance test files.
+2. Create `specs/<item>-resource.spec.md` with YAML frontmatter (`name`, `description`, `targets`) and inline `[@test]` links pointing to the unit and acceptance test files.
 
-### Step 2: Vendor & Lock the Official OpenAPI Specification
+### Step 2: Vendor OpenAPI Specs
 
 1. Add the relevant Swagger 2.0 files from [`microsoft/fabric-rest-api-specs`](https://github.com/microsoft/fabric-rest-api-specs) (e.g., `<service>/swagger.json` and `<service>/definitions.json`) to `specs/openapi/` and run `mise run specs:sync` to update `specs/openapi/lock.json`.
-2. If the item's `/permissions` (`grantPermissions` / `revokePermissions`) endpoints are not yet published in Microsoft's service Swagger file, add the paths to `specs/openapi/overlays/item-permissions.json`.
+2. Never create repository-authored contract overlays. All endpoints must exist in upstream `microsoft/fabric-rest-api-specs`. Sync upstream specs via `mise run specs:sync` and verify digests with `mise run specs:check`.
 3. Verify schema integrity with `mise run specs:check`.
 
-### Step 3: Wire Contract-Validated Mocking (`internal/testutil/fabricmock`)
+### Step 3: Mock Validation
 
 1. Register the new item type and endpoints in `internal/testutil/fabricmock/server.go`.
 2. Ensure all routes pass through the `kin-openapi` (`openapi3filter.ValidateRequest` / `openapi3filter.ValidateResponse`) middleware so every test request and response is validated against the OpenAPI specification at runtime.
 3. Add a contract validation test in `internal/testutil/fabricmock/server_test.go`.
 
-### Step 4: Implement Client & Plugin Framework Resource
+### Step 4: Implement Resource
 
-1. **Resource Naming Law**: Always prefix the resource type with `fabricext_` (i.e. `resp.TypeName = req.ProviderTypeName + "_<item>_permission"`) so it never collides with official `microsoft/fabric` resources.
-2. **Resource Granularity Law**: Follow HashiCorp's [Provider Design Principles](https://developer.hashicorp.com/terraform/plugin/best-practices/hashicorp-provider-design-principles) ("One resource, one API" — see Section 6.6 of [`DESIGN.md`](DESIGN.md)). Keep resources atomic per item/principal or item/role; use HCL `for_each` or `modules/permissions/` for matrix composition.
+1. **Resource Naming Law**: Always prefix the resource type with `fabricext_` (i.e. `resp.TypeName = req.ProviderTypeName + "_<item>"`) so it never collides with official `microsoft/fabric` resources.
+2. **Resource Granularity Law**: Follow HashiCorp's [Provider Design Principles](https://developer.hashicorp.com/terraform/plugin/best-practices/hashicorp-provider-design-principles) ("One resource, one API" — see Section 6.6 of [`DESIGN.md`](DESIGN.md)). Keep resources atomic per item or item/role; use HCL `for_each` or `modules/` for matrix composition.
 3. **Plan Modifiers & Validators**:
-   - Mark immutable identity attributes (`workspace_id`, `<item>_name`, `principal_id`, `principal_type`) with `stringplanmodifier.RequiresReplace()`.
+   - Mark immutable identity attributes (`workspace_id`, `<item>_name`) with `stringplanmodifier.RequiresReplace()`.
    - Mark computed stable attributes (`id`, `<item>_id`) with `stringplanmodifier.UseStateForUnknown()`.
    - Validate UUID attributes and enum values at plan time using `terraform-plugin-framework-validators`.
-4. **CRUD & Downgrade Revocation**:
-   - In `Read`, treat `404 Not Found` or a missing principal/role by calling `resp.State.RemoveResource(ctx)` and returning cleanly.
-   - In `Update`, always compute removed permissions and call `/revokePermissions` before `/grantPermissions` on role downgrades.
-   - Implement `ImportState` using a `/` composite ID (`{workspace_id}/{item_id}/{principal_type}/{principal_id}`).
-5. **Acceptance Tests (`internal/provider/<item>_permission_resource_test.go`)**:
-   - Implement `TestAcc*` tests covering `_basic`, `_update` (including downgrade), `_import` (`ImportStateVerify: true`), `_disappears`, and `_validation`.
+4. **CRUD Lifecycle Invariants**:
+   - In `Read`, treat `404 Not Found` by calling `resp.State.RemoveResource(ctx)` and returning cleanly.
+   - In `Update`, execute deterministic mutations preserving unmanaged sibling resources and adhering to RFC 9110 ETag Read-Modify-Write semantics where applicable.
+   - Implement `ImportState` using a composite ID (`{workspace_id}/{item_id}`).
+5. **Acceptance Tests (`internal/provider/<item>_resource_test.go`)**:
+   - Implement `TestAcc*` tests covering `_basic`, `_update`, `_import` (`ImportStateVerify: true`), `_disappears`, and `_validation`.
 
-### Step 5: Update HCL Module, Examples & Registry Docs
+### Step 5: Modules and Docs
 
-1. Add the new item type to `modules/permissions/` (`variables.tf`, `main.tf`, `outputs.tf`).
-2. Add runnable examples under `examples/resources/fabricext_<item>_permission/resource.tf` and `import.sh`.
+1. Add the new item type to `modules/` where appropriate.
+2. Add runnable examples under `examples/resources/fabricext_<item>/resource.tf` and `import.sh`.
 3. Regenerate and validate Terraform Registry documentation:
 
    ```bash
@@ -69,10 +69,10 @@ Whenever another Microsoft Fabric item type requires item-level sharing or data-
 
    *(Never hand-edit files inside `docs/`; they are 100% generated by `tfplugindocs`.)*
 
-### Step 6: Run Verification Gates & Commit
+### Step 6: Verify and Commit
 
 1. Run `mise run check` and `mise exec -- prek run --all-files`.
-2. Format commit messages according to [Conventional Commits v1.0.0](https://www.conventionalcommits.org/en/v1.0.0/#specification) with a header line strictly $\le 72$ characters (`feat(provider): add fabricext_<item>_permission resource`).
+2. Format commit messages according to [Conventional Commits v1.0.0](https://www.conventionalcommits.org/en/v1.0.0/#specification) with a header line strictly $\le 72$ characters (`feat(provider): add fabricext_<item> resource`).
 3. Create changelog fragment for the feature or fix:
 
    ```bash

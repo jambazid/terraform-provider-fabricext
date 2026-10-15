@@ -2,12 +2,12 @@
 page_title: "fabricext_sql_database_permission Resource - Fabric Extensions (fabricext)"
 subcategory: ""
 description: |-
-  (Deprecated) Manages item-level permissions on a Microsoft Fabric SQL Database. Tombstoned in v0.3.0 and scheduled for removal in v0.4.0.
+  (Deprecated) Manages item-level permissions on a Microsoft Fabric SQL Database. Tombstoned in v0.3.0 and scheduled for removal in v0.5.0.
 ---
 
 # fabricext_sql_database_permission (Resource)
 
-!> **Deprecated:** This resource was tombstoned in v0.3.0 and is scheduled for removal in v0.4.0. Microsoft Fabric does not offer public item-sharing REST endpoints for SQL Databases. Item-level sharing must be performed using the Share quick action in the Fabric web portal, and fine-grained data access should be implemented using in-database SQL roles or Microsoft Purview policies. Creating or updating this resource fails without making network calls. Removing it from Terraform configuration is safe and makes no API calls.
+!> **Deprecated:** This resource was tombstoned in v0.3.0 and is scheduled for removal in v0.5.0. Microsoft Fabric does not offer public item-sharing REST endpoints for SQL Databases. Item-level sharing must be performed using the Share quick action in the Fabric web portal, and fine-grained data access should be implemented using in-database SQL roles or Microsoft Purview policies. Creating or updating this resource fails without making network calls. Removing it from Terraform configuration is safe and makes no API calls.
 
 !> **Warning:** **Experimental Provider**: The `fabricext` provider is published in a pre-`v1.0.0` experimental state to facilitate automated packaging and supply-chain verification. For core workspace and item management, use the official Microsoft [`microsoft/fabric`](https://registry.terraform.io/providers/microsoft/fabric/latest) provider.
 

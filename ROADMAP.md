@@ -1,8 +1,8 @@
 # Roadmap
 
-> **Stopgap Mission Statement:** This provider (`registry.terraform.io/jambazid/fabricext`) exists strictly as an **interim stopgap** to unblock declarative Terraform management of Microsoft Fabric item-level sharing (`fabricext_*`) until Microsoft's official [`microsoft/fabric` Terraform provider](https://github.com/microsoft/terraform-provider-fabric) ships equivalent native resources.
+> **Mission Statement:** `terraform-provider-fabricext` (`registry.terraform.io/jambazid/fabricext`) provides declarative Terraform Plugin Framework extensions for Microsoft Fabric security governance, Lakehouse OneLake Data Access Roles, and advanced platform capabilities not currently covered by the official provider.
 >
-> **Pre-Alpha Status (`v0.x`):** All resources in this repository are pre-alpha. Pin exact versions in `required_providers`.
+> **Pre-Stable Status (`v0.x`):** All resources in this repository are experimental and pre-stable (`v0.x`). Pin provider versions (`~> 0.4.0`) in `required_providers`.
 
 ---
 
@@ -10,35 +10,39 @@
 
 | Artifact | Type | Fabric Item Type | Underlying Fabric API Surface | Status |
 | :--- | :--- | :--- | :--- | :--- |
-| `fabricext_warehouse_permission` | Resource | `Warehouse` | Item Permissions (`GET /permissions`, `POST /grantPermissions`, `POST /revokePermissions`) | Implemented (`v0.1.x`) |
-| `fabricext_sql_database_permission` | Resource | `SQLDatabase` | Item Permissions (`GET /permissions`, `POST /grantPermissions`, `POST /revokePermissions` supporting `Read`, `ReadData`, `ReadAll` + `SubscribeOneLakeEvents`, `Write`, `Reshare`) | Implemented (`v0.1.x`) |
-| `fabricext_lakehouse_permission` | Resource | `Lakehouse` | OneLake Data Access Security (`GET` & `PUT /dataAccessRoles` with per-item mutex & `If-Match` ETag RMW) | Implemented (`v0.1.x`) |
-| `fabricext_lakehouse_onelake_security` | Resource | `Lakehouse` | OneLake Data Access Security Enablement Verification & `DefaultReader` Purge | Implemented (`v0.3.x`) |
-| `fabricext_item` | Data Source | `Warehouse`, `Lakehouse`, `SQLDatabase`, `SQLEndpoint`, `SemanticModel` | Workspace Items (`GET /v1/workspaces/{workspaceId}/items?type={type}`) | Implemented (`v0.1.x`) |
-| `modules/permissions` | HCL Module | `Warehouse`, `Lakehouse`, `SQLDatabase` | Flattens declarative workspace matrix into `for_each` resource bindings | Implemented (`v0.1.x`) |
+| `fabricext_lakehouse_permission` | Resource | `Lakehouse` | OneLake Data Access Security (`GET` & `PUT /dataAccessRoles` with per-item mutex & `If-Match` ETag RMW) | Active (`v0.1.x`) |
+| `fabricext_lakehouse_onelake_security` | Resource | `Lakehouse` | OneLake Data Access Security Enablement Verification & `DefaultReader` Purge | Active (`v0.3.x`) |
+| `fabricext_item` | Data Source | `Warehouse`, `Lakehouse`, `SQLDatabase`, `SQLEndpoint`, `SemanticModel` | Workspace Items (`GET /v1/workspaces/{workspaceId}/items?type={type}`) | Active (`v0.1.x`) |
+| `modules/permissions` | HCL Module | `Lakehouse` | Flattens declarative workspace Lakehouse role matrix into `for_each` resource bindings | Active (`v0.1.x`) |
+| `fabricext_warehouse_permission` | Resource | `Warehouse` | REST API unsupported in Microsoft Fabric; configured via portal UI and in-database T-SQL | Tombstoned (`v0.3.0`, removal `v0.5.0`) |
+| `fabricext_sql_database_permission` | Resource | `SQLDatabase` | REST API unsupported in Microsoft Fabric; configured via portal UI and in-database SQL roles | Tombstoned (`v0.3.0`, removal `v0.5.0`) |
 
 ---
 
 ## Candidate Future Resources
 
-If upstream parity in `microsoft/fabric` has not yet landed for the following item types, contributors may add them by following the playbook in [`CONTRIBUTING.md`](CONTRIBUTING.md):
+In alignment with the Fabric API surface gap analysis ([`DESIGN.md §12`](DESIGN.md)), the following extension candidates represent high-value additions where upstream support in `microsoft/fabric` is absent:
 
-1. **`fabricext_semantic_model_permission`**:
-   - Declarative item-level sharing (`Read`, `Build`, `Write`, `Reshare`) for Fabric / Power BI Semantic Models (`SemanticModel`).
-2. **`fabricext_eventhouse_permission` & `fabricext_kql_database_permission`**:
-   - Declarative item-level sharing for Real-Time Intelligence Eventhouses and KQL Databases.
-3. **`fabricext_mirrored_database_permission`**:
-   - Declarative item-level sharing and OneLake read permissions for Mirrored Databases (`MirroredDatabase`).
-4. **Preview Single-Role OneLake Data Access Endpoints**:
-   - `microsoft/fabric-rest-api-specs/platform/swagger.json` includes preview single-role endpoints (`CreateOrUpdateSingleDataAccessRole`, `GetDataAccessRole`, `DeleteDataAccessRole`). Once promoted from `preview=true` to GA by Microsoft, `FabricClient` can cut over from full-document `PUT` RMW to single-role CRUD without breaking the `fabricext_lakehouse_permission` HCL schema.
+1. **User Data Functions (`fabricext_user_data_function`)**:
+   - Declarative management for serverless Python functions with connected Lakehouse/Warehouse data sources, PyPI dependencies, and private `.whl` code packages (`/v1/workspaces/{workspaceId}/userDataFunctions`).
+2. **Data Build Tool Jobs (`fabricext_data_build_tool_job`)**:
+   - Declarative management for native Fabric dbt job schedules, parameters, and connected data sources (`/v1/workspaces/{workspaceId}/dataBuildToolJobs`).
+3. **Lakehouse Shortcuts (`fabricext_lakehouse_shortcut`)**:
+   - Declarative lifecycle for OneLake-to-OneLake, ADLS Gen2, and Amazon S3 shortcuts (`/v1/workspaces/{workspaceId}/items/{lakehouseId}/shortcuts`).
+4. **Fabric Capacity Governance (`fabricext_capacity_assignment`)**:
+   - Automated workspace-to-capacity assignment, capacity migration, and governance controls (`/v1/capacities`).
+5. **Preview Single-Role OneLake Endpoints**:
+   - Once Microsoft promotes the single-role OneLake endpoints (`CreateOrUpdateSingleDataAccessRole`, `GetDataAccessRole`, `DeleteDataAccessRole`) from preview to GA in `platform/swagger.json`, `FabricClient` will cut over to single-role CRUD without changing the public HCL schema.
 
 ---
 
 ## Deprecation and Migration Policy
 
-Each `fabricext_*` resource is tracked against upstream support in [`microsoft/terraform-provider-fabric`](https://github.com/microsoft/terraform-provider-fabric):
+Each `fabricext_*` resource follows an explicit deprecation and migration lifecycle:
 
-1. **Trigger**: When `microsoft/fabric` releases a GA resource covering the same Fabric API surface (for example, an official item-permission or OneLake data-access-role resource).
-2. **Deprecation Notice**: The corresponding `fabricext_*` resource will mark `DeprecationMessage` in its Terraform Plugin Framework schema (surfacing a non-breaking warning during `terraform plan`) and document a `removed` + `import` cross-provider migration guide (Terraform 1.7+) in `docs/`.
-3. **Archive**: Once all `fabricext_*` resources in this repository have GA equivalents in `microsoft/fabric`, a final release with migration instructions will be published and the repository will be archived.
-4. **Comparative Analysis & State Migration Playbook**: See the published Terraform Registry guide [`docs/guides/official_provider_comparison.md`](docs/guides/official_provider_comparison.md) (generated from [`templates/guides/official_provider_comparison.md.tmpl`](templates/guides/official_provider_comparison.md.tmpl)) for the architectural comparison with `microsoft/terraform-provider-fabric` and Terraform 1.7+ `removed` + `import` migration playbooks covering Lakehouses, Warehouses, and SQL Databases.
+1. **Upstream Parity Trigger**: When `microsoft/fabric` releases a GA resource covering the same Fabric API surface (for example, official OneLake data-access-role resources).
+2. **Deprecation Notice**: The corresponding `fabricext_*` resource sets `DeprecationMessage` in its Plugin Framework schema (emitting a plan warning) and provides an official migration guide.
+3. **State Detachment vs Migration**:
+   - **Unsupported Prototype Resources (Warehouses & SQL Databases)**: Because item sharing is not exposed via REST APIs, existing states must be detached using Terraform 1.7+ `removed` blocks with `lifecycle { destroy = false }`.
+   - **Upstream Migration (Lakehouses)**: Once native resources land in `microsoft/fabric`, state will be cleanly migrated using `removed` blocks in conjunction with `import` blocks pointing to the official provider.
+4. **Comparative Analysis & Playbooks**: See [`docs/guides/official_provider_comparison.md`](docs/guides/official_provider_comparison.md) for architectural comparisons and Terraform 1.7+ state detachment and migration playbooks.

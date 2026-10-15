@@ -10,7 +10,7 @@ targets:
 
 ## Deprecation Notice
 
-- `fabricext_sql_database_permission` is deprecated and will be removed in `v0.4.0`. Microsoft Fabric does not provide REST API routes for item-level sharing on SQL Databases.
+- `fabricext_sql_database_permission` is deprecated and will be removed in `v0.5.0`. Microsoft Fabric does not provide REST API routes for item-level sharing on SQL Databases.
 - Practitioners must configure permissions using Fabric portal Quick Actions and in-database SQL roles or Purview policies.
   `[@test] ../internal/provider/sql_database_permission_resource_test.go::TestSQLDatabasePermissionResource_TombstoneLifecycle`
 

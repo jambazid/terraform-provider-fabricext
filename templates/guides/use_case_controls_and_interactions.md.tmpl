@@ -71,7 +71,7 @@ Microsoft Fabric enforces distinct principal type rules depending on the target 
 | **ManagedIdentity** | Supported (`"ManagedIdentity"`) | Supported via Group | Supported via Group |
 | **ServicePrincipalProfile** | Not Supported by Lakehouse API | Supported | Supported |
 
-~> **Note:** **Warehouse & SQL Database Deprecation**: Prototype resources `fabricext_warehouse_permission` and `fabricext_sql_database_permission` were tombstoned in v0.3.0 and are scheduled for removal in v0.4.0 because Microsoft Fabric does not offer public item-sharing REST endpoints for Warehouses or SQL Databases. Item sharing must be configured using the Fabric web portal.
+~> **Note:** **Warehouse & SQL Database Deprecation**: Prototype resources `fabricext_warehouse_permission` and `fabricext_sql_database_permission` were tombstoned in v0.3.0 and are scheduled for removal in v0.5.0 because Microsoft Fabric does not offer public item-sharing REST endpoints for Warehouses or SQL Databases. Item sharing must be configured using the Fabric web portal.
 
 ~> **Note:** **OneLake Role Member Type Uniformity**: In simple mode (`principal_ids`), OneLake Data Access Roles require uniform member types within each role resource. In advanced mode (`entra_member` blocks), heterogeneous member types (Users, Groups, Service Principals, and Managed Identities) are natively supported on the same role.
 

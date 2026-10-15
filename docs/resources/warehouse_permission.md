@@ -2,12 +2,12 @@
 page_title: "fabricext_warehouse_permission Resource - Fabric Extensions (fabricext)"
 subcategory: ""
 description: |-
-  (Deprecated) Manages item-level permissions on a Microsoft Fabric Warehouse. Tombstoned in v0.3.0 and scheduled for removal in v0.4.0.
+  (Deprecated) Manages item-level permissions on a Microsoft Fabric Warehouse. Tombstoned in v0.3.0 and scheduled for removal in v0.5.0.
 ---
 
 # fabricext_warehouse_permission (Resource)
 
-!> **Deprecated:** This resource was tombstoned in v0.3.0 and is scheduled for removal in v0.4.0. Microsoft Fabric does not offer public item-sharing REST endpoints for Warehouses. Item-level sharing must be configured using the Fabric web portal interface, and fine-grained data access should be implemented using in-database T-SQL permissions (`GRANT`/`REVOKE`/`DENY`). Creating or updating this resource fails without making network calls. Removing it from Terraform configuration is safe and makes no API calls.
+!> **Deprecated:** This resource was tombstoned in v0.3.0 and is scheduled for removal in v0.5.0. Microsoft Fabric does not offer public item-sharing REST endpoints for Warehouses. Item-level sharing must be configured using the Fabric web portal interface, and fine-grained data access should be implemented using in-database T-SQL permissions (`GRANT`/`REVOKE`/`DENY`). Creating or updating this resource fails without making network calls. Removing it from Terraform configuration is safe and makes no API calls.
 
 !> **Warning:** **Experimental Provider**: The `fabricext` provider is published in a pre-`v1.0.0` experimental state to facilitate automated packaging and supply-chain verification. For core workspace and item management, use the official Microsoft [`microsoft/fabric`](https://registry.terraform.io/providers/microsoft/fabric/latest) provider.
 

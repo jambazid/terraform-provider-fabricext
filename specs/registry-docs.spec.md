@@ -7,9 +7,9 @@ targets:
   - ../README.md
 ---
 
-# Behavioral Specification: Registry Documentation & Access Control Playbook
+# Registry Documentation Specification
 
-## 1. Overview & Architectural Role
+## 1. Overview and Invariants
 
 All documentation rendered for the Terraform Registry is generated from templates under `templates/` and resource/provider `MarkdownDescription` schemas via `tfplugindocs`. In accordance with repository laws:
 
@@ -17,14 +17,14 @@ All documentation rendered for the Terraform Registry is generated from template
 2. Every heading across `templates/**` and `docs/**` must be 5 words or fewer.
 3. GitHub-style alerts (`> [!NOTE]`, `> [!WARNING]`) and ```mermaid diagrams are prohibited in Registry templates and docs; Terraform Registry callouts (`~> **Note:**`, `!> **Warning:**`, `~> **Important:**`) and ASCII diagrams are used instead.
 
-## 2. Experimental Status & Upstream Positioning
+## 2. Experimental Status
 
 Because `fabricext` is a community extension operating in a pre-`v1.0.0` state to facilitate early packaging and supply-chain provenance:
 
 - The experimental banner (`!> **Warning:**`) must appear prominently across `templates/index.md.tmpl`, resource templates, and `README.md`.
 - Documentation clearly positions `fabricext` alongside Microsoft's official [`microsoft/fabric`](https://registry.terraform.io/providers/microsoft/fabric/latest) provider, recommending upstream for core workspace and item management.
 
-## 3. Deprecated Resources & Factual Accuracy
+## 3. Deprecated Resources
 
 - `fabricext_warehouse_permission` and `fabricext_sql_database_permission` templates lead with the deprecation notice explaining that Microsoft Fabric does not offer public item-sharing REST endpoints for Warehouses or SQL Databases.
 - Fine-grained database access is ground in primary-source Microsoft Learn documentation:
@@ -34,7 +34,7 @@ Because `fabricext` is a community extension operating in a pre-`v1.0.0` state t
 - **REQ-DOCS-008 (No Active Item-Sharing Claims)**: Documentation, templates, guides, and README must contain zero claims that `/permissions`, `/grantPermissions`, or `/revokePermissions` exist via REST or that `fabricext` bridges them via an overlay.
 - **REQ-DOCS-009 (Honest Technical Comparison Narrative)**: Official provider comparison documentation must present an honest technical comparison focusing on OneLake security `DefaultReader` purging, RFC 9110 ETag Read-Modify-Write concurrency, multi-page pagination, and offline contract testing, with zero nonexistent REST sequence diagrams.
 
-## 4. Verification Requirements & Falsifiers
+## 4. Verification Requirements
 
 - `[@test] ../internal/provider/registry_docs_test.go::TestRegistryDocs_ExperimentalBannerPresent`
   Verifies that `templates/index.md.tmpl`, `README.md`, `modules/permissions/README.md`, and all resource templates contain the experimental banner.

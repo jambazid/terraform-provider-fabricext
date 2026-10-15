@@ -1,4 +1,4 @@
-# Terraform Provider for Fabric (Community Extensions)
+# Terraform Provider for Fabricext
 
 | <img src="assets/terraform-logo.svg" width="260" alt="Terraform Logo"> | <img src="assets/fabric-logo.svg" width="56" alt="Microsoft Fabric Logo"> |
 | :---: | :---: |
