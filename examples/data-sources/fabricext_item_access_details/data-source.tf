@@ -13,3 +13,4 @@ output "principal_permissions" {
   description = "Lookup map from principal ID to granted permissions set."
   value       = data.fabricext_item_access_details.sales_warehouse.principal_permissions
 }
+

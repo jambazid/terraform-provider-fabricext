@@ -13,3 +13,4 @@ resource "fabricext_item_share_gate" "warehouse_connect" {
     delete = "1m"
   }
 }
+

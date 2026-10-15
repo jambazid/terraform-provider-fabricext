@@ -1143,3 +1143,28 @@ func TestListItemAccessDetails_AdminForbiddenError(t *testing.T) {
 		t.Errorf("error string does not cite required tenant settings: %s", errStr)
 	}
 }
+
+func TestRetryDelay_RFC9110HTTPDate(t *testing.T) {
+	t.Parallel()
+
+	c := &FabricClient{
+		baseBackoff: 100 * time.Millisecond,
+	}
+
+	future := time.Now().Add(10 * time.Second).UTC().Format(http.TimeFormat)
+	delay := c.retryDelay(future, 1)
+	if delay < 5*time.Second || delay > 12*time.Second {
+		t.Errorf("expected delay approximately 10s, got %v", delay)
+	}
+
+	past := time.Now().Add(-10 * time.Second).UTC().Format(http.TimeFormat)
+	delayPast := c.retryDelay(past, 1)
+	if delayPast != 0 {
+		t.Errorf("expected 0 delay for past HTTP-date, got %v", delayPast)
+	}
+
+	numericDelay := c.retryDelay("15", 1)
+	if numericDelay != 15*time.Second {
+		t.Errorf("expected 15s delay for integer seconds, got %v", numericDelay)
+	}
+}

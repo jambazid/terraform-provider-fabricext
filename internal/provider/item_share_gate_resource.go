@@ -7,7 +7,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
+	"math/rand"
+	"net/http"
 	"strings"
 	"time"
 
@@ -100,9 +101,11 @@ func (r *ItemShareGateResource) Schema(_ context.Context, _ resource.SchemaReque
 			},
 			"type": schema.StringAttribute{
 				Optional:            true,
+				Computed:            true,
 				MarkdownDescription: "Optional item type for route disambiguation (e.g., `Warehouse`, `Lakehouse`, `SQLDatabase`, `SQLEndpoint`, `Report`).",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
+					stringplanmodifier.UseStateForUnknown(),
 				},
 				Validators: []validator.String{
 					stringvalidator.LengthAtLeast(1),
@@ -238,7 +241,7 @@ func (r *ItemShareGateResource) Create(ctx context.Context, req resource.CreateR
 	pollCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	detectedType, err := r.pollForItemShare(pollCtx, wsID, itemID, itemTypePtr, principalID, principalTypeFilter, expectedPerms, matchType, timeout)
+	detectedType, detectedItemType, err := r.pollForItemShare(pollCtx, wsID, itemID, itemTypePtr, principalID, principalTypeFilter, expectedPerms, matchType, timeout)
 	if err != nil {
 		resp.Diagnostics.AddError("Item Share Verification Failed", err.Error())
 		return
@@ -247,6 +250,9 @@ func (r *ItemShareGateResource) Create(ctx context.Context, req resource.CreateR
 	plan.ID = types.StringValue(fmt.Sprintf("%s/%s/%s", wsID, itemID, principalID))
 	if (plan.PrincipalType.IsNull() || plan.PrincipalType.IsUnknown()) && detectedType != "" {
 		plan.PrincipalType = types.StringValue(detectedType)
+	}
+	if (plan.Type.IsNull() || plan.Type.IsUnknown()) && detectedItemType != "" {
+		plan.Type = types.StringValue(detectedItemType)
 	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
@@ -328,6 +334,9 @@ func (r *ItemShareGateResource) Read(ctx context.Context, req resource.ReadReque
 	if (state.PrincipalType.IsNull() || state.PrincipalType.IsUnknown()) && detectedType != "" {
 		state.PrincipalType = types.StringValue(detectedType)
 	}
+	if (state.Type.IsNull() || state.Type.IsUnknown()) && len(apiResp.AccessDetails) > 0 && apiResp.AccessDetails[0].ItemAccessDetails.Type != "" {
+		state.Type = types.StringValue(apiResp.AccessDetails[0].ItemAccessDetails.Type)
+	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
@@ -383,14 +392,18 @@ func (r *ItemShareGateResource) Update(ctx context.Context, req resource.UpdateR
 	pollCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	detectedType, err := r.pollForItemShare(pollCtx, wsID, itemID, itemTypePtr, principalID, principalTypeFilter, expectedPerms, matchType, timeout)
+	detectedType, detectedItemType, err := r.pollForItemShare(pollCtx, wsID, itemID, itemTypePtr, principalID, principalTypeFilter, expectedPerms, matchType, timeout)
 	if err != nil {
 		resp.Diagnostics.AddError("Item Share Verification Update Failed", err.Error())
 		return
 	}
 
+	plan.ID = types.StringValue(fmt.Sprintf("%s/%s/%s", wsID, itemID, principalID))
 	if (plan.PrincipalType.IsNull() || plan.PrincipalType.IsUnknown()) && detectedType != "" {
 		plan.PrincipalType = types.StringValue(detectedType)
+	}
+	if (plan.Type.IsNull() || plan.Type.IsUnknown()) && detectedItemType != "" {
+		plan.Type = types.StringValue(detectedItemType)
 	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
@@ -437,15 +450,14 @@ func (r *ItemShareGateResource) ImportState(ctx context.Context, req resource.Im
 		return
 	}
 
-	var foundItem *client.ItemAccessDetailsItem
-	for i, item := range apiResp.AccessDetails {
+	var matchedEntries []client.ItemAccessDetailsItem
+	for _, item := range apiResp.AccessDetails {
 		if strings.EqualFold(item.Principal.ID, principalID) {
-			foundItem = &apiResp.AccessDetails[i]
-			break
+			matchedEntries = append(matchedEntries, item)
 		}
 	}
 
-	if foundItem == nil {
+	if len(matchedEntries) == 0 {
 		resp.Diagnostics.AddError(
 			"Principal Not Found on Item",
 			fmt.Sprintf("Principal %q does not hold any access permissions on item %q in workspace %q", principalID, itemID, wsID),
@@ -453,15 +465,34 @@ func (r *ItemShareGateResource) ImportState(ctx context.Context, req resource.Im
 		return
 	}
 
-	var grantedUnion []string
-	for _, p := range foundItem.ItemAccessDetails.Permissions {
-		if !slices.Contains(grantedUnion, p) {
-			grantedUnion = append(grantedUnion, p)
-		}
+	var detectedItemType string
+	if len(matchedEntries) > 0 && matchedEntries[0].ItemAccessDetails.Type != "" {
+		detectedItemType = matchedEntries[0].ItemAccessDetails.Type
 	}
-	for _, ap := range foundItem.ItemAccessDetails.AdditionalPermissions {
-		if !slices.Contains(grantedUnion, ap) {
-			grantedUnion = append(grantedUnion, ap)
+
+	foundPrincipalType := matchedEntries[0].Principal.Type
+
+	var grantedUnion []string
+	hasPermission := func(target string) bool {
+		normTarget := normalizePermission(target)
+		for _, g := range grantedUnion {
+			if normalizePermission(g) == normTarget {
+				return true
+			}
+		}
+		return false
+	}
+
+	for _, item := range matchedEntries {
+		for _, p := range item.ItemAccessDetails.Permissions {
+			if !hasPermission(p) {
+				grantedUnion = append(grantedUnion, p)
+			}
+		}
+		for _, ap := range item.ItemAccessDetails.AdditionalPermissions {
+			if !hasPermission(ap) {
+				grantedUnion = append(grantedUnion, ap)
+			}
 		}
 	}
 
@@ -475,8 +506,9 @@ func (r *ItemShareGateResource) ImportState(ctx context.Context, req resource.Im
 		ID:                  types.StringValue(req.ID),
 		WorkspaceID:         types.StringValue(wsID),
 		ItemID:              types.StringValue(itemID),
+		Type:                stringOrNull(detectedItemType),
 		PrincipalID:         types.StringValue(principalID),
-		PrincipalType:       stringOrNull(foundItem.Principal.Type),
+		PrincipalType:       stringOrNull(foundPrincipalType),
 		ExpectedPermissions: expectedSet,
 		MatchType:           types.StringValue("subset"),
 	}
@@ -492,10 +524,11 @@ func (r *ItemShareGateResource) pollForItemShare(
 	expectedPerms []string,
 	matchType string,
 	timeout time.Duration,
-) (string, error) {
-	backoff := 5 * time.Second
-	maxBackoff := 60 * time.Second
-	if r.client.BaseBackoff() < 50*time.Millisecond {
+) (string, string, error) {
+	isTestMode := r.client.BaseBackoff() < 50*time.Millisecond
+	backoff := 60 * time.Second
+	maxBackoff := 300 * time.Second
+	if isTestMode {
 		backoff = 5 * time.Millisecond
 		maxBackoff = 50 * time.Millisecond
 	}
@@ -505,23 +538,36 @@ func (r *ItemShareGateResource) pollForItemShare(
 		if err != nil {
 			var adminErr *client.AdminAPIAccessDeniedError
 			if errors.As(err, &adminErr) {
-				return "", adminErr
+				return "", "", adminErr
+			}
+			var apiErr *client.APIError
+			if errors.As(err, &apiErr) {
+				if apiErr.StatusCode == http.StatusUnauthorized || apiErr.StatusCode == http.StatusBadRequest || apiErr.StatusCode == http.StatusForbidden {
+					return "", "", apiErr
+				}
 			}
 			// Transient error or 404 propagation delay
 		} else {
-			matched, detectedType := checkPrincipalMatch(apiResp.AccessDetails, principalID, principalType, expectedPerms, matchType)
+			matched, detectedPrincipalType := checkPrincipalMatch(apiResp.AccessDetails, principalID, principalType, expectedPerms, matchType)
 			if matched {
-				return detectedType, nil
+				var detectedItemType string
+				if len(apiResp.AccessDetails) > 0 {
+					detectedItemType = apiResp.AccessDetails[0].ItemAccessDetails.Type
+				}
+				return detectedPrincipalType, detectedItemType, nil
 			}
 		}
 
 		select {
 		case <-ctx.Done():
-			return "", fmt.Errorf(
+			if errors.Is(ctx.Err(), context.Canceled) {
+				return "", "", ctx.Err()
+			}
+			return "", "", fmt.Errorf(
 				"timed out after %s waiting for principal %q to hold expected permissions %v on item %q in workspace %q: share the item in the Microsoft Fabric portal (Manage permissions) with the expected permissions, then re-apply",
 				timeout, principalID, expectedPerms, itemID, wsID,
 			)
-		case <-time.After(backoff):
+		case <-time.After(backoffWithJitter(backoff, isTestMode)):
 		}
 
 		backoff *= 2
@@ -531,12 +577,30 @@ func (r *ItemShareGateResource) pollForItemShare(
 	}
 }
 
+func backoffWithJitter(base time.Duration, isTestMode bool) time.Duration {
+	if isTestMode {
+		return base
+	}
+	// Add +/- 20% jitter
+	jitter := time.Duration(rand.Int63n(int64(base*4/10))) - (base / 5)
+	actual := base + jitter
+	if actual < 10*time.Second {
+		actual = 10 * time.Second
+	}
+	return actual
+}
+
+func normalizePermission(s string) string {
+	return strings.ToLower(strings.ReplaceAll(strings.TrimSpace(s), "_", ""))
+}
+
 func checkPrincipalMatch(
 	accessDetails []client.ItemAccessDetailsItem,
 	principalID, principalType string,
 	expectedPerms []string,
 	matchType string,
 ) (bool, string) {
+	var matchedEntries []client.ItemAccessDetailsItem
 	for _, item := range accessDetails {
 		if !strings.EqualFold(item.Principal.ID, principalID) {
 			continue
@@ -544,43 +608,71 @@ func checkPrincipalMatch(
 		if principalType != "" && !strings.EqualFold(item.Principal.Type, principalType) {
 			continue
 		}
+		matchedEntries = append(matchedEntries, item)
+	}
 
-		var grantedUnion []string
+	if len(matchedEntries) == 0 {
+		return false, ""
+	}
+
+	detectedPrincipalType := matchedEntries[0].Principal.Type
+
+	var grantedUnion []string
+	hasPermission := func(target string) bool {
+		normTarget := normalizePermission(target)
+		for _, g := range grantedUnion {
+			if normalizePermission(g) == normTarget {
+				return true
+			}
+		}
+		return false
+	}
+
+	for _, item := range matchedEntries {
 		for _, p := range item.ItemAccessDetails.Permissions {
-			if !slices.Contains(grantedUnion, p) {
+			if !hasPermission(p) {
 				grantedUnion = append(grantedUnion, p)
 			}
 		}
 		for _, ap := range item.ItemAccessDetails.AdditionalPermissions {
-			if !slices.Contains(grantedUnion, ap) {
+			if !hasPermission(ap) {
 				grantedUnion = append(grantedUnion, ap)
 			}
 		}
+	}
 
-		if matchType == "exact" {
-			if len(grantedUnion) != len(expectedPerms) {
-				return false, item.Principal.Type
-			}
-			matchedAll := true
-			for _, ep := range expectedPerms {
-				if !slices.Contains(grantedUnion, ep) {
-					matchedAll = false
-					break
-				}
-			}
-			return matchedAll, item.Principal.Type
-		}
-
-		// Subset match: all expected permissions must be granted
-		matchedAll := true
-		for _, ep := range expectedPerms {
-			if !slices.Contains(grantedUnion, ep) {
-				matchedAll = false
+	var uniqueExpected []string
+	for _, ep := range expectedPerms {
+		norm := normalizePermission(ep)
+		already := false
+		for _, u := range uniqueExpected {
+			if normalizePermission(u) == norm {
+				already = true
 				break
 			}
 		}
-		return matchedAll, item.Principal.Type
+		if !already {
+			uniqueExpected = append(uniqueExpected, ep)
+		}
 	}
 
-	return false, ""
+	if matchType == "exact" {
+		if len(grantedUnion) != len(uniqueExpected) {
+			return false, detectedPrincipalType
+		}
+		for _, ep := range uniqueExpected {
+			if !hasPermission(ep) {
+				return false, detectedPrincipalType
+			}
+		}
+		return true, detectedPrincipalType
+	}
+
+	// Subset match: all expected permissions must be granted
+	for _, ep := range uniqueExpected {
+		if !hasPermission(ep) {
+			return false, detectedPrincipalType
+		}
+	}
+	return true, detectedPrincipalType
 }

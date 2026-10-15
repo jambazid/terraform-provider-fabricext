@@ -169,10 +169,11 @@ type AdminAPIAccessDeniedError struct {
 }
 
 func (e *AdminAPIAccessDeniedError) Error() string {
+	base := fmt.Sprintf("access denied to Fabric Admin APIs for item %q in workspace %q: caller must be a Fabric Administrator or a service principal enrolled in the tenant setting 'Service principals can access read-only admin APIs' with scope Tenant.Read.All or Tenant.ReadWrite.All", e.ItemID, e.WorkspaceID)
 	if e.Message != "" {
-		return e.Message
+		return fmt.Sprintf("%s (upstream error: %s)", base, e.Message)
 	}
-	return fmt.Sprintf("access denied to Fabric Admin APIs for item %q in workspace %q: caller must be a Fabric Administrator or a service principal enrolled in the tenant setting 'Service principals can access read-only admin APIs' with scope Tenant.Read.All or Tenant.ReadWrite.All", e.ItemID, e.WorkspaceID)
+	return base
 }
 
 // UserDetails represents Microsoft Entra user-specific details.
@@ -1034,9 +1035,14 @@ func (c *FabricClient) ListItemAccessDetails(ctx context.Context, workspaceID, i
 	if _, err := c.doJSON(ctx, http.MethodGet, path, nil, nil, &resp); err != nil {
 		var apiErr *APIError
 		if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusForbidden {
+			var msg string
+			if apiErr.Message != "" {
+				msg = apiErr.Message
+			}
 			return nil, &AdminAPIAccessDeniedError{
 				WorkspaceID: workspaceID,
 				ItemID:      itemID,
+				Message:     msg,
 			}
 		}
 		if IsNotFound(err) {
@@ -1149,12 +1155,23 @@ func shouldRetryStatus(code int) bool {
 
 func (c *FabricClient) retryDelay(retryAfterHeader string, attempt int) time.Duration {
 	if retryAfterHeader != "" {
-		if secs, err := strconv.Atoi(strings.TrimSpace(retryAfterHeader)); err == nil && secs > 0 {
+		header := strings.TrimSpace(retryAfterHeader)
+		if secs, err := strconv.Atoi(header); err == nil && secs > 0 {
 			// Cap Retry-After during unit/acc tests if BaseBackoff was configured below 50ms.
 			if c.baseBackoff < 50*time.Millisecond {
 				return time.Duration(secs) * c.baseBackoff
 			}
 			return time.Duration(secs) * time.Second
+		}
+		if t, err := http.ParseTime(header); err == nil {
+			delay := time.Until(t)
+			if delay > 0 {
+				if c.baseBackoff < 50*time.Millisecond {
+					return 5 * c.baseBackoff
+				}
+				return delay
+			}
+			return 0
 		}
 	}
 	shift := min(attempt, 5)

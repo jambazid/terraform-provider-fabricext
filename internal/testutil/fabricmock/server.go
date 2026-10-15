@@ -504,7 +504,7 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request, pathParams map
 	path := r.URL.Path
 
 	switch {
-	case r.Method == http.MethodGet && strings.HasSuffix(path, "/users"):
+	case r.Method == http.MethodGet && strings.Contains(path, "/items/") && strings.HasSuffix(path, "/users"):
 		s.handleListItemAccessDetails(w, r, workspaceID, pathParams["itemId"])
 	case r.Method == http.MethodGet && strings.HasSuffix(path, "/items"):
 		s.handleListItems(w, r, workspaceID)

@@ -378,3 +378,94 @@ resource "fabricext_item_share_gate" "imp" {
 		},
 	})
 }
+
+func TestAccItemShareGateResource_MultiEntryAndTokenNormalization(t *testing.T) {
+	t.Parallel()
+
+	srv := fabricmock.NewServer(t)
+	wsID := "11111111-1111-1111-1111-111111111111"
+	itemID := "22222222-2222-2222-2222-222222222222"
+	principalID := "33333333-3333-3333-3333-333333333333"
+	principalName := "Data Engineers"
+	principalType := fabadmin.PrincipalTypeGroup
+	groupType := fabadmin.GroupTypeSecurityGroup
+	itemTypeStr := fabadmin.ItemTypeWarehouse
+
+	srv.UpsertItem(fabricmock.Item{
+		ID:          itemID,
+		WorkspaceID: wsID,
+		DisplayName: "gold_warehouse",
+		Type:        "Warehouse",
+	})
+
+	// Two separate entries for the same principal simulating workspace-role inheritance + direct item share
+	srv.SetItemAccessDetails(wsID, itemID, &fabadmin.ItemAccessDetailsResponse{
+		AccessDetails: []fabadmin.ItemAccessDetails{
+			{
+				Principal: &fabadmin.GroupPrincipal{
+					ID:          &principalID,
+					DisplayName: &principalName,
+					Type:        &principalType,
+					GroupDetails: &fabadmin.GroupPrincipalGroupDetails{
+						GroupType: &groupType,
+					},
+				},
+				ItemAccessDetails: &fabadmin.ItemAccessDetail{
+					Type:                  &itemTypeStr,
+					Permissions:           []fabadmin.ItemPermissions{fabadmin.ItemPermissionsRead},
+					AdditionalPermissions: []string{},
+				},
+			},
+			{
+				Principal: &fabadmin.GroupPrincipal{
+					ID:          &principalID,
+					DisplayName: &principalName,
+					Type:        &principalType,
+					GroupDetails: &fabadmin.GroupPrincipalGroupDetails{
+						GroupType: &groupType,
+					},
+				},
+				ItemAccessDetails: &fabadmin.ItemAccessDetail{
+					Type:                  &itemTypeStr,
+					Permissions:           []fabadmin.ItemPermissions{},
+					AdditionalPermissions: []string{"ReadData"},
+				},
+			},
+		},
+	})
+
+	config := testAccProviderConfig(srv) + fmt.Sprintf(`
+resource "fabricext_item_share_gate" "multi" {
+  workspace_id         = %q
+  item_id              = %q
+  type                 = "Warehouse"
+  principal_id         = %q
+  expected_permissions = ["read", "read_data"]
+  match_type           = "exact"
+}
+`, wsID, itemID, principalID)
+
+	expectedID := fmt.Sprintf("%s/%s/%s", wsID, itemID, principalID)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: config,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("fabricext_item_share_gate.multi", "id", expectedID),
+					resource.TestCheckResourceAttr("fabricext_item_share_gate.multi", "type", "Warehouse"),
+					resource.TestCheckResourceAttr("fabricext_item_share_gate.multi", "principal_type", "Group"),
+					resource.TestCheckResourceAttr("fabricext_item_share_gate.multi", "expected_permissions.#", "2"),
+				),
+			},
+			{
+				ResourceName:            "fabricext_item_share_gate.multi",
+				ImportState:             true,
+				ImportStateId:           expectedID,
+				ImportStateVerify:       true,
+				ImportStateVerifyIgnore: []string{"expected_permissions", "match_type"},
+			},
+		},
+	})
+}

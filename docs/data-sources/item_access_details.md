@@ -79,3 +79,4 @@ Read-Only:
 - `id` (String) The principal's Microsoft Entra Object ID (UUID).
 - `type` (String) The principal type (`User`, `Group`, `ServicePrincipal`, `ServicePrincipalProfile`, `EntireTenant`).
 - `user_principal_name` (String) User Principal Name (UPN), if the principal type is `User`.
+
