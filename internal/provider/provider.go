@@ -146,7 +146,7 @@ func (p *FabricProvider) Metadata(_ context.Context, _ provider.MetadataRequest,
 // Schema defines the provider-level configuration schema matching official Fabric provider parity.
 func (p *FabricProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "The **Fabric Extensions (fabricext)** provider (`registry.terraform.io/jambazid/fabricext`) is a purpose-built provider for declaratively managing Microsoft Fabric item-level sharing and data-access permissions (`fabricext_*`) across Warehouses, SQL Databases, and Lakehouses until equivalent resources are available in Microsoft's official `microsoft/fabric` provider.",
+		MarkdownDescription: "The **Fabric Extensions (fabricext)** provider (`registry.terraform.io/jambazid/fabricext`) is an experimental community provider for declaratively managing Microsoft Fabric OneLake Data Access Roles and security governance (`fabricext_*`). Published pre-v1.0.0 for automated packaging and supply-chain verification.",
 		Attributes: map[string]schema.Attribute{
 			"endpoint": schema.StringAttribute{
 				Optional:            true,

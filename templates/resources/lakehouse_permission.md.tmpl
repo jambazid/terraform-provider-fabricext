@@ -8,6 +8,10 @@ description: |-
 
 # {{.Name}} ({{.Type}})
 
+!> **Warning:** **Experimental Provider**: The `fabricext` provider is published in a pre-`v1.0.0` experimental state to facilitate automated packaging and supply-chain verification. For core workspace and item management, use the official Microsoft [`microsoft/fabric`](https://registry.terraform.io/providers/microsoft/fabric/latest) provider.
+
+~> **Note:** For end-to-end guidance and real-world multi-persona security configurations, see the [Access Control Playbook](../guides/access_control_playbook.md).
+
 {{ .Description | trimspace }}
 
 {{ if .HasExamples -}}

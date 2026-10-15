@@ -45,13 +45,11 @@ func TestServer_InspectorsAndHelpers(t *testing.T) {
 		t.Errorf("expected 200 OK after throttle, got %d", resp2.StatusCode)
 	}
 
-	_ = srv.OperationSequence()
-	_ = srv.LastRevokedPermissions()
-	_ = srv.LastGrantedPermissions()
+	_ = srv.ListItemsCallCount(wsID, "Warehouse")
 
-	// Test malformed JSON dispatch error
+	// Test malformed JSON dispatch error on Lakehouse roles
 	badReq, err := http.Post(
-		srv.URL()+"/v1/workspaces/"+wsID+"/warehouses/"+whID+"/grantPermissions",
+		srv.URL()+"/v1/workspaces/"+wsID+"/items/invalid-endpoint",
 		"application/json",
 		bytes.NewReader([]byte("{malformed-json")),
 	)
@@ -60,6 +58,6 @@ func TestServer_InspectorsAndHelpers(t *testing.T) {
 	}
 	_ = badReq.Body.Close()
 	if badReq.StatusCode != http.StatusBadRequest {
-		t.Errorf("expected 400 Bad Request on malformed JSON, got %d", badReq.StatusCode)
+		t.Errorf("expected 400 Bad Request on malformed JSON / route not found, got %d", badReq.StatusCode)
 	}
 }

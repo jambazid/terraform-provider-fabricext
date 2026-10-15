@@ -201,6 +201,7 @@ func (r *LakehousePermissionResource) Schema(_ context.Context, _ resource.Schem
 					stringplanmodifier.RequiresReplace(),
 				},
 				Validators: []validator.String{
+					stringvalidator.LengthAtMost(128),
 					stringvalidator.RegexMatches(roleNameRegex, "must start with a letter and contain only alphanumeric characters or underscores"),
 				},
 			},
@@ -500,6 +501,35 @@ func (r *LakehousePermissionResource) ValidateConfig(ctx context.Context, req re
 				"Missing Required Members in Advanced Mode",
 				"At least one entra_member or fabric_item_member block must be defined when configuring a role in advanced mode.",
 			)
+		}
+
+		// 4b. Write-safety validation: ReadWrite cannot be combined with row or column constraints
+		if hasRules {
+			var rules []DecisionRuleModel
+			resp.Diagnostics.Append(config.DecisionRule.ElementsAs(ctx, &rules, false)...)
+			if !resp.Diagnostics.HasError() {
+				for idx, rule := range rules {
+					hasRowConstraints := isListConfigured(rule.RowConstraint)
+					hasColConstraints := isListConfigured(rule.ColumnConstraint)
+					if !hasRowConstraints && !hasColConstraints {
+						continue
+					}
+
+					if !rule.Actions.IsNull() && !rule.Actions.IsUnknown() {
+						var actions []string
+						resp.Diagnostics.Append(rule.Actions.ElementsAs(ctx, &actions, false)...)
+						for _, act := range actions {
+							if strings.EqualFold(act, "ReadWrite") || strings.EqualFold(act, "Write") {
+								resp.Diagnostics.AddError(
+									"Invalid Role Constraint Configuration",
+									fmt.Sprintf("decision_rule[%d] combines %q action with row or column constraints. Microsoft Fabric OneLake security does not support row-level or column-level security on write actions; write operations require full table access.", idx, act),
+								)
+								break
+							}
+						}
+					}
+				}
+			}
 		}
 		return
 	}

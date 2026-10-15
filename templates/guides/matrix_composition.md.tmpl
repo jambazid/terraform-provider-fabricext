@@ -15,12 +15,13 @@ This guide outlines architectural patterns for composing permissions matrices ac
 
 ## Design Principles
 
-Following HashiCorp Provider Design Principles, each `fabricext_*` resource manages a single, atomic permission binding or OneLake role:
+Following HashiCorp Provider Design Principles, each active `fabricext_*` resource manages a single, atomic OneLake security component:
 
-- `fabricext_warehouse_permission`: Manages permissions for a single principal on a Warehouse.
-- `fabricext_sql_database_permission`: Manages permissions for a single principal on a SQL Database.
 - `fabricext_lakehouse_permission`: Manages a single OneLake Data Access Role on a Lakehouse.
 - `fabricext_lakehouse_onelake_security`: Manages OneLake Data Access Security enablement verification and `DefaultReader` role purging.
+- `fabricext_item`: (Data Source) Resolves Microsoft Fabric items by workspace and display name.
+
+~> **Note:** Early prototype resources `fabricext_warehouse_permission` and `fabricext_sql_database_permission` were tombstoned in v0.3.0 and are scheduled for removal in v0.4.0 because Microsoft Fabric does not offer public item-sharing REST APIs for Warehouses or SQL Databases. Existing configurations should detach them using Terraform 1.7+ `removed` blocks.
 
 This atomic resource model decouples individual permission bindings from one another. An issue granting permissions to one item does not block or destroy grants on unrelated items.
 
@@ -34,19 +35,17 @@ This atomic resource model decouples individual permission bindings from one ano
 
 ## Lifecycle & Key Invariants
 
-When using Terraform `for_each` to declare multiple permission resources, the map key definition directly controls how Terraform plans resource updates.
+When using Terraform `for_each` to declare multiple OneLake role resources, the map key definition directly controls how Terraform plans resource updates.
 
-Keying `for_each` by `{item_name}/{principal_type}/{principal_id}` (omitting `role_type` from the key) ensures that role updates (such as upgrading `role_type` from `read` to `write`) execute **in-place** rather than destroying and recreating the resource:
+Keying `for_each` by `{lakehouse_name}/{role_name}` ensures that role updates (such as updating paths, actions, or members) execute **in-place** via RFC 9110 `If-Match` ETag read-modify-write rather than destroying and recreating the role:
 
 ```text
 Map Key Structure:
-  "<item_name>/<principal_type>/<principal_id>"
+  "<lakehouse_name>/<role_name>"
 
 Example:
-  "sales_analytics_wh/Group/11111111-1111-1111-1111-111111111111"
+  "curated_lakehouse/SalesReaders"
 ```
-
-If `role_type` were included in the map key, changing the role would change the resource address, causing Terraform to schedule a destroy-before-create cycle that briefly leaves the principal with no permissions.
 
 ---
 
@@ -58,30 +57,53 @@ You can manage an entire workspace permissions matrix without external modules b
 locals {
   workspace_id = "00000000-0000-0000-0000-000000000001"
 
-  warehouse_grants = {
-    "sales_analytics_wh/Group/11111111-1111-1111-1111-111111111111" = {
-      warehouse_name = "sales_analytics_wh"
-      role_type      = "read"
-      principal_id   = "11111111-1111-1111-1111-111111111111"
+  lakehouse_roles = {
+    "raw_lakehouse/RawReaders" = {
+      lakehouse_name = "raw_lakehouse"
+      role_name      = "RawReaders"
+      paths          = ["/Tables/customers", "/Files/landing"]
+      actions        = ["Read"]
+      principal_ids  = ["11111111-1111-1111-1111-111111111111"]
       principal_type = "Group"
     }
-    "finance_reporting_wh/User/22222222-2222-2222-2222-222222222222" = {
-      warehouse_name = "finance_reporting_wh"
-      role_type      = "write"
-      principal_id   = "22222222-2222-2222-2222-222222222222"
+    "curated_lakehouse/CuratedReaders" = {
+      lakehouse_name = "curated_lakehouse"
+      role_name      = "CuratedReaders"
+      paths          = ["/Tables/curated"]
+      actions        = ["Read"]
+      principal_ids  = ["22222222-2222-2222-2222-222222222222"]
       principal_type = "User"
     }
   }
+
+  lakehouses = toset([
+    "raw_lakehouse",
+    "curated_lakehouse",
+  ])
 }
 
-resource "fabricext_warehouse_permission" "grants" {
-  for_each = local.warehouse_grants
+resource "fabricext_lakehouse_onelake_security" "security" {
+  for_each = local.lakehouses
+
+  workspace_id               = local.workspace_id
+  lakehouse_name             = each.value
+  remove_default_reader_role = true
+}
+
+resource "fabricext_lakehouse_permission" "roles" {
+  for_each = local.lakehouse_roles
 
   workspace_id   = local.workspace_id
-  warehouse_name = each.value.warehouse_name
-  principal_id   = each.value.principal_id
+  lakehouse_name = each.value.lakehouse_name
+  role_name      = each.value.role_name
+  paths          = each.value.paths
+  actions        = each.value.actions
+  principal_ids  = each.value.principal_ids
   principal_type = each.value.principal_type
-  role_type      = each.value.role_type
+
+  depends_on = [
+    fabricext_lakehouse_onelake_security.security,
+  ]
 }
 ```
 
@@ -89,48 +111,20 @@ resource "fabricext_warehouse_permission" "grants" {
 
 ## Reusable Permissions Module
 
-For teams managing complex permission sets across multiple item types, the in-repo [`modules/permissions`](https://github.com/jambazid/terraform-provider-fabricext/tree/main/modules/permissions) module flattens multi-dimensional matrices into atomic provider resources.
+For teams managing complex permission sets across multiple Lakehouses, the in-repo [`modules/permissions`](https://github.com/jambazid/terraform-provider-fabricext/tree/main/modules/permissions) module flattens multi-dimensional matrices into atomic provider resources.
 
 The module supports a gradual progression from flat permission sets to granular row-level and column-level security.
 
 ### Stage 1: Basic Permissions
 
-Provisions standard read/write permissions on Warehouses, SQL Databases, and Lakehouse storage paths using simple mode:
+Provisions standard Lakehouse storage paths using simple mode:
 
 ```hcl
 module "workspace_permissions" {
-  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=v0.2.1"
+  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=0.4.0"
 
   fabric_permissions_matrix = {
     workspace_id = "00000000-0000-0000-0000-000000000001"
-
-    warehouses = {
-      sales_analytics_wh = {
-        read = [
-          {
-            id   = "11111111-1111-1111-1111-111111111111"
-            type = "Group"
-          }
-        ]
-        write = [
-          {
-            id   = "22222222-2222-2222-2222-222222222222"
-            type = "ServicePrincipal"
-          }
-        ]
-      }
-    }
-
-    sql_databases = {
-      orders_db = {
-        read_data = [
-          {
-            id   = "11111111-1111-1111-1111-111111111111"
-            type = "Group"
-          }
-        ]
-      }
-    }
 
     lakehouses = {
       raw_lakehouse = {
@@ -152,7 +146,7 @@ Restricts Lakehouse queries to authorized rows using T-SQL Boolean predicates in
 
 ```hcl
 module "workspace_permissions" {
-  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=v0.2.1"
+  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=0.4.0"
 
   fabric_permissions_matrix = {
     workspace_id = "00000000-0000-0000-0000-000000000001"
@@ -192,7 +186,7 @@ Limits Lakehouse column access using an explicit allowlist in `column_constraint
 
 ```hcl
 module "workspace_permissions" {
-  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=v0.2.1"
+  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=0.4.0"
 
   fabric_permissions_matrix = {
     workspace_id = "00000000-0000-0000-0000-000000000001"
@@ -234,7 +228,7 @@ In simple mode, roles require uniform principal types. In advanced mode (`entra_
 
 ```hcl
 module "workspace_permissions" {
-  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=v0.2.1"
+  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=0.4.0"
 
   fabric_permissions_matrix = {
     workspace_id = "00000000-0000-0000-0000-000000000001"
@@ -279,7 +273,7 @@ Dynamically derives role membership from users holding item permissions on anoth
 
 ```hcl
 module "workspace_permissions" {
-  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=v0.2.1"
+  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=0.4.0"
 
   fabric_permissions_matrix = {
     workspace_id = "00000000-0000-0000-0000-000000000001"
@@ -319,7 +313,7 @@ You can configure this behavior or opt out via matrix flags:
 
 ```hcl
 module "workspace_permissions" {
-  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=v0.2.1"
+  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=0.4.0"
 
   fabric_permissions_matrix = {
     workspace_id = "00000000-0000-0000-0000-000000000001"

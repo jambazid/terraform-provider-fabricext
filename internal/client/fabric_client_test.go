@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -119,62 +120,6 @@ func TestGetItemIDByName_PaginationTypeIsolationAndCacheRefresh(t *testing.T) {
 	_, err = c.GetItemIDByName(ctx, wsID, "does_not_exist", "Warehouse")
 	if !IsNotFound(err) {
 		t.Fatalf("expected NotFoundError, got %v", err)
-	}
-}
-
-func TestUpdateItemPermissions_DowngradeRevokesExcessPrivileges(t *testing.T) {
-	t.Parallel()
-
-	srv := fabricmock.NewServer(t)
-	wsID := "11111111-1111-1111-1111-111111111111"
-	dbID := "44444444-4444-4444-4444-444444444444"
-	principal := Principal{
-		ID:   "55555555-5555-5555-5555-555555555555",
-		Type: "Group",
-	}
-
-	srv.UpsertItem(fabricmock.Item{
-		ID:          dbID,
-		WorkspaceID: wsID,
-		DisplayName: "app_sqldb",
-		Type:        "SQLDatabase",
-	})
-
-	c := newTestClient(t, srv)
-	ctx := context.Background()
-
-	// Initial grant: read, read_data, write
-	if err := c.GrantItemPermissions(ctx, wsID, dbID, "SQLDatabase", principal, []string{"read", "read_data", "write"}); err != nil {
-		t.Fatalf("GrantItemPermissions failed: %v", err)
-	}
-
-	// Downgrade to ["read"] -> must revoke ["ReadData", "Write"] before granting ["Read"].
-	if err := c.UpdateItemPermissions(ctx, wsID, dbID, "SQLDatabase", principal, []string{"read", "read_data", "write"}, []string{"read"}); err != nil {
-		t.Fatalf("UpdateItemPermissions failed: %v", err)
-	}
-
-	seq := srv.OperationSequence()
-	if !slices.Equal(seq, []string{"grant", "revoke", "grant"}) {
-		t.Fatalf("expected operation sequence [grant, revoke, grant], got %v", seq)
-	}
-	if !slices.Equal(srv.LastRevokedPermissions(), []string{"ReadData", "Write"}) {
-		t.Fatalf("expected revoked permissions [ReadData Write], got %v", srv.LastRevokedPermissions())
-	}
-
-	gotPerms, err := c.GetItemPermissions(ctx, wsID, dbID, "SQLDatabase", principal.ID, principal.Type)
-	if err != nil {
-		t.Fatalf("GetItemPermissions failed: %v", err)
-	}
-	if !slices.Equal(gotPerms, []string{"read"}) {
-		t.Fatalf("expected final permissions [read], got %v", gotPerms)
-	}
-
-	// Revoke all and confirm idempotent 404 handling on second revoke.
-	if err := c.RevokeItemPermissions(ctx, wsID, dbID, "SQLDatabase", principal, []string{"read"}); err != nil {
-		t.Fatalf("first RevokeItemPermissions failed: %v", err)
-	}
-	if err := c.RevokeItemPermissions(ctx, wsID, dbID, "SQLDatabase", principal, []string{"read"}); err != nil {
-		t.Fatalf("second RevokeItemPermissions should treat 404 as idempotent nil, got: %v", err)
 	}
 }
 
@@ -660,6 +605,424 @@ func TestLakehouseDataAccessRoles_ErrorDisambiguation(t *testing.T) {
 		}
 		if apiErr.StatusCode != http.StatusTooManyRequests {
 			t.Errorf("expected status 429, got %d", apiErr.StatusCode)
+		}
+	})
+}
+
+func TestItemPermissionsClient_DirectOperations(t *testing.T) {
+	t.Parallel()
+
+	wsID := "11111111-1111-1111-1111-111111111111"
+	itemID := "22222222-2222-2222-2222-222222222222"
+	principalID := "33333333-3333-3333-3333-333333333333"
+
+	var lastMethod, lastPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		lastMethod = r.Method
+		lastPath = r.URL.Path
+
+		if strings.HasSuffix(r.URL.Path, "/permissions") {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = fmt.Fprintf(w, `{
+				"value": [
+					{
+						"principal": {
+							"id": %q,
+							"type": "User"
+						},
+						"permissions": ["Read", "Write"]
+					}
+				]
+			}`, principalID)
+			return
+		}
+
+		if strings.HasSuffix(r.URL.Path, "/grantPermissions") || strings.HasSuffix(r.URL.Path, "/revokePermissions") {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	c, err := NewFabricClient(Config{
+		Endpoint: srv.URL,
+		TokenProvider: func(context.Context) (string, error) {
+			return "mock-token", nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	ctx := context.Background()
+	p := Principal{ID: principalID, Type: "User"}
+
+	// 1. GrantItemPermissions
+	if err := c.GrantItemPermissions(ctx, wsID, itemID, "Warehouse", p, []string{"read", "write"}); err != nil {
+		t.Fatalf("GrantItemPermissions failed: %v", err)
+	}
+	if lastMethod != http.MethodPost || !strings.Contains(lastPath, "/grantPermissions") {
+		t.Errorf("unexpected grant call: %s %s", lastMethod, lastPath)
+	}
+
+	// 2. GetItemPermissions match
+	perms, err := c.GetItemPermissions(ctx, wsID, itemID, "Warehouse", principalID, "User")
+	if err != nil {
+		t.Fatalf("GetItemPermissions failed: %v", err)
+	}
+	if len(perms) != 2 || perms[0] != "read" || perms[1] != "write" {
+		t.Errorf("unexpected permissions returned: %v", perms)
+	}
+
+	// 3. GetItemPermissions not found
+	_, err = c.GetItemPermissions(ctx, wsID, itemID, "Warehouse", "missing-principal", "User")
+	if err == nil {
+		t.Fatal("expected error for missing principal")
+	}
+	if !IsNotFound(err) {
+		t.Errorf("expected IsNotFound(err), got %v", err)
+	}
+
+	// 4. UpdateItemPermissions
+	if err := c.UpdateItemPermissions(ctx, wsID, itemID, "Warehouse", p, []string{"read", "write"}, []string{"read"}); err != nil {
+		t.Fatalf("UpdateItemPermissions failed: %v", err)
+	}
+
+	// 5. RevokeItemPermissions
+	if err := c.RevokeItemPermissions(ctx, wsID, itemID, "Warehouse", p, []string{"write"}); err != nil {
+		t.Fatalf("RevokeItemPermissions failed: %v", err)
+	}
+
+	// 6. Error cases for invalid item type or permissions
+	if err := c.GrantItemPermissions(ctx, wsID, itemID, "InvalidType", p, []string{"read"}); err == nil {
+		t.Fatal("expected error for InvalidType in GrantItemPermissions")
+	}
+	if err := c.GrantItemPermissions(ctx, wsID, itemID, "Warehouse", p, []string{"invalid-perm"}); err == nil {
+		t.Fatal("expected error for invalid-perm in GrantItemPermissions")
+	}
+	if _, err := c.GetItemPermissions(ctx, wsID, itemID, "InvalidType", principalID, "User"); err == nil {
+		t.Fatal("expected error for InvalidType in GetItemPermissions")
+	}
+	if err := c.UpdateItemPermissions(ctx, wsID, itemID, "Warehouse", p, []string{"bad"}, []string{"read"}); err == nil {
+		t.Fatal("expected error for bad oldPerms in UpdateItemPermissions")
+	}
+	if err := c.UpdateItemPermissions(ctx, wsID, itemID, "Warehouse", p, []string{"read"}, []string{"bad"}); err == nil {
+		t.Fatal("expected error for bad newPerms in UpdateItemPermissions")
+	}
+	if err := c.RevokeItemPermissions(ctx, wsID, itemID, "InvalidType", p, []string{"read"}); err == nil {
+		t.Fatal("expected error for InvalidType in RevokeItemPermissions")
+	}
+	if err := c.RevokeItemPermissions(ctx, wsID, itemID, "Warehouse", p, []string{"bad"}); err == nil {
+		t.Fatal("expected error for bad perms in RevokeItemPermissions")
+	}
+
+	// 7. Test error stringers
+	typeErr := &UnsupportedItemTypeError{
+		WorkspaceID: wsID,
+		ItemID:      itemID,
+		ActualType:  "Warehouse",
+	}
+	if !strings.Contains(typeErr.Error(), "only supported on Lakehouses") {
+		t.Errorf("unexpected error string: %s", typeErr.Error())
+	}
+
+	secErr := &OneLakeSecurityNotEnabledError{
+		WorkspaceID: wsID,
+		LakehouseID: itemID,
+		Message:     "custom message",
+	}
+	if secErr.Error() != "custom message" {
+		t.Errorf("unexpected custom message: %s", secErr.Error())
+	}
+}
+
+func TestNormalizeETag_Invariants(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name        string
+		input       string
+		expected    string
+		expectError bool
+	}{
+		{
+			name:        "empty string",
+			input:       "",
+			expectError: true,
+		},
+		{
+			name:        "whitespace only",
+			input:       "   ",
+			expectError: true,
+		},
+		{
+			name:        "weak etag lowercase",
+			input:       `w/"etag-v1"`,
+			expectError: true,
+		},
+		{
+			name:        "weak etag uppercase",
+			input:       `W/"etag-v1"`,
+			expectError: true,
+		},
+		{
+			name:        "wildcard",
+			input:       "*",
+			expectError: true,
+		},
+		{
+			name:        "already quoted etag",
+			input:       `"etag-v1"`,
+			expected:    `"etag-v1"`,
+			expectError: false,
+		},
+		{
+			name:        "unquoted etag",
+			input:       `etag-v1`,
+			expected:    `"etag-v1"`,
+			expectError: false,
+		},
+		{
+			name:        "unquoted with leading trailing whitespace",
+			input:       `  etag-v1  `,
+			expected:    `"etag-v1"`,
+			expectError: false,
+		},
+		{
+			name:        "unbalanced leading quote",
+			input:       `"etag-v1`,
+			expectError: true,
+		},
+		{
+			name:        "unbalanced trailing quote",
+			input:       `etag-v1"`,
+			expectError: true,
+		},
+		{
+			name:        "rogue interior quotes",
+			input:       `"etag"v1"`,
+			expectError: true,
+		},
+		{
+			name:        "rogue interior quotes unquoted",
+			input:       `etag"v1`,
+			expectError: true,
+		},
+		{
+			name:        "empty quoted string",
+			input:       `""`,
+			expectError: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := normalizeETag(tc.input)
+			if tc.expectError {
+				if err == nil {
+					t.Fatalf("normalizeETag(%q) expected error, got nil", tc.input)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("normalizeETag(%q) unexpected error: %v", tc.input, err)
+				}
+				if got != tc.expected {
+					t.Fatalf("normalizeETag(%q) = %q, expected %q", tc.input, got, tc.expected)
+				}
+			}
+		})
+	}
+}
+
+func TestLakehouseDataAccessRoles_PaginationAndETagConsistency(t *testing.T) {
+	t.Parallel()
+
+	srv := fabricmock.NewServer(t)
+	// Force page size of 1 to ensure multi-page retrieval across 3 roles
+	srv.SetDataAccessRolesPageSize(1)
+
+	wsID := "11111111-1111-1111-1111-111111111111"
+	lhID := "22222222-2222-2222-2222-222222222221"
+
+	srv.UpsertItem(fabricmock.Item{
+		ID:          lhID,
+		WorkspaceID: wsID,
+		DisplayName: "analytics_lakehouse",
+		Type:        "Lakehouse",
+	})
+	srv.EnableLakehouseSecurity(wsID, lhID)
+
+	c := newTestClient(t, srv)
+	ctx := context.Background()
+
+	// 1. Initial lakehouse has DefaultReader (1 role). Let's upsert 2 more roles.
+	role1 := DataAccessRole{
+		Name: "RoleAlpha",
+		Kind: "Policy",
+		DecisionRules: []DecisionRule{
+			{
+				Effect: "Permit",
+				Permission: []PermissionScope{
+					{AttributeName: "Path", AttributeValueIncludedIn: []string{"Tables/alpha"}},
+					{AttributeName: "Action", AttributeValueIncludedIn: []string{"Read"}},
+				},
+			},
+		},
+		Members: &Members{
+			MicrosoftEntraMembers: []MicrosoftEntraMember{
+				{ObjectID: "33333333-3333-3333-3333-333333333333", ObjectType: "Group", TenantID: "99999999-9999-9999-9999-999999999999"},
+			},
+		},
+	}
+	if err := c.UpsertDataAccessRole(ctx, wsID, lhID, role1); err != nil {
+		t.Fatalf("UpsertDataAccessRole(RoleAlpha) failed: %v", err)
+	}
+
+	role2 := DataAccessRole{
+		Name: "RoleBeta",
+		Kind: "Policy",
+		DecisionRules: []DecisionRule{
+			{
+				Effect: "Permit",
+				Permission: []PermissionScope{
+					{AttributeName: "Path", AttributeValueIncludedIn: []string{"Tables/beta"}},
+					{AttributeName: "Action", AttributeValueIncludedIn: []string{"Read"}},
+				},
+			},
+		},
+		Members: &Members{
+			MicrosoftEntraMembers: []MicrosoftEntraMember{
+				{ObjectID: "44444444-4444-4444-4444-444444444444", ObjectType: "User", TenantID: "99999999-9999-9999-9999-999999999999"},
+			},
+		},
+	}
+	if err := c.UpsertDataAccessRole(ctx, wsID, lhID, role2); err != nil {
+		t.Fatalf("UpsertDataAccessRole(RoleBeta) failed: %v", err)
+	}
+
+	// 2. Fetch single role via GetDataAccessRole (exercises multi-page listDataAccessRolesWithETag)
+	gotAlpha, err := c.GetDataAccessRole(ctx, wsID, lhID, "RoleAlpha")
+	if err != nil {
+		t.Fatalf("GetDataAccessRole(RoleAlpha) failed: %v", err)
+	}
+	if gotAlpha.Name != "RoleAlpha" {
+		t.Errorf("expected role name RoleAlpha, got %s", gotAlpha.Name)
+	}
+
+	gotBeta, err := c.GetDataAccessRole(ctx, wsID, lhID, "RoleBeta")
+	if err != nil {
+		t.Fatalf("GetDataAccessRole(RoleBeta) failed: %v", err)
+	}
+	if gotBeta.Name != "RoleBeta" {
+		t.Errorf("expected role name RoleBeta, got %s", gotBeta.Name)
+	}
+
+	// 3. Verify DeleteDataAccessRole correctly reads paginated list and deletes role
+	if err := c.DeleteDataAccessRole(ctx, wsID, lhID, "RoleAlpha"); err != nil {
+		t.Fatalf("DeleteDataAccessRole(RoleAlpha) failed: %v", err)
+	}
+
+	// 4. Verify RoleAlpha is gone, RoleBeta still exists
+	if _, err := c.GetDataAccessRole(ctx, wsID, lhID, "RoleAlpha"); !IsNotFound(err) {
+		t.Fatalf("expected NotFoundError for RoleAlpha, got %v", err)
+	}
+	if _, err := c.GetDataAccessRole(ctx, wsID, lhID, "RoleBeta"); err != nil {
+		t.Fatalf("expected RoleBeta to persist after RoleAlpha deletion: %v", err)
+	}
+}
+
+func TestLakehouseDataAccessRoles_PaginationETagMismatchAndPageCap(t *testing.T) {
+	t.Parallel()
+
+	wsID := "11111111-1111-1111-1111-111111111111"
+	lhID := "22222222-2222-2222-2222-222222222221"
+
+	t.Run("etag mismatch across pages triggers conflict retry", func(t *testing.T) {
+		page1Calls := 0
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			contToken := r.URL.Query().Get("continuationToken")
+			w.Header().Set("Content-Type", "application/json")
+
+			if contToken == "" {
+				page1Calls++
+				// First page
+				w.Header().Set("ETag", `"etag-v1"`)
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{
+					"value": [{"id": "r1", "name": "Role1", "kind": "Policy", "decisionRules": []}],
+					"continuationToken": "token-page-2"
+				}`))
+				return
+			}
+
+			// Page 2: on first try, return mismatched ETag; on second attempt, return consistent ETag
+			if page1Calls == 1 {
+				w.Header().Set("ETag", `"etag-v2-mismatch"`)
+			} else {
+				w.Header().Set("ETag", `"etag-v1"`)
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{
+				"value": [{"id": "r2", "name": "Role2", "kind": "Policy", "decisionRules": []}]
+			}`))
+		}))
+		defer srv.Close()
+
+		c, err := NewFabricClient(Config{
+			Endpoint: srv.URL,
+			TokenProvider: func(context.Context) (string, error) {
+				return "token", nil
+			},
+			BaseBackoff: 1 * time.Millisecond,
+		})
+		if err != nil {
+			t.Fatalf("NewFabricClient failed: %v", err)
+		}
+
+		roles, etag, err := c.ListDataAccessRoles(context.Background(), wsID, lhID)
+		if err != nil {
+			t.Fatalf("ListDataAccessRoles failed on etag mismatch retry: %v", err)
+		}
+		if len(roles) != 2 {
+			t.Fatalf("expected 2 roles, got %d", len(roles))
+		}
+		if etag != `"etag-v1"` {
+			t.Fatalf("expected etag-v1, got %s", etag)
+		}
+		if page1Calls < 2 {
+			t.Fatalf("expected at least 2 attempts due to page ETag mismatch, got %d", page1Calls)
+		}
+	})
+
+	t.Run("pagination cycle returns error", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("ETag", `"etag-v1"`)
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{
+				"value": [{"id": "r1", "name": "Role1", "kind": "Policy", "decisionRules": []}],
+				"continuationToken": "infinite-loop"
+			}`))
+		}))
+		defer srv.Close()
+
+		c, err := NewFabricClient(Config{
+			Endpoint: srv.URL,
+			TokenProvider: func(context.Context) (string, error) {
+				return "token", nil
+			},
+		})
+		if err != nil {
+			t.Fatalf("NewFabricClient failed: %v", err)
+		}
+
+		_, _, err = c.ListDataAccessRoles(context.Background(), wsID, lhID)
+		if err == nil || !strings.Contains(err.Error(), "detected cycle in pagination") {
+			t.Fatalf("expected cycle error, got: %v", err)
 		}
 	})
 }

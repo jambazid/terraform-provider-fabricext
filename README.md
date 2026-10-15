@@ -4,18 +4,19 @@
 | :---: | :---: |
 
 > [!WARNING]
-> **Pre-Alpha & Stopgap Provider Notice**: `registry.terraform.io/jambazid/fabricext` (`v0.x`) is a **pre-alpha, purpose-built stopgap provider** created to fill the item-level sharing and OneLake Data Access Role gap (`fabricext_warehouse_permission`, `fabricext_sql_database_permission`, `fabricext_lakehouse_permission`, and `fabricext_item`) until equivalent resources are released in Microsoft's official [`microsoft/fabric` Terraform provider](https://github.com/microsoft/terraform-provider-fabric). Breaking schema changes may occur between `0.x` minor versions, and individual `fabricext_*` resources will be deprecated with migration guides as official equivalents reach General Availability.
+> `fabricext` is an experimental, pre-stable provider published to validate automated packaging, supply-chain provenance, and early Fabric permission architectures. Resources, attributes, and behaviour may change in any minor release prior to `v1.0.0`. Test every configuration in a non-production workspace first. For standard Microsoft Fabric production infrastructure, use the official [`microsoft/fabric`](https://registry.terraform.io/providers/microsoft/fabric/latest) provider.
 
 ## Overview
 
-`terraform-provider-fabricext` is a Terraform Plugin Framework (Protocol v6) provider for declaratively managing Microsoft Fabric item-level permissions and OneLake Data Access Roles across:
+`terraform-provider-fabricext` is a Terraform Plugin Framework (Protocol v6) provider for declaratively managing Microsoft Fabric OneLake Data Access Roles and security lifecycles:
 
-| Resource / Data Source | Microsoft Fabric Item Type | Capabilities |
-| :--- | :--- | :--- |
-| `fabricext_warehouse_permission` | `Warehouse` | Grants, updates (with downgrade revocation), reads, deletes, and imports item-level permissions (`read`, `write`, `reshare`). |
-| `fabricext_sql_database_permission` | `SQLDatabase` | Grants, updates (with downgrade revocation), reads, deletes, and imports SQL Database permissions (`read`, `read_data`, `read_spark`, `write`, `reshare`). |
-| `fabricext_lakehouse_permission` | `Lakehouse` | Manages OneLake Data Access Roles (`/dataAccessRoles`) with per-Lakehouse mutex locking and `If-Match` ETag Read-Modify-Write concurrency control. |
-| `data.fabricext_item` | `Warehouse`, `Lakehouse`, `SQLDatabase`, `SQLEndpoint`, `SemanticModel` | Resolves `(workspace_id, display_name, type)` to canonical item UUIDs (`id`) using a paginated, type-isolated lookup cache. |
+| Resource / Data Source | Microsoft Fabric Item Type | Capabilities | Status |
+| :--- | :--- | :--- | :--- |
+| `fabricext_lakehouse_permission` | `Lakehouse` | Manages OneLake Data Access Roles (`/dataAccessRoles`) with per-Lakehouse mutex locking and `If-Match` ETag Read-Modify-Write concurrency control. | Active |
+| `fabricext_lakehouse_onelake_security` | `Lakehouse` | Validates OneLake security enablement and manages the `DefaultReader` role lifecycle. | Active |
+| `data.fabricext_item` | `Warehouse`, `Lakehouse`, `SQLDatabase`, `SQLEndpoint`, `SemanticModel` | Resolves `(workspace_id, display_name, type)` to canonical item UUIDs (`id`) using a paginated, type-isolated lookup cache. | Active |
+| `fabricext_warehouse_permission` | `Warehouse` | Tombstone resource. Warehouse item sharing is unsupported via REST API; use in-database T-SQL permissions. | Deprecated (v0.3.0) |
+| `fabricext_sql_database_permission` | `SQLDatabase` | Tombstone resource. SQL Database item sharing is unsupported via REST API; use in-database T-SQL permissions. | Deprecated (v0.3.0) |
 
 ## Quick Start
 
@@ -26,7 +27,7 @@ terraform {
   required_providers {
     fabricext = {
       source  = "jambazid/fabricext"
-      version = "~> 0.2.1"
+      version = "~> 0.4.0"
     }
   }
 }
@@ -34,36 +35,30 @@ terraform {
 provider "fabricext" {}
 
 # Discover existing Fabric items by display name:
-data "fabricext_item" "sales_wh" {
+data "fabricext_item" "bronze_lh" {
   workspace_id = "00000000-0000-0000-0000-000000000001"
-  display_name = "sales_analytics_wh"
-  type         = "Warehouse"
+  display_name = "raw_bronze_lh"
+  type         = "Lakehouse"
 }
 
-resource "fabricext_warehouse_permission" "analytics_readers" {
-  workspace_id   = data.fabricext_item.sales_wh.workspace_id
-  warehouse_name = data.fabricext_item.sales_wh.display_name
-  principal_id   = "11111111-1111-1111-1111-111111111111"
-  principal_type = "Group"
-  role_type      = "read"
+# Verify OneLake security enablement and purge open DefaultReader role:
+resource "fabricext_lakehouse_onelake_security" "bronze_lh" {
+  workspace_id                = data.fabricext_item.bronze_lh.workspace_id
+  lakehouse_id                = data.fabricext_item.bronze_lh.id
+  remove_default_reader_role = true
 }
 
-resource "fabricext_sql_database_permission" "orders_readers" {
-  workspace_id      = "00000000-0000-0000-0000-000000000001"
-  sql_database_name = "operational_orders_db"
-  principal_id      = "11111111-1111-1111-1111-111111111111"
-  principal_type    = "Group"
-  role_type         = "read_data"
-}
-
+# Declaratively provision fine-grained OneLake Data Access Role:
 resource "fabricext_lakehouse_permission" "bronze_readers" {
-  workspace_id   = "00000000-0000-0000-0000-000000000001"
-  lakehouse_name = "raw_bronze_lh"
+  workspace_id   = data.fabricext_item.bronze_lh.workspace_id
+  lakehouse_name = data.fabricext_item.bronze_lh.display_name
   role_name      = "BronzeReaders"
   paths          = ["/Tables/customers", "/Files/landing"]
   actions        = ["Read"]
   principal_ids  = ["11111111-1111-1111-1111-111111111111"]
   principal_type = "Group"
+
+  depends_on = [fabricext_lakehouse_onelake_security.bronze_lh]
 }
 ```
 
@@ -84,7 +79,7 @@ See the [Provider Documentation](docs/index.md) for full authentication examples
 
 ## Permissions Module
 
-An in-repo reusable HCL module (`modules/permissions`) is provided to declaratively manage workspace permission matrices across Warehouses, Lakehouses, and SQL Databases in a single invocation. See [modules/permissions/README.md](modules/permissions/README.md) for documentation and examples.
+An in-repo reusable HCL module (`modules/permissions`) is provided to declaratively manage Lakehouse OneLake Data Access Roles and security lifecycles across workspaces in a single invocation. See [modules/permissions/README.md](modules/permissions/README.md) for documentation and examples.
 
 ## Development and Verification
 

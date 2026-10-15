@@ -1,6 +1,6 @@
 ---
 name: SQL Database Permission Resource (fabricext_sql_database_permission)
-description: Declarative Terraform Plugin Framework resource for Microsoft Fabric SQL Database item-level sharing and permissions
+description: Declarative Terraform Plugin Framework resource for Microsoft Fabric SQL Database item-level permissions (Deprecated)
 targets:
   - ../internal/provider/sql_database_permission_resource.go
   - ../internal/provider/sql_database_permission_resource_test.go
@@ -8,36 +8,26 @@ targets:
 
 # SQL Database Permission Resource (`fabricext_sql_database_permission`)
 
-## HCL Contract
+## Deprecation Notice
 
-```hcl
-resource "fabricext_sql_database_permission" "example" {
-  workspace_id      = "00000000-0000-0000-0000-000000000001"
-  sql_database_name = "operational_orders_db"
-  principal_id      = "11111111-1111-1111-1111-111111111111"
-  principal_type    = "Group"     # Optional: User, Group, ServicePrincipal, ServicePrincipalProfile (default: Group)
-  role_type         = "read_data" # Required: read, read_data, read_spark, write, reshare
-}
-```
+- `fabricext_sql_database_permission` is deprecated and will be removed in `v0.4.0`. Microsoft Fabric does not provide REST API routes for item-level sharing on SQL Databases.
+- Practitioners must configure permissions using Fabric portal Quick Actions and in-database SQL roles or Purview policies.
+  `[@test] ../internal/provider/sql_database_permission_resource_test.go::TestSQLDatabasePermissionResource_TombstoneLifecycle`
 
-`[@test] ../internal/provider/sql_database_permission_resource_test.go::TestAccSQLDatabasePermissionResource_CRUDDowngradeAndImport`
+## Schema & Plan Modifiers
 
-## Schema, Plan Modifiers & Validators
-
-- `workspace_id`, `sql_database_name`, `sql_database_id`, `principal_id`, and `principal_type` carry `RequiresReplace()` plan modifiers; `id`, `sql_database_name`, and `sql_database_id` carry `UseStateForUnknown()`
-  `[@test] ../internal/provider/sql_database_permission_resource_test.go::TestAccSQLDatabasePermissionResource_CRUDDowngradeAndImport`
-- `sql_database_name` and `sql_database_id` are optional attributes where at least one must be specified; if `sql_database_id` is supplied, `sql_database_name` is resolved automatically via `GetItemByID`, and if `sql_database_name` is supplied, `sql_database_id` is resolved via `GetItemByName`; if both are configured, `Create` validates that `sql_database_name` matches the fetched display name; on replacement, `ModifyPlan` clears the unconfigured counterpart so stale state values from `UseStateForUnknown` do not cause replacement failures
-  `[@test] ../internal/provider/sql_database_permission_resource_test.go::TestAccSQLDatabasePermissionResource_MismatchedIdentifiers`
-- `workspace_id`, `sql_database_id`, and `principal_id` validate UUID format at plan time; `role_type` validates `OneOf("read", "read_data", "read_spark", "write", "reshare")` mapping to Fabric SQL Database permissions (`["Read"]`, `["Read", "ReadData"]`, `["Read", "ReadAll", "SubscribeOneLakeEvents"]`, `["Read", "Write"]`, `["Read", "Reshare"]`)
+- The resource schema defines `DeprecationMessage` alerting practitioners during plan and apply.
+  `[@test] ../internal/provider/sql_database_permission_resource_test.go::TestSQLDatabasePermissionResource_TombstoneLifecycle`
+- `workspace_id`, `sql_database_id`, and `principal_id` validate UUID format at plan time; `role_type` validates `OneOf("read", "read_data", "read_spark", "write", "reshare")`; `principal_type` defaults to `"Group"` and validates `OneOf("User", "Group", "ServicePrincipal", "ServicePrincipalProfile")`.
   `[@test] ../internal/provider/sql_database_permission_resource_test.go::TestAccSQLDatabasePermissionResource_ValidationErrors`
 
-## CRUD Lifecycle & ImportState
+## Tombstoned Lifecycle
 
-- `Create` resolves `sql_database_name` to `sql_database_id` (or verifies `sql_database_id`), grants the mapped permissions, and sets composite `id = "{workspace_id}/{sql_database_id}/{principal_type}/{principal_id}"`
-  `[@test] ../internal/provider/sql_database_permission_resource_test.go::TestAccSQLDatabasePermissionResource_CRUDDowngradeAndImport`
-- `Update` revokes removed permissions before granting target permissions on role changes (e.g. `"read_spark"` $\rightarrow$ `"read"` or `"write"` $\rightarrow$ `"read_data"`) so downgrades never leave excess privileges
-  `[@test] ../internal/provider/sql_database_permission_resource_test.go::TestAccSQLDatabasePermissionResource_CRUDDowngradeAndImport`
-- `Read` calls `resp.State.RemoveResource(ctx)` if the SQL Database or principal permission is deleted out-of-band
-  `[@test] ../internal/provider/sql_database_permission_resource_test.go::TestAccSQLDatabasePermissionResource_Disappears`
-- `ImportState` parses `{workspace_id}/{sql_database_id}/{principal_type}/{principal_id}` and resolves `sql_database_name` via `GetItemByID`
-  `[@test] ../internal/provider/sql_database_permission_resource_test.go::TestAccSQLDatabasePermissionResource_CRUDDowngradeAndImport`
+- `Create` and `Update` return an error diagnostic explaining that item-level sharing endpoints do not exist in Fabric, failing without issuing HTTP calls.
+  `[@test] ../internal/provider/sql_database_permission_resource_test.go::TestAccSQLDatabasePermissionResource_DeprecatedCreateFails`
+- `Read` preserves prior state in memory without making network requests.
+  `[@test] ../internal/provider/sql_database_permission_resource_test.go::TestSQLDatabasePermissionResource_TombstoneLifecycle`
+- `Delete` removes the resource from state and emits an informational warning diagnostic without making network calls.
+  `[@test] ../internal/provider/sql_database_permission_resource_test.go::TestSQLDatabasePermissionResource_TombstoneLifecycle`
+- `ImportState` returns an error diagnostic directing practitioners to portal Quick Actions and SQL roles.
+  `[@test] ../internal/provider/sql_database_permission_resource_test.go::TestSQLDatabasePermissionResource_TombstoneLifecycle`

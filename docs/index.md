@@ -1,7 +1,7 @@
 ---
 page_title: "Provider: Fabric Extensions (fabricext)"
 description: |-
-  The Fabric Extensions provider (registry.terraform.io/jambazid/fabricext) is a purpose-built provider for declaratively managing Microsoft Fabric item-level sharing and data-access permissions (fabricext_*).
+  The Fabric Extensions provider (registry.terraform.io/jambazid/fabricext) is a purpose-built provider for declaratively managing Microsoft Fabric Lakehouse OneLake Data Access Roles and security lifecycles (fabricext_*).
 ---
 
 # Fabric Extensions Provider
@@ -10,9 +10,9 @@ description: |-
   <img src="https://raw.githubusercontent.com/jambazid/terraform-provider-fabricext/main/assets/fabric-logo.svg" width="72" height="72" alt="Microsoft Fabric Logo" />
 </p>
 
-!> **Warning:** **Community Extension Notice**: This provider is a community extension for item-level permissions and OneLake Data Access Roles. Manage workspace provisioning and core item lifecycles via the official [`microsoft/fabric`](https://registry.terraform.io/providers/microsoft/fabric/latest) provider.
+!> **Warning:** `fabricext` is an experimental, pre-stable provider published to validate automated packaging, supply-chain provenance, and early Fabric permission architectures. Resources, attributes, and behaviour may change in any minor release prior to `v1.0.0`. Test every configuration in a non-production workspace first. For standard Microsoft Fabric production infrastructure, use the official [`microsoft/fabric`](https://registry.terraform.io/providers/microsoft/fabric/latest) provider.
 
-The **Fabric Extensions (fabricext)** provider (`registry.terraform.io/jambazid/fabricext`) is a purpose-built provider for declaratively managing Microsoft Fabric item-level sharing and data-access permissions (`fabricext_*`) across Warehouses, SQL Databases, and Lakehouses until equivalent resources are available in Microsoft's official `microsoft/fabric` provider.
+The **Fabric Extensions (fabricext)** provider (`registry.terraform.io/jambazid/fabricext`) is an experimental community provider for declaratively managing Microsoft Fabric OneLake Data Access Roles and security governance (`fabricext_*`). Published pre-v1.0.0 for automated packaging and supply-chain verification.
 
 ## Example Usage
 
@@ -22,7 +22,7 @@ terraform {
   required_providers {
     fabricext = {
       source  = "jambazid/fabricext"
-      version = "~> 0.2.1"
+      version = "~> 0.4.0"
     }
   }
 }
@@ -49,11 +49,16 @@ For setup instructions and credential evaluation details, see the dedicated auth
 
 ## Permissions Management
 
-The provider resources (`fabricext_warehouse_permission`, `fabricext_sql_database_permission`, `fabricext_lakehouse_permission`) manage individual, atomic permission bindings per HashiCorp Provider Design Principles.
+The active provider resources (`fabricext_lakehouse_permission`, `fabricext_lakehouse_onelake_security`) manage Lakehouse OneLake Data Access Roles and security lifecycles per HashiCorp Provider Design Principles.
 
 To manage permissions across an entire workspace, you can compose them using native Terraform `for_each` maps or use the in-repo [`modules/permissions`](https://github.com/jambazid/terraform-provider-fabricext/tree/main/modules/permissions) wrapper module.
 
+### Deprecated Resources
+
+Early prototypes included `fabricext_warehouse_permission` and `fabricext_sql_database_permission`. Because Microsoft Fabric does not offer public item-sharing REST APIs for Warehouses or SQL Databases, these resources were tombstoned in `v0.3.0` and scheduled for removal in `v0.4.0`. Existing configurations should detach them from state using Terraform 1.7+ `removed` blocks with `lifecycle { destroy = false }`.
+
 For architectural patterns, in-place lifecycle keying invariants, and code examples, see the **[Declarative Matrix Composition Guide](guides/matrix_composition.md)**.
+
 
 ## Guides & Documentation
 
@@ -61,6 +66,7 @@ For comprehensive guides on access control architecture, cross-engine identity p
 
 | Guide | Core Focus |
 | :--- | :--- |
+| **[Access Control Playbook](guides/access_control_playbook.md)** | Start Here routing matrix and 11 least-privilege scenario cards. |
 | **[Use Cases Overview](guides/use_case_overview.md)** | Master comparison matrix and 6-tier security perimeter stack. |
 | **[Security Controls & Interactions](guides/use_case_controls_and_interactions.md)** | Tier inventory, precedence rules, and workspace role bypass rules. |
 | **[Warehouse Schema Isolation](guides/use_case_warehouse_schema_isolation.md)** | Least-privilege `read` connectivity, Entra ID naming, and SQL RBAC. |

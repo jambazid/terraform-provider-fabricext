@@ -2,13 +2,13 @@
 # SPDX-License-Identifier: MPL-2.0
 
 output "warehouse_permission_ids" {
-  description = "Map of flattened Warehouse permission keys to composite resource IDs."
-  value       = { for k, v in fabricext_warehouse_permission.this : k => v.id }
+  description = "Empty map retained for interface compatibility; warehouse item sharing is deprecated."
+  value       = {}
 }
 
 output "sql_database_permission_ids" {
-  description = "Map of flattened SQL Database permission keys to composite resource IDs."
-  value       = { for k, v in fabricext_sql_database_permission.this : k => v.id }
+  description = "Empty map retained for interface compatibility; SQL database item sharing is deprecated."
+  value       = {}
 }
 
 output "lakehouse_permission_ids" {

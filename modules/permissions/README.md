@@ -1,12 +1,12 @@
 # Fabric Permissions Module
 
-This module flattens and declaratively provisions workspace-wide item permissions across Microsoft Fabric Warehouses, SQL Databases, and Lakehouse OneLake Data Access Roles using a single structured matrix definition.
+This module flattens and declaratively provisions workspace-wide Microsoft Fabric Lakehouse OneLake Data Access Roles and security lifecycles using a single structured matrix definition.
 
 ## Overview
 
 - **Matrix Flattening**: Express multiple permissions across many items and principals without repeating boilerplate resource blocks.
-- **Strict Validation**: Validates UUIDs and allowed role types (`read`, `write`, `reshare`, `read_data`, `read_spark`) at plan time.
-- **Atomic Management**: Creates individual `fabricext_warehouse_permission`, `fabricext_sql_database_permission`, `fabricext_lakehouse_permission`, and `fabricext_lakehouse_onelake_security` resources under the hood, ensuring isolated updates and clean state tracking.
+- **Strict Validation**: Validates UUIDs and allowed role types at plan time.
+- **Atomic Management**: Creates individual `fabricext_lakehouse_permission` and `fabricext_lakehouse_onelake_security` resources under the hood, ensuring isolated updates and clean state tracking. *(Note: `warehouses` and `sql_databases` input blocks are deprecated and no longer create resources, as Microsoft Fabric does not offer public item-sharing REST APIs for those services).*
 
 ## Prerequisites
 
@@ -18,42 +18,14 @@ This module flattens and declaratively provisions workspace-wide item permission
 
 ### Stage 1: Basic Permissions
 
-Manage standard table access across Warehouses, SQL Databases, and Lakehouses using simple mode:
+Manage standard table access across Lakehouses using simple mode:
 
 ```hcl
 module "workspace_permissions" {
-  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=v0.2.1"
+  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=0.4.0"
 
   fabric_permissions_matrix = {
     workspace_id = "00000000-0000-0000-0000-000000000001"
-
-    warehouses = {
-      sales_dw = {
-        read = [
-          {
-            id   = "11111111-1111-1111-1111-111111111111"
-            type = "Group"
-          }
-        ]
-        write = [
-          {
-            id   = "22222222-2222-2222-2222-222222222222"
-            type = "ServicePrincipal"
-          }
-        ]
-      }
-    }
-
-    sql_databases = {
-      orders_db = {
-        read_data = [
-          {
-            id   = "11111111-1111-1111-1111-111111111111"
-            type = "Group"
-          }
-        ]
-      }
-    }
 
     lakehouses = {
       raw_lakehouse = {
@@ -75,7 +47,7 @@ Filter rows for specific principals using T-SQL Boolean predicates in `row_const
 
 ```hcl
 module "workspace_permissions" {
-  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=v0.2.1"
+  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=0.4.0"
 
   fabric_permissions_matrix = {
     workspace_id = "00000000-0000-0000-0000-000000000001"
@@ -115,7 +87,7 @@ Restrict column access to an explicit allowlist using `column_constraints`:
 
 ```hcl
 module "workspace_permissions" {
-  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=v0.2.1"
+  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=0.4.0"
 
   fabric_permissions_matrix = {
     workspace_id = "00000000-0000-0000-0000-000000000001"
@@ -157,7 +129,7 @@ Combine users, groups, service principals, and managed identities on the same ro
 
 ```hcl
 module "workspace_permissions" {
-  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=v0.2.1"
+  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=0.4.0"
 
   fabric_permissions_matrix = {
     workspace_id = "00000000-0000-0000-0000-000000000001"
@@ -202,7 +174,7 @@ Dynamically derive role membership from users holding item permissions on anothe
 
 ```hcl
 module "workspace_permissions" {
-  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=v0.2.1"
+  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=0.4.0"
 
   fabric_permissions_matrix = {
     workspace_id = "00000000-0000-0000-0000-000000000001"
@@ -240,7 +212,7 @@ Control OneLake security verification and `DefaultReader` role purging behavior:
 
 ```hcl
 module "workspace_permissions" {
-  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=v0.2.1"
+  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=0.4.0"
 
   fabric_permissions_matrix = {
     workspace_id = "00000000-0000-0000-0000-000000000001"
@@ -272,8 +244,8 @@ The `fabric_permissions_matrix` variable accepts a structured object with the fo
 | Attribute | Type | Required | Default | Description |
 | :--- | :--- | :--- | :--- | :--- |
 | `workspace_id` | `string` | yes | - | 36-character UUID of the Microsoft Fabric workspace. |
-| `warehouses` | `map(map(list(object)))` | no | `{}` | Map of Warehouse identifiers (names or UUIDs) to role maps (`read`, `write`, `reshare`). |
-| `sql_databases` | `map(map(list(object)))` | no | `{}` | Map of SQL Database identifiers (names or UUIDs) to role maps (`read`, `read_data`, `read_spark`, `write`, `reshare`). |
+| `warehouses` | `map(map(list(object)))` | no | `{}` | (Deprecated) Map of Warehouse identifiers (names or UUIDs) to role maps (`read`, `write`, `reshare`). Retained as a no-op returning an empty map `{}`. |
+| `sql_databases` | `map(map(list(object)))` | no | `{}` | (Deprecated) Map of SQL Database identifiers (names or UUIDs) to role maps (`read`, `read_data`, `read_spark`, `write`, `reshare`). Retained as a no-op returning an empty map `{}`. |
 | `lakehouses` | `map(map(object))` | no | `{}` | Map of Lakehouse identifiers (names or UUIDs) to role definition objects. |
 | `manage_lakehouse_security` | `bool` | no | `true` | Automatically provisions `fabricext_lakehouse_onelake_security` per unique Lakehouse. |
 | `remove_lakehouse_default_reader_role` | `bool` | no | `true` | Purges the open `DefaultReader` role created by Fabric upon enabling OneLake security. |
@@ -373,7 +345,7 @@ Entries within `fabric_item_members` support:
 
 | Name | Description |
 | :--- | :--- |
-| `warehouse_permission_ids` | Map of flattened Warehouse permission keys to composite resource IDs. |
-| `sql_database_permission_ids` | Map of flattened SQL Database permission keys to composite resource IDs. |
+| `warehouse_permission_ids` | (Deprecated) Empty map `{}` retained for interface compatibility; Warehouse item sharing was tombstoned in v0.3.0 and scheduled for removal in v0.4.0. |
+| `sql_database_permission_ids` | (Deprecated) Empty map `{}` retained for interface compatibility; SQL Database item sharing was tombstoned in v0.3.0 and scheduled for removal in v0.4.0. |
 | `lakehouse_permission_ids` | Map of flattened Lakehouse Data Access Role keys to composite resource IDs. |
 | `lakehouse_onelake_security_ids` | Map of unique Lakehouse keys to composite OneLake security resource IDs. |

@@ -12,22 +12,20 @@
 
 Microsoft's official [`microsoft/fabric` Terraform provider](https://registry.terraform.io/providers/microsoft/fabric/latest) supports provisioning Microsoft Fabric workspaces, capacities, workspace role assignments, and core items (`fabric_warehouse`, `fabric_lakehouse`, `fabric_sql_database`). However, it currently lacks declarative resources for **item-level sharing and granular data-access permissions**:
 
-1. **Fabric Data Warehouses (`Warehouse`)**: Granting and revoking item-level `Read`, `Write`, and `Reshare` permissions to Microsoft Entra ID principals without over-provisioning workspace-wide roles (`Viewer`, `Contributor`, `Member`, `Admin`).
-2. **Fabric SQL Databases (`SQLDatabase`)**: Granting and revoking item-level connection (`Read`), T-SQL read-all (`ReadData`), OneLake Spark read-all (`ReadAll` + `SubscribeOneLakeEvents`), `Write`, and `Reshare` permissions.
+1. **Fabric Data Warehouses (`Warehouse`)**: Item-level sharing endpoints do not exist in the public Fabric REST API; sharing is managed via the Fabric portal UI, and granular permissions must be implemented via T-SQL (`GRANT`/`DENY`/`REVOKE`).
+2. **Fabric SQL Databases (`SQLDatabase`)**: Item-level sharing endpoints do not exist in the public Fabric REST API; sharing is managed via portal Quick Actions, and granular permissions must be implemented via SQL roles or Purview policies.
 3. **Fabric Lakehouses (`Lakehouse`)**: Managing OneLake Data Access Roles (`/dataAccessRoles`) that scope folder/table path permissions (`/Tables/...`, `/Files/...`) to specific Microsoft Entra ID security groups, users, or service principals.
-
-Without declarative Terraform resources for these APIs, platform engineering teams are forced to rely on fragile `null_resource` / `local-exec` shell scripts or imperative `azapi_resource_action` workarounds that lack drift detection, state reconciliation, downgrade revocation, and concurrency safety.
 
 ### 1.2 Architectural Solution
 
-`terraform-provider-fabricext` bridges this gap with a native Go Terraform Plugin Framework (Protocol v6) provider (`fabricext`) exposing atomic resources under the `fabricext_` prefix:
+`terraform-provider-fabricext` addresses this with a native Go Terraform Plugin Framework (Protocol v6) provider (`fabricext`):
 
-- **`fabricext_warehouse_permission`**: Declarative lifecycle (`Create`, `Read`, `Update` with downgrade revocation, `Delete`, `ImportState`) for Fabric Warehouse item permissions.
-- **`fabricext_sql_database_permission`**: Declarative lifecycle (`Create`, `Read`, `Update` with downgrade revocation, `Delete`, `ImportState`) for Fabric SQL Database item permissions.
 - **`fabricext_lakehouse_permission`**: Declarative lifecycle (`Create`, `Read`, `Update`, `Delete`, `ImportState`) for Lakehouse OneLake Data Access Roles using a per-item mutex and optimistic concurrency (`ETag` / `If-Match`) Read-Modify-Write (RMW) loop.
 - **`fabricext_lakehouse_onelake_security`**: Declarative lifecycle (`Create`, `Read`, `Update`, `Delete`, `ImportState`) verifying OneLake security enablement, purging permissive `DefaultReader` roles, and observing state drift.
+- **`fabricext_warehouse_permission` (Deprecated)**: Tombstoned resource that errors on `Create`/`Update` with clear diagnostic alternatives, preserves existing state on `Read`, and removes state on `Delete` without making network calls.
+- **`fabricext_sql_database_permission` (Deprecated)**: Tombstoned resource that errors on `Create`/`Update` with clear diagnostic alternatives, preserves existing state on `Read`, and removes state on `Delete` without making network calls.
 - **`fabricext_item` (Data Source)**: Singular item lookup resolving `(workspace_id, display_name, type)` to its canonical Fabric item `id`.
-- **`modules/permissions` (In-Repo HCL Submodule)**: Optional declarative matrix wrapper that flattens a nested workspace configuration (`warehouses`, `lakehouses`, `sql_databases`) into atomic `for_each` resource instances.
+- **`modules/permissions` (In-Repo HCL Submodule)**: Declarative matrix wrapper managing Lakehouse OneLake Data Access Roles and security lifecycles across workspaces.
 
 ---
 
@@ -43,6 +41,8 @@ Without declarative Terraform resources for these APIs, platform engineering tea
 | **REQ-006** | Vendor official `microsoft/fabric-rest-api-specs` OpenAPI definitions and enforce runtime request/response schema validation in mock tests via `kin-openapi` | `specs/openapi/`, `internal/testutil/fabricmock/` | `mise run specs:check`, `mise run test` |
 | **REQ-007** | Implement StepSecurity-hardened GitHub Actions CI/CD (`jambazid/gha-actions` style) with automatic Conventional Commits release (`svu` + `goreleaser`) and 7-day Dependabot cooldown | `.github/workflows/ci.yaml`, `.github/dependabot.yaml`, `.goreleaser.yaml`, `terraform-registry-manifest.json` | `mise run scan`, `goreleaser check` |
 | **REQ-008** | Document contributor extensibility, roadmap/deprecation policy, and security posture | [`CONTRIBUTING.md`](CONTRIBUTING.md), [`ROADMAP.md`](ROADMAP.md), [`SECURITY.md`](SECURITY.md) | `mise run lint` |
+| **REQ-DOCS-008** | Purge active item-sharing implications for Warehouse and SQL Database across documentation, guides, module, and examples | `templates/**`, `docs/**`, `guides/`, `examples/`, `modules/permissions/` | `go test -run TestRegistryDocs_NoActiveItemSharingClaims`, `mise run docs:check` |
+| **REQ-DOCS-009** | Document honest technical comparison narrative against official provider, detailing OneLake zero-trust purging, ETag concurrency, and contract testing | `templates/guides/official_provider_comparison.md.tmpl`, `guides/official_provider_comparison.md` | `go test -run TestRegistryDocs_HonestComparisonNarrative`, `mise run docs:check` |
 
 ---
 
@@ -210,6 +210,15 @@ sequenceDiagram
   - Microsoft Fabric provides **no distributed locking API** (no lease or advisory lock endpoints on workspaces or Lakehouses).
   - Cross-process and cross-pipeline synchronization relies strictly on HTTP `ETag` + `If-Match` optimistic concurrency.
   - Every `GET /dataAccessRoles` captures the response `ETag` header. The mutating request submits `PUT /dataAccessRoles` with `If-Match: <ETag>`.
+  - **Paginated Collection Retrieval & Single-Document ETag Invariant**: `ListDataAccessRoles` follows `continuationToken` query parameters across all pages using the client's configured base URL, concatenating role slices until `continuationToken` is empty. The response-header `ETag` must remain identical across all pages; if the header `ETag` changes between pages, the client aborts the scan, treats it as a concurrency conflict, and retries the entire list sequence (counting against `MaxETagRetries`). The client never uses or transmits item-level `eTag` properties found inside individual `DataAccessRoleListItem` objects.
+  - **ETag Normalisation**: The client normalizes `ETag` values before transmission. Strong entity tags are required by RFC 9110 §13.1.1 for `If-Match`. Weak tags (`W/"..."`), empty tags, or tags containing rogue quotes are rejected with an explicit error. Unquoted tags (e.g. `etag-v1`) are safely quoted as `"etag-v1"`, while already quoted tags are passed through.
+  - **Architecture Decision Record: Bulk vs. Single-Role API (DEC-3)**:
+    - `microsoft/fabric` (upstream) manages roles via preview-gated single-role operations (`POST /dataAccessRoles`, `DELETE /dataAccessRoles/{roleName}`).
+    - `fabricext` uses the generally available bulk `/dataAccessRoles` endpoints with optimistic concurrency (per-item mutex, `If-Match` RMW, and full pagination resolution). This provides general availability without requiring users to enable preview mode at the provider level, while safely preserving unmanaged sibling roles.
+  - **Write-Safety & Constraint Validation**:
+    - Microsoft Fabric does not support combining `ReadWrite` actions with row-level security (`row_constraint`) or column-level security (`column_constraint`) within a decision rule.
+    - `ValidateConfig` rejects configurations that combine `ReadWrite` with row or column constraints with a blocking error.
+    - The `Write` action is deprecated in `v0.3.0` and emits a warning diagnostic in favor of `ReadWrite`. Role names are capped at 128 characters (`LengthAtMost(128)`).
   - If an independent Terraform stack or external process commits a modification between the `GET` and `PUT`, Fabric rejects the second mutation with HTTP `412 Precondition Failed` (or `409 Conflict`).
   - `FabricClient` automatically intercepts `412`/`409`, refetches the latest remote role array and updated `ETag`, reapplies the target role mutation in-memory, and retries with linear backoff plus jitter (up to 10 attempts / $\sim 5.5\text{s}$).
   - For cross-stack isolation where multiple stacks declare permissions on the same workspace, Terraform remote backend state locking (e.g. Terraform Cloud, Azure Blob Storage lease, or S3 DynamoDB lock) remains the standard IaC control preventing concurrent runs on shared stacks.
@@ -252,7 +261,7 @@ sequenceDiagram
 
 ### 5.5 Runtime OpenAPI Contract Validation (`internal/testutil/fabricmock`)
 
-- All vendored Swagger 2.0 specs under `specs/openapi/` (`platform/`, `warehouse/`, `lakehouse/`, `sqlDatabase/`, `common/`, and `overlays/item-permissions.json`) are verified by SHA-256 digest in `specs/openapi/lock.json` and loaded at test initialization by `github.com/getkin/kin-openapi` (`openapi2` $\rightarrow$ `openapi2conv.ToV3`).
+- All vendored Swagger 2.0 specs under `specs/openapi/` (`platform/`, `warehouse/`, `lakehouse/`, `sqlDatabase/`, and `common/`) are verified by SHA-256 digest in `specs/openapi/lock.json` and loaded at test initialization by `github.com/getkin/kin-openapi` (`openapi2` $\rightarrow$ `openapi2conv.ToV3`). All contract files strictly originate from upstream `microsoft/fabric-rest-api-specs`.
 - `fabricmock.Server` wraps its stateful HTTP router in an `openapi3filter` validation middleware that validates **every incoming HTTP request** (`openapi3filter.ValidateRequest`) and **every outgoing HTTP response** (`openapi3filter.ValidateResponse`) against the converted OpenAPI v3 schemas.
 
 ---
@@ -276,9 +285,14 @@ sequenceDiagram
 
 See the embedded Terraform Registry guide [`docs/guides/official_provider_comparison.md`](docs/guides/official_provider_comparison.md) (generated from [`templates/guides/official_provider_comparison.md.tmpl`](templates/guides/official_provider_comparison.md.tmpl) via `mise run docs`) for the full comparative analysis with Microsoft's official [`microsoft/terraform-provider-fabric`](https://github.com/microsoft/terraform-provider-fabric) and the Terraform 1.7+ state migration playbooks for Lakehouses, Warehouses, and SQL Databases.
 
-### 6.2 `fabricext_warehouse_permission` Resource
+### 6.2 `fabricext_warehouse_permission` Resource (Deprecated)
 
-- **Composite ID & Import Format**: `{workspace_id}/{warehouse_id}/{principal_type}/{principal_id}`
+- **Status**: Deprecated in `v0.2.2`; slated for removal in `v0.4.0`.
+- **Tombstone Semantics**:
+  - `Create` / `Update`: Fails immediately with a descriptive error diagnostic and migration instructions; makes zero network calls.
+  - `Read`: Preserves prior state in memory without issuing HTTP calls.
+  - `Delete`: Removes resource from state with an informational warning diagnostic without making network calls.
+  - `ImportState`: Rejects import attempts with an error diagnostic.
 - **Attributes**:
   - `id` (`String`, `Computed`, `UseStateForUnknown`)
   - `workspace_id` (`String`, `Required`, `RequiresReplace`, UUID validator)
@@ -288,9 +302,14 @@ See the embedded Terraform Registry guide [`docs/guides/official_provider_compar
   - `principal_type` (`String`, `Optional` + `Computed`, default `"Group"`, `RequiresReplace`, `OneOf("User", "Group", "ServicePrincipal", "ServicePrincipalProfile")`)
   - `role_type` (`String`, `Required`, `OneOf("read", "write", "reshare")`)
 
-### 6.3 `fabricext_sql_database_permission` Resource
+### 6.3 `fabricext_sql_database_permission` Resource (Deprecated)
 
-- **Composite ID & Import Format**: `{workspace_id}/{sql_database_id}/{principal_type}/{principal_id}`
+- **Status**: Deprecated in `v0.2.2`; slated for removal in `v0.4.0`.
+- **Tombstone Semantics**:
+  - `Create` / `Update`: Fails immediately with a descriptive error diagnostic and migration instructions; makes zero network calls.
+  - `Read`: Preserves prior state in memory without issuing HTTP calls.
+  - `Delete`: Removes resource from state with an informational warning diagnostic without making network calls.
+  - `ImportState`: Rejects import attempts with an error diagnostic.
 - **Attributes**:
   - `id` (`String`, `Computed`, `UseStateForUnknown`)
   - `workspace_id` (`String`, `Required`, `RequiresReplace`, UUID validator)
@@ -353,14 +372,15 @@ See the embedded Terraform Registry guide [`docs/guides/official_provider_compar
   - `type` (`String`, `Required`, `OneOf("Warehouse", "Lakehouse", "SQLDatabase", "SQLEndpoint", "SemanticModel")`)
   - `id` (`String`, `Computed`): Resolved Fabric item UUID.
 
-### 6.7 ADR: Atomic Resources
+### 6.7 ADR: Atomic Resources & Deprecation
 
 - **Context**: A single workspace-wide resource (`fabricext_workspace_permissions_model`) accepting a nested map of all item permissions across a workspace was evaluated as an alternative to atomic per-item resources (`fabricext_*_permission`) + HCL composition.
-- **Decision**: Reject the workspace-wide monolithic resource in favor of atomic resources (`fabricext_warehouse_permission`, `fabricext_sql_database_permission`, `fabricext_lakehouse_permission`) paired with both a Zero-Module Native HCL `for_each` pattern and the in-repo `modules/permissions/` submodule.
+- **Decision**: Reject the workspace-wide monolithic resource in favor of atomic resources (`fabricext_lakehouse_permission`, `fabricext_lakehouse_onelake_security`) paired with native HCL `for_each` and the in-repo `modules/permissions/` submodule.
+- **Deprecation Context**: Early prototypes included `fabricext_warehouse_permission` and `fabricext_sql_database_permission`. In v0.3.0, comprehensive audits revealed that Microsoft Fabric does not offer public item-sharing REST endpoints for Warehouses or SQL Databases. Both resources were permanently tombstoned in v0.3.0 (`Create`/`Update` return blocking error diagnostics; `Read` preserves state; `Delete` cleans state) and are scheduled for removal, focusing the provider strictly on Lakehouse OneLake Data Access Roles and security lifecycles.
 - **Rationale (HashiCorp Provider Design Principles)**:
-  1. **One Resource, One API**: A workspace-wide resource conflates 4 distinct APIs (`Items_List`, Warehouse `/permissions`, SQLDatabase `/permissions`, and Lakehouse `/dataAccessRoles`).
-  2. **Failure Isolation**: In a monolithic resource, an HTTP `429`/`400` failure on the 9th of 12 items leaves the single Terraform resource in a partially-applied state; with atomic resources, each binding is tracked independently in `terraform.tfstate`.
-  3. **Drift & Import**: `resp.State.RemoveResource(ctx)` and `terraform import` operate on individual resource instances; a workspace-wide resource cannot cleanly remove or import a single item without affecting the entire workspace.
+  1. **One Resource, One API**: A workspace-wide resource conflates distinct APIs.
+  2. **Failure Isolation**: Each OneLake role binding is tracked independently in `terraform.tfstate`.
+  3. **Drift & Import**: `resp.State.RemoveResource(ctx)` and `terraform import` operate on individual role instances cleanly.
 
 ---
 
@@ -368,36 +388,45 @@ See the embedded Terraform Registry guide [`docs/guides/official_provider_compar
 
 ### 7.1 Option A: Zero-Module Native HCL Matrix Pattern
 
-Practitioners can map a declarative matrix of permissions directly onto the atomic resources without consuming any external module:
+Practitioners can map a declarative matrix of OneLake Data Access Roles directly onto `fabricext_lakehouse_permission` without consuming external modules:
 
 ```hcl
 locals {
   workspace_id = "00000000-0000-0000-0000-000000000001"
-  warehouse_grants = {
-    "sales_wh:analysts" = { warehouse = "sales_wh", principal_id = "11111111-1111-1111-1111-111111111111", role = "read" }
-    "sales_wh:etl_spn"  = { warehouse = "sales_wh", principal_id = "22222222-2222-2222-2222-222222222222", role = "write" }
+  lakehouse_roles = {
+    "raw_lh:analysts" = {
+      lakehouse_name = "raw_bronze_lh"
+      role_name      = "BronzeReaders"
+      paths          = ["/Tables/customers", "/Files/landing"]
+      actions        = ["Read"]
+      principal_ids  = ["11111111-1111-1111-1111-111111111111"]
+      principal_type = "Group"
+    }
   }
 }
 
-resource "fabricext_warehouse_permission" "this" {
-  for_each       = local.warehouse_grants
+resource "fabricext_lakehouse_permission" "this" {
+  for_each       = local.lakehouse_roles
   workspace_id   = local.workspace_id
-  warehouse_name = each.value.warehouse
-  principal_id   = each.value.principal_id
-  role_type      = each.value.role
+  lakehouse_name = each.value.lakehouse_name
+  role_name      = each.value.role_name
+  paths          = each.value.paths
+  actions        = each.value.actions
+  principal_ids  = each.value.principal_ids
+  principal_type = each.value.principal_type
 }
 ```
 
 ### 7.2 Option B: Bundled In-Repo Submodule (`modules/permissions/`)
 
-`modules/permissions/` accepts a unified `fabric_permissions_matrix` variable (`workspace_id`, `warehouses`, `sql_databases`, `lakehouses`), flattens the nested structures via `flatten([...])` keyed by `"${item_name}/${principal_type}/${principal_id}"` (so role upgrades/downgrades execute in place without recreate races), and provisions `fabricext_warehouse_permission`, `fabricext_sql_database_permission`, and `fabricext_lakehouse_permission` resources deterministically even when optional item maps are omitted.
+`modules/permissions/` accepts a unified `fabric_permissions_matrix` variable, flattens Lakehouse role definitions keyed by `"${lakehouse_name}/${role_name}"`, and provisions `fabricext_lakehouse_permission` and `fabricext_lakehouse_onelake_security` resources deterministically.
 
-In the v0.2.0 uplift, `modules/permissions/` expands to:
+Key module capabilities:
 
-1. Support direct item UUIDs as map keys (in addition to item display names) across `warehouses`, `sql_databases`, and `lakehouses`.
+1. Support direct item UUIDs as map keys (in addition to item display names) across `lakehouses`.
 2. Support advanced Lakehouse OneLake Data Access Roles: repeatable `decision_rules` with Row-Level Security (`row_constraints`), Column-Level Security (`column_constraints`), heterogeneous `entra_members`, and `fabric_item_members` alongside the standard simple flat role configuration.
 3. Enforce strict dependency ordering across the security enablement boundary: `fabricext_lakehouse_permission.this` declares an explicit `depends_on = [fabricext_lakehouse_onelake_security.this]` so that OneLake security verification and `DefaultReader` purging complete before role mutations across all Lakehouses.
-4. Document the complete object geometry and nested child fields (`decision_rules`, `row_constraints`, `column_constraints`, `entra_members`, `fabric_item_members`, `manage_lakehouse_security`, `remove_lakehouse_default_reader_role`) using contemporary `terraform-docs` variable description conventions and structured reference tables.
+4. Legacy inputs `warehouses` and `sql_databases` are preserved for backward syntax compatibility but produce empty outputs as underlying item sharing is unsupported via REST.
 
 ---
 
@@ -457,3 +486,47 @@ flowchart LR
    - `.golangci.yaml` enforces `depguard` rules banning `github.com/hashicorp/terraform-plugin-sdk/v2` imports alongside `usetesting`, `govet`, `staticcheck`, `errcheck`, `gosec`, and `revive`.
 4. **Continuous Vulnerability, Secret & Misconfiguration Scanning**:
    - `trivy fs` (vulnerabilities, secrets, misconfigurations) and `trivy config` (Terraform HCL scanning) + `zizmor` (GitHub Actions static analysis) run with identical configurations both locally in `prek` hooks and in CI (`trivy | scan` and `provider | lint`).
+
+---
+
+## 10. Registry Documentation & Playbook Architecture
+
+1. **Pre-Stable Experimental Positioning**:
+   - The provider is explicitly documented as pre-`v1.0.0` experimental software published to validate automated packaging, supply-chain provenance, and early Fabric permission architectures.
+   - All Registry landing pages and resource documents link to the official [`microsoft/fabric`](https://registry.terraform.io/providers/microsoft/fabric/latest) provider for core workspace infrastructure.
+2. **Access Control Playbook**:
+   - `templates/guides/access_control_playbook.md.tmpl` serves as the primary practitioner guide for least-privilege Fabric access.
+   - Provides a comprehensive "Start Here" routing table across personas, items, and tooling.
+   - Structured scenario cards include concrete `sqlcmd` and notebook verification commands and explicit least-privilege rationales.
+3. **Primary-Source Citation Binding**:
+   - All factual assertions regarding Fabric access controls, SQL endpoint modes, TDS connectivity, and OneLake role semantics bind to verifiable Microsoft Learn documentation cataloged in `specs/citations.md`.
+
+---
+
+## 11. Official Provider Comparison Architecture
+
+### 11.1 Comparative Architectural Assessment
+
+`terraform-provider-fabricext` is an advanced security companion provider rather than a competitor to the official [`microsoft/fabric`](https://registry.terraform.io/providers/microsoft/fabric/latest) provider:
+
+1. **Breadth vs Specialization**: `microsoft/fabric` manages core platform resources (workspaces, capacities, items, and workspace roles). `fabricext` focuses specifically on Lakehouse OneLake Data Access Roles and security lifecycles.
+2. **Item Sharing Parity**: Neither provider manages Warehouse or SQL Database item sharing via REST because Microsoft Fabric does not offer public REST endpoints for them. Fine-grained security for these engines must be configured via Fabric Portal Share + in-database T-SQL permissions.
+3. **Automated Zero-Trust Lifecycle**: `fabricext_lakehouse_onelake_security` automates verification and zero-trust deletion of the auto-generated `DefaultReader` role, preventing open read access from defeating custom RLS/CLS rules.
+4. **ETag Concurrency Control**: `fabricext` provides per-Lakehouse in-memory mutex locking and RFC 9110 compliant `If-Match` ETag Read-Modify-Write retry on HTTP 412, preventing race conditions under parallel Terraform operations.
+5. **Multi-Page Pagination Safety**: Follows `continuationToken` up to 100 pages with cycle detection and cross-page ETag consistency checks.
+6. **Sub-10s Hermetic Offline Testing**: Acceptance tests run in seconds without live Azure cloud credentials against `fabricmock`, contract-validated via `kin-openapi` (`openapi3filter`).
+
+---
+
+## 12. Extension Surface Gap Roadmap
+
+### 12.1 Fabric API Surface Analysis
+
+Cross-referencing all 57 item and service domains in [`microsoft/fabric-rest-api-specs`](https://github.com/microsoft/fabric-rest-api-specs) against the 66 resources in `microsoft/terraform-provider-fabric` (v1.14.0) identifies 13+ unmanaged or partially managed API surfaces.
+
+### 12.2 Candidate Extension Resource Priority
+
+1. **User Data Functions (`fabricext_user_data_function`)**: High priority. Serverless Python functions with connected Lakehouse/Warehouse data sources, PyPI packages, and private `.whl` libraries (`userDataFunction/swagger.json`).
+2. **Data Build Tool Jobs (`fabricext_data_build_tool_job`)**: High priority. Native Fabric execution of dbt projects (`dataBuildToolJob/swagger.json`).
+3. **Mirrored Warehouses (`fabricext_mirrored_warehouse`)**: Medium priority. Declarative item provisioning for mirrored external warehouses.
+4. **Graph Models & Query Sets (`fabricext_graph_model`)**: Medium priority. Fabric Knowledge Graph entity and schema definitions.

@@ -1,0 +1,54 @@
+---
+page_title: "{{.Name}} {{.Type}} - {{.RenderedProviderName}}"
+subcategory: ""
+description: |-
+  (Deprecated) Manages item-level permissions on a Microsoft Fabric Warehouse. Tombstoned in v0.3.0 and scheduled for removal in v0.4.0.
+---
+
+# {{.Name}} ({{.Type}})
+
+!> **Deprecated:** This resource was tombstoned in v0.3.0 and is scheduled for removal in v0.4.0. Microsoft Fabric does not offer public item-sharing REST endpoints for Warehouses. Item-level sharing must be configured using the Fabric web portal interface, and fine-grained data access should be implemented using in-database T-SQL permissions (`GRANT`/`REVOKE`/`DENY`). Creating or updating this resource fails without making network calls. Removing it from Terraform configuration is safe and makes no API calls.
+
+!> **Warning:** **Experimental Provider**: The `fabricext` provider is published in a pre-`v1.0.0` experimental state to facilitate automated packaging and supply-chain verification. For core workspace and item management, use the official Microsoft [`microsoft/fabric`](https://registry.terraform.io/providers/microsoft/fabric/latest) provider.
+
+{{ .Description | trimspace }}
+
+## Deprecation & Migration Guide
+
+Microsoft Fabric does not expose public REST routes for declarative Warehouse item sharing. Consequently, item-level sharing cannot be managed declaratively through the Fabric REST API at this time.
+
+### Recommended Access Architecture
+
+1. **Item Connectivity**: Share the Warehouse through the Microsoft Fabric web portal UI, granting the principal **Read** connectivity.
+2. **Fine-Grained Authorization**: Connect to the Warehouse TDS endpoint (port 1433) as an administrator and execute granular T-SQL statements:
+   ```sql
+   -- Users are created implicitly upon GRANT in Fabric Data Warehouse
+   GRANT SELECT ON SCHEMA::finance TO [SEC-Fabric-Finance-Analysts];
+   ```
+
+Refer to the [Access Control Playbook](../guides/access_control_playbook.md) for full scenario walkthroughs.
+
+### Removing Deprecated Resources
+
+Existing state can be safely decommissioned without destroying cloud infrastructure using Terraform 1.7+ `removed` blocks:
+
+```hcl
+removed {
+  from = fabricext_warehouse_permission.example
+
+  lifecycle {
+    destroy = false
+  }
+}
+```
+
+{{ if .HasExamples -}}
+## Example Usage
+
+{{- range .ExampleFiles }}
+{{ tffile . }}
+{{- end }}
+{{- end }}
+
+{{ .SchemaMarkdown | trimspace }}
+

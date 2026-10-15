@@ -7,6 +7,10 @@ description: |-
 
 # fabricext_lakehouse_onelake_security (Resource)
 
+!> **Warning:** **Experimental Provider**: The `fabricext` provider is published in a pre-`v1.0.0` experimental state to facilitate automated packaging and supply-chain verification. For core workspace and item management, use the official Microsoft [`microsoft/fabric`](https://registry.terraform.io/providers/microsoft/fabric/latest) provider.
+
+~> **Note:** For end-to-end guidance and real-world multi-persona security configurations, see the [Access Control Playbook](../guides/access_control_playbook.md).
+
 Verifies that OneLake Data Access Security is enabled on a Microsoft Fabric **Lakehouse** and optionally purges the auto-provisioned `DefaultReader` role to enforce zero-trust least-privilege access control.
 
 ~> **Note:** Microsoft Fabric currently does not support enabling OneLake Data Access Security via public REST API. Enablement must be performed once in the Fabric portal via **Lakehouse ribbon -> Manage OneLake security**. This resource validates enablement and manages the `DefaultReader` role lifecycle.

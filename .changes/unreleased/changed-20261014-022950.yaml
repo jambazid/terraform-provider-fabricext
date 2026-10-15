@@ -1,3 +1,0 @@
-kind: changed
-body: Add explicit depends_on ordering for all lakehouses in permissions module and examples
-time: 2026-10-14T02:29:50.555590925+01:00

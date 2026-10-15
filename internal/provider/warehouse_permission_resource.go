@@ -6,7 +6,6 @@ package provider
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/resourcevalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
@@ -58,6 +57,7 @@ func (r *WarehousePermissionResource) Metadata(_ context.Context, req resource.M
 // Schema defines the schema for fabricext_warehouse_permission.
 func (r *WarehousePermissionResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		DeprecationMessage:  deprecatedItemSharingMessage,
 		MarkdownDescription: "Manages item-level sharing and permissions on a Microsoft Fabric **Warehouse** (`read`, `write`, `reshare`) for a Microsoft Entra principal.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
@@ -184,281 +184,45 @@ func (r *WarehousePermissionResource) ModifyPlan(ctx context.Context, req resour
 	resp.Diagnostics.Append(resp.Plan.Set(ctx, &plan)...)
 }
 
-// Create grants the requested Warehouse permissions and populates Terraform state.
-func (r *WarehousePermissionResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	var plan WarehousePermissionResourceModel
-	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	var config WarehousePermissionResourceModel
-	if !req.Config.Raw.IsNull() {
-		resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
-		if resp.Diagnostics.HasError() {
-			return
-		}
-	}
-
-	if r.client == nil {
-		resp.Diagnostics.AddError("Unconfigured Fabric Client", "The provider was not properly configured before resource operation.")
-		return
-	}
-
-	wsID := plan.WorkspaceID.ValueString()
-	principal := client.Principal{
-		ID:   plan.PrincipalID.ValueString(),
-		Type: plan.PrincipalType.ValueString(),
-	}
-
-	hasConfigID := !config.WarehouseID.IsNull() && !config.WarehouseID.IsUnknown() && config.WarehouseID.ValueString() != ""
-	hasConfigName := !config.WarehouseName.IsNull() && !config.WarehouseName.IsUnknown() && config.WarehouseName.ValueString() != ""
-	if !hasConfigID && !hasConfigName {
-		config.WarehouseID = plan.WarehouseID
-		config.WarehouseName = plan.WarehouseName
-		hasConfigID = !config.WarehouseID.IsNull() && !config.WarehouseID.IsUnknown() && config.WarehouseID.ValueString() != ""
-		hasConfigName = !config.WarehouseName.IsNull() && !config.WarehouseName.IsUnknown() && config.WarehouseName.ValueString() != ""
-	}
-
-	var whID string
-	var whName string
-	switch {
-	case hasConfigID && hasConfigName:
-		whID = config.WarehouseID.ValueString()
-		whName = config.WarehouseName.ValueString()
-		item, err := r.client.GetItemByID(ctx, wsID, whID, "Warehouse")
-		if err != nil {
-			resp.Diagnostics.AddError("Unable to Resolve Warehouse by ID", err.Error())
-			return
-		}
-		if item.DisplayName != whName {
-			resp.Diagnostics.AddError(
-				"Conflicting Warehouse Identifiers",
-				fmt.Sprintf("Configured warehouse_name %q does not match display name %q of warehouse_id %q.", whName, item.DisplayName, whID),
-			)
-			return
-		}
-		plan.WarehouseID = types.StringValue(whID)
-		plan.WarehouseName = types.StringValue(item.DisplayName)
-	case hasConfigID:
-		whID = config.WarehouseID.ValueString()
-		item, err := r.client.GetItemByID(ctx, wsID, whID, "Warehouse")
-		if err != nil {
-			resp.Diagnostics.AddError("Unable to Resolve Warehouse by ID", err.Error())
-			return
-		}
-		whName = item.DisplayName
-		plan.WarehouseID = types.StringValue(whID)
-		plan.WarehouseName = types.StringValue(whName)
-	default:
-		whName = plan.WarehouseName.ValueString()
-		var err error
-		whID, err = r.client.GetItemIDByName(ctx, wsID, whName, "Warehouse")
-		if err != nil {
-			resp.Diagnostics.AddError("Unable to Resolve Warehouse by Name", err.Error())
-			return
-		}
-		plan.WarehouseID = types.StringValue(whID)
-		plan.WarehouseName = types.StringValue(whName)
-	}
-
-	perms, err := client.ExpandRolePermissions("Warehouse", plan.RoleType.ValueString())
-	if err != nil {
-		resp.Diagnostics.AddError("Invalid Warehouse Role Type", err.Error())
-		return
-	}
-
-	if err := r.client.GrantItemPermissions(ctx, wsID, whID, "Warehouse", principal, perms); err != nil {
-		resp.Diagnostics.AddError("Unable to Grant Warehouse Permissions", err.Error())
-		return
-	}
-
-	plan.WarehouseID = types.StringValue(whID)
-	plan.ID = types.StringValue(fmt.Sprintf("%s/%s/%s/%s", wsID, whID, principal.Type, principal.ID))
-
-	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+// Create returns an error diagnostic indicating that Fabric does not support item-level sharing via REST API.
+func (r *WarehousePermissionResource) Create(_ context.Context, _ resource.CreateRequest, resp *resource.CreateResponse) {
+	resp.Diagnostics.AddError(
+		deprecatedItemSharingCreateErrorSummary,
+		deprecatedItemSharingCreateErrorDetail,
+	)
 }
 
-// Read refreshes the Terraform state from the live Fabric Warehouse permission assignments.
+// Read preserves existing state without making network requests.
 func (r *WarehousePermissionResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	var state WarehousePermissionResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
-
-	if r.client == nil {
-		resp.Diagnostics.AddError("Unconfigured Fabric Client", "The provider was not properly configured before resource operation.")
-		return
-	}
-
-	wsID := state.WorkspaceID.ValueString()
-	whID := state.WarehouseID.ValueString()
-	principalID := state.PrincipalID.ValueString()
-	principalType := state.PrincipalType.ValueString()
-
-	item, err := r.client.GetItemByID(ctx, wsID, whID, "Warehouse")
-	if err != nil {
-		if client.IsNotFound(err) {
-			resp.State.RemoveResource(ctx)
-			return
-		}
-		resp.Diagnostics.AddError("Unable to Read Warehouse Item", err.Error())
-		return
-	}
-	state.WarehouseName = types.StringValue(item.DisplayName)
-
-	perms, err := r.client.GetItemPermissions(ctx, wsID, whID, "Warehouse", principalID, principalType)
-	if err != nil {
-		if client.IsNotFound(err) {
-			resp.State.RemoveResource(ctx)
-			return
-		}
-		resp.Diagnostics.AddError("Unable to Read Warehouse Permissions", err.Error())
-		return
-	}
-
-	roleType, err := client.CollapseItemRolePermissions("Warehouse", perms)
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to Map Warehouse Permissions to Role Type", err.Error())
-		return
-	}
-
-	state.RoleType = types.StringValue(roleType)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
-// Update reconciles Warehouse permissions in-place using set-difference grant and revoke calls.
-func (r *WarehousePermissionResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var plan WarehousePermissionResourceModel
-	var state WarehousePermissionResourceModel
-	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
-	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	if r.client == nil {
-		resp.Diagnostics.AddError("Unconfigured Fabric Client", "The provider was not properly configured before resource operation.")
-		return
-	}
-
-	oldPerms, err := client.ExpandRolePermissions("Warehouse", state.RoleType.ValueString())
-	if err != nil {
-		resp.Diagnostics.AddError("Invalid Previous Warehouse Role Type", err.Error())
-		return
-	}
-	newPerms, err := client.ExpandRolePermissions("Warehouse", plan.RoleType.ValueString())
-	if err != nil {
-		resp.Diagnostics.AddError("Invalid Target Warehouse Role Type", err.Error())
-		return
-	}
-
-	principal := client.Principal{
-		ID:   plan.PrincipalID.ValueString(),
-		Type: plan.PrincipalType.ValueString(),
-	}
-
-	if err := r.client.UpdateItemPermissions(ctx, plan.WorkspaceID.ValueString(), state.WarehouseID.ValueString(), "Warehouse", principal, oldPerms, newPerms); err != nil {
-		resp.Diagnostics.AddError("Unable to Update Warehouse Permissions", err.Error())
-		return
-	}
-
-	plan.WarehouseID = state.WarehouseID
-	plan.ID = state.ID
-	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+// Update returns an error diagnostic indicating that Fabric does not support item-level sharing via REST API.
+func (r *WarehousePermissionResource) Update(_ context.Context, _ resource.UpdateRequest, resp *resource.UpdateResponse) {
+	resp.Diagnostics.AddError(
+		deprecatedItemSharingCreateErrorSummary,
+		deprecatedItemSharingCreateErrorDetail,
+	)
 }
 
-// Delete revokes the managed Warehouse permissions from the target principal.
-func (r *WarehousePermissionResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
-	var state WarehousePermissionResourceModel
-	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	if r.client == nil {
-		resp.Diagnostics.AddError("Unconfigured Fabric Client", "The provider was not properly configured before resource operation.")
-		return
-	}
-
-	perms, err := client.ExpandRolePermissions("Warehouse", state.RoleType.ValueString())
-	if err != nil {
-		perms = []string{"Read", "Write", "Reshare"}
-	}
-
-	principal := client.Principal{
-		ID:   state.PrincipalID.ValueString(),
-		Type: state.PrincipalType.ValueString(),
-	}
-
-	if err := r.client.RevokeItemPermissions(ctx, state.WorkspaceID.ValueString(), state.WarehouseID.ValueString(), "Warehouse", principal, perms); err != nil {
-		resp.Diagnostics.AddError("Unable to Revoke Warehouse Permissions", err.Error())
-		return
-	}
+// Delete removes the resource from state with an informational warning diagnostic.
+func (r *WarehousePermissionResource) Delete(ctx context.Context, _ resource.DeleteRequest, resp *resource.DeleteResponse) {
+	resp.Diagnostics.AddWarning(
+		"Deprecated Resource Removed",
+		"fabricext_warehouse_permission has been removed from Terraform state. No Microsoft Fabric API calls were made.",
+	)
+	resp.State.RemoveResource(ctx)
 }
 
-// ImportState imports an existing Warehouse permission binding by {workspace_id}/{warehouse_id}/{principal_type}/{principal_id}.
-func (r *WarehousePermissionResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	if r.client == nil {
-		resp.Diagnostics.AddError("Unconfigured Fabric Client", "The provider was not properly configured before resource operation.")
-		return
-	}
-
-	parts := strings.Split(req.ID, "/")
-	if len(parts) != 4 || parts[0] == "" || parts[1] == "" || parts[2] == "" || parts[3] == "" {
-		resp.Diagnostics.AddError(
-			"Invalid Import Identifier",
-			fmt.Sprintf("Expected import identifier in format {workspace_id}/{warehouse_id}/{principal_type}/{principal_id}, got: %q", req.ID),
-		)
-		return
-	}
-
-	wsID, whID, rawPrincipalType, principalID := parts[0], parts[1], parts[2], parts[3]
-	if !uuidRegex.MatchString(wsID) {
-		resp.Diagnostics.AddError("Invalid Import Identifier", fmt.Sprintf("workspace_id %q must be a valid UUID", wsID))
-		return
-	}
-	if !uuidRegex.MatchString(whID) {
-		resp.Diagnostics.AddError("Invalid Import Identifier", fmt.Sprintf("warehouse_id %q must be a valid UUID", whID))
-		return
-	}
-	if !uuidRegex.MatchString(principalID) {
-		resp.Diagnostics.AddError("Invalid Import Identifier", fmt.Sprintf("principal_id %q must be a valid UUID", principalID))
-		return
-	}
-	principalType, err := normalizePrincipalType("Warehouse", rawPrincipalType)
-	if err != nil {
-		resp.Diagnostics.AddError("Invalid Import Identifier", err.Error())
-		return
-	}
-
-	item, err := r.client.GetItemByID(ctx, wsID, whID, "Warehouse")
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to Resolve Imported Warehouse", err.Error())
-		return
-	}
-
-	perms, err := r.client.GetItemPermissions(ctx, wsID, whID, "Warehouse", principalID, principalType)
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to Read Imported Warehouse Permissions", err.Error())
-		return
-	}
-	roleType, err := client.CollapseItemRolePermissions("Warehouse", perms)
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to Map Imported Warehouse Permissions", err.Error())
-		return
-	}
-
-	canonicalID := fmt.Sprintf("%s/%s/%s/%s", wsID, whID, principalType, principalID)
-	state := WarehousePermissionResourceModel{
-		ID:            types.StringValue(canonicalID),
-		WorkspaceID:   types.StringValue(wsID),
-		WarehouseName: types.StringValue(item.DisplayName),
-		WarehouseID:   types.StringValue(whID),
-		PrincipalID:   types.StringValue(principalID),
-		PrincipalType: types.StringValue(principalType),
-		RoleType:      types.StringValue(roleType),
-	}
-	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
+// ImportState returns an error diagnostic directing users away from importing deprecated resources.
+func (r *WarehousePermissionResource) ImportState(_ context.Context, _ resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resp.Diagnostics.AddError(
+		"Cannot Import Deprecated Resource",
+		"fabricext_warehouse_permission cannot be imported because item-level sharing endpoints do not exist in Microsoft Fabric. Use portal sharing and T-SQL roles.",
+	)
 }

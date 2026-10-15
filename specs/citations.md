@@ -1,0 +1,60 @@
+# Primary Source Citation Register
+
+This register records primary-source citations for Microsoft Fabric access control behaviors, REST endpoints, and architectural properties referenced across provider documentation, guides, and specifications.
+
+| ID | Fact | Source URL & Anchor | Status |
+| :--- | :--- | :--- | :--- |
+| C01 | Warehouse connect needs workspace role or item Read ("Without Read permission at a minimum, the connection fails."); Microsoft recommends SQL permissions first, then access | `https://learn.microsoft.com/en-us/fabric/data-warehouse/sql-granular-permissions#configure-user-granular-permissions-in-a-fabric-warehouse` | Confirmed |
+| C01b | Warehouse users created implicitly upon GRANT; `CREATE USER` unsupported | `https://learn.microsoft.com/en-us/fabric/data-warehouse/sql-granular-permissions#create-user-limitation` | Confirmed |
+| C02 | `CREATE USER` listed under Warehouse T-SQL surface area limitations | `https://learn.microsoft.com/en-us/fabric/data-warehouse/tsql-surface-area#limitations` | Confirmed |
+| C03 | Fabric SQL Database supports `CREATE USER ... FROM EXTERNAL PROVIDER`; Directory Readers required for Entra user callers | `https://learn.microsoft.com/en-us/fabric/database/sql/authentication#create-database-users-when-connected-as-a-microsoft-entra-user` | Confirmed |
+| C04 | Fabric SQL Database: Service principal callers must issue `CREATE USER` with `SID` and `TYPE` clauses | `https://learn.microsoft.com/en-us/fabric/database/sql/authentication#create-database-users-when-connected-as-a-microsoft-entra-service-principal` | Confirmed |
+| C05 | Warehouse permission table: Read, ReadData, ReadAll; portal Share action | `https://learn.microsoft.com/en-us/fabric/data-warehouse/share-warehouse-manage-permissions#manage-permissions` | Confirmed |
+| C06 | "Currently, sharing a Warehouse is only available through the user experience" | `https://learn.microsoft.com/en-us/fabric/data-warehouse/share-warehouse-manage-permissions#limitations` | Confirmed |
+| C07 | Read = CONNECT; ReadData = db_datareader; ReadAll = OneLake/Spark; T-SQL GRANT/REVOKE/DENY narrow ReadData | `https://learn.microsoft.com/en-us/fabric/data-warehouse/share-warehouse-manage-permissions#fabric-security-roles` | Confirmed |
+| C08 | Warehouse Viewer workspace role grants CONNECT and ReadData on all warehouses in workspace | `https://learn.microsoft.com/en-us/fabric/data-warehouse/workspace-roles#workspace-roles` | Confirmed |
+| C09 | Admin, Member, Contributor confer CONTROL on Warehouse SQL endpoints | `https://learn.microsoft.com/en-us/fabric/data-warehouse/workspace-roles#workspace-roles` | Confirmed |
+| C10 | T-SQL DENY precedence and exceptions | `https://learn.microsoft.com/en-us/sql/t-sql/statements/deny-transact-sql?view=sql-server-ver17` | Confirmed |
+| C11 | SQL Database: DENY always takes priority; connect only via Fabric roles or permissions | `https://learn.microsoft.com/en-us/fabric/database/sql/authorization` | Confirmed |
+| C12 | SQL Database item permissions: sharing via Share quick action; Viewer reads all | `https://learn.microsoft.com/en-us/fabric/database/sql/authorization#item-permissions` | Confirmed |
+| C13 | Warehouse connects over Tabular Data Stream (TDS, port 1433) | `https://learn.microsoft.com/en-us/fabric/data-warehouse/connectivity#authentication-to-warehouses-in-fabric` | Confirmed |
+| C14 | OneLake security in passthrough shortcuts: permissions on folder combine with target path | `https://learn.microsoft.com/en-us/fabric/onelake/security/data-access-control-model#onelake-security-in-passthrough-shortcuts` | Confirmed |
+| C15 | OneLake security: deny-by-default; multiple roles combine as union; CLS intersects | `https://learn.microsoft.com/en-us/fabric/onelake/security/data-access-control-model#combine-access-across-roles` | Confirmed |
+| C16 | ReadWrite permission excludes RLS/CLS and applies to users with item Read | `https://learn.microsoft.com/en-us/fabric/onelake/security/data-access-control-model#readwrite-permission` | Confirmed |
+| C17 | Lakehouse writes require workspace Contributor or higher role (Conflict reconciled: OneLake security ReadWrite action permits storage-level writes, but full Fabric compute operations like Spark table maintenance typically require workspace Contributor) | `https://learn.microsoft.com/en-us/fabric/data-engineering/lakehouse-sharing#folder-level-access-control` | Conflicting |
+| C18 | OneLake RLS syntax limits and boolean predicate expressions | `https://learn.microsoft.com/en-us/fabric/onelake/security/row-level-security-syntax#syntax` | Confirmed |
+| C19 | Column-Level Security (CLS) in OneLake is an allowlist of visible columns | `https://learn.microsoft.com/en-us/fabric/onelake/security/sql-analytics-endpoint-onelake-security#remarks` | Confirmed |
+| C20 | Virtual members derive role membership from item-level sharing (item_access: ReadAll) | `https://learn.microsoft.com/en-us/fabric/onelake/security/create-manage-roles#assign-virtual-members` | Confirmed |
+| C21 | Workspace Admin, Member, Contributor bypass OneLake security roles | `https://learn.microsoft.com/en-us/fabric/onelake/security/data-access-control-model#onelake-security-and-workspace-permissions` | Confirmed |
+| C22 | DefaultReader role created when OneLake security is enabled; virtual ReadAll members; deletable | `https://learn.microsoft.com/en-us/fabric/onelake/security/get-started-security#manage-data-access-with-onelake-security-roles` | Confirmed |
+| C23 | OneLake roles grant access to users in Viewer workspace role or with Read permission | `https://learn.microsoft.com/en-us/fabric/onelake/security/get-started-security#manage-data-access-with-onelake-security-roles` | Confirmed |
+| C24 | SQL analytics endpoint access modes: User identity mode vs Delegated identity mode | `https://learn.microsoft.com/en-us/fabric/onelake/security/sql-analytics-endpoint-onelake-security#access-modes-in-sql-analytics-endpoint` | Confirmed |
+| C25 | Engines that can read secured data (Spark, SQL analytics endpoint, Direct Lake) | `https://learn.microsoft.com/en-us/fabric/onelake/security/read-secured-data#engines-that-can-read-secured-data` | Confirmed |
+| C26 | OneLake access via ADLS Gen2 DFS APIs (HTTPS, port 443) | `https://learn.microsoft.com/en-us/fabric/onelake/onelake-access-api#uri-syntax` | Confirmed |
+| C27 | OneLake security limits (max roles, members) and propagation latencies (~5m roles, ~1h groups) | `https://learn.microsoft.com/en-us/fabric/onelake/security/data-access-control-model#onelake-security-limitations` | Confirmed |
+| C28 | Role naming rules: alphanumeric and underscores, length <= 128 characters | `https://learn.microsoft.com/en-us/fabric/onelake/security/create-manage-roles#create-a-role` | Confirmed |
+| C29 | B2B guest users in OneLake security roles | `https://learn.microsoft.com/en-us/fabric/onelake/security/data-access-control-model#onelake-security-limitations` | Confirmed |
+| C30 | OneLake Data Access Roles list is paginated via continuationToken; bulk PUT replaces role set | `specs/openapi/platform/definitions/platform.json#definitions/DataAccessRoles` | Confirmed |
+| C31 | If-Match header required in quotes for optimistic concurrency; 412 on mismatch | `https://learn.microsoft.com/en-us/rest/api/fabric/core/onelake-data-access-security/create-or-update-data-access-roles#request-headers` | Confirmed |
+| C32 | Direct Lake on OneLake vs Direct Lake on SQL endpoint; table property | `https://learn.microsoft.com/en-us/fabric/fundamentals/direct-lake-overview#key-concepts-and-terminology` | Confirmed |
+| C33 | Direct Lake on SQL falls back to DirectQuery on views, SQL RLS/CLS, or guardrails | `https://learn.microsoft.com/en-us/fabric/fundamentals/direct-lake-how-it-works#directquery-fallback` | Confirmed |
+| C34 | DirectLakeBehavior property (Automatic, DirectLakeOnly, DirectQueryOnly) applies to SQL | `https://learn.microsoft.com/en-us/fabric/fundamentals/direct-lake-how-it-works#control-fallback-with-directlakebehavior` | Confirmed |
+| C35 | Direct Lake connection configuration: SSO vs fixed identity permissions | `https://learn.microsoft.com/en-us/fabric/fundamentals/direct-lake-security-integration#connection-configuration` | Confirmed |
+| C36 | Direct Lake on OneLake enforces OneLake security roles directly | `https://learn.microsoft.com/en-us/fabric/fundamentals/direct-lake-security-integration#direct-lake-on-onelake` | Confirmed |
+| C37 | SQL RLS never applied by Direct Lake on OneLake (Conflict reconciled: Direct Lake reading from OneLake directly enforces OneLake storage security roles; SQL endpoint RLS applies only when querying through the SQL analytics endpoint) | `https://learn.microsoft.com/en-us/fabric/fundamentals/direct-lake-overview#considerations-and-limitations` | Conflicting |
+| C38 | Direct Lake is not an Import copy; queries Delta Parquet files in place | `https://learn.microsoft.com/en-us/fabric/fundamentals/direct-lake-overview` | Confirmed |
+| C39 | Default semantic models auto-creation retired in Fabric | `https://learn.microsoft.com/en-us/fabric/data-warehouse/semantic-models#power-bi-semantic-models-in-microsoft-fabric` | Confirmed |
+| C40 | Semantic model RLS (DAX) applies only to users with Viewer permissions | `https://learn.microsoft.com/en-us/fabric/security/service-admin-row-level-security` | Confirmed |
+| C41 | Power BI report sharing shares semantic model; fixed identity withholds underlying source | `https://learn.microsoft.com/en-us/fabric/fundamentals/direct-lake-security-integration#direct-lake-users` | Confirmed |
+| C42 | Zero trust security and least privilege in Microsoft Fabric Well-Architected Framework | `https://learn.microsoft.com/en-us/azure/well-architected/microsoft-fabric/security#use-identity-as-the-foundation-for-zero-trust-security-controls` | Confirmed |
+| C43 | Microsoft Fabric workspace roles and data plane access table | `https://learn.microsoft.com/en-us/fabric/fundamentals/roles-workspaces#-workspace-roles` | Confirmed |
+| C44 | Deployment pipeline permissions: workspace role requirements across stages | `https://learn.microsoft.com/en-us/fabric/cicd/deployment-pipelines/understand-the-deployment-process#permissions` | Confirmed |
+| C45 | Fabric tenant settings for B2B guest access and external sharing | `https://learn.microsoft.com/en-us/fabric/admin/service-admin-portal-export-sharing#considerations-and-limitations` | Confirmed |
+| C46 | SQL Database connect permission granted only via Fabric workspace roles or item sharing | `https://learn.microsoft.com/en-us/fabric/database/sql/authorization` | Confirmed |
+| C47 | SQL Database item sharing via Share quick action; propagation latency up to 2 hours | `https://learn.microsoft.com/en-us/fabric/database/sql/share-sql-manage-permission#share-a-database-via-share-quick-action` | Confirmed |
+| C48 | Warehouse COPY INTO statement data plane permissions without CONTROL | `https://learn.microsoft.com/en-us/sql/t-sql/statements/copy-into-transact-sql?view=fabric#data-plane-permissions` | Confirmed |
+| C49 | Add Workspace Role Assignment Fabric REST API endpoint | `https://learn.microsoft.com/en-us/rest/api/fabric/core/workspaces/add-workspace-role-assignment` | Confirmed |
+| C50 | Service principal tenant setting requirements for Fabric API calls | `https://learn.microsoft.com/en-us/rest/api/fabric/articles/identity-support#service-principal-tenant-setting` | Confirmed |
+| C51 | HashiCorp version constraints recommendations: reusable modules >=, root configurations ~> | `https://developer.hashicorp.com/terraform/language/expressions/version-constraints#terraform-core-and-provider-versions` | Confirmed |
+| C52 | Terraform module git ref syntax and semantics | `https://developer.hashicorp.com/terraform/language/modules/sources#generic-git-repository` | Confirmed |
+| C53 | microsoft/fabric provider onelake_data_access_security resource is preview | `https://registry.terraform.io/providers/microsoft/fabric/latest/docs/resources/onelake_data_access_security` | Confirmed |
