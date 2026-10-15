@@ -25,6 +25,8 @@ SPEC_REL_PATHS = [
     "lakehouse/definitions.json",
     "sqlDatabase/swagger.json",
     "sqlDatabase/definitions.json",
+    "admin/swagger.json",
+    "admin/definitions.json",
 ]
 
 

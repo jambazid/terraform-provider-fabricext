@@ -28,6 +28,7 @@ import (
 	"github.com/getkin/kin-openapi/openapi3filter"
 	"github.com/getkin/kin-openapi/routers"
 	"github.com/getkin/kin-openapi/routers/gorillamux"
+	fabadmin "github.com/microsoft/fabric-sdk-go/fabric/admin"
 	fabcore "github.com/microsoft/fabric-sdk-go/fabric/core"
 )
 
@@ -142,13 +143,15 @@ type Server struct {
 	router     routers.Router
 
 	mu                       sync.Mutex
-	items                    map[string]map[string]Item      // workspaceID -> itemID -> Item
-	lakehouseRoles           map[string]*lakehouseRolesState // workspaceID/lakehouseID -> state
-	lakehouseSecurityEnabled map[string]bool                 // workspaceID/lakehouseID -> bool
-	listItemsCalls           map[string]int                  // workspaceID/itemType -> count
-	itemsPageSize            int                             // optional pagination page size
-	dataAccessRolesPageSize  int                             // optional Lakehouse dataAccessRoles pagination page size
-	throttle                 *throttleRule                   // optional fault injection for 429 / 5xx
+	items                    map[string]map[string]Item                     // workspaceID -> itemID -> Item
+	lakehouseRoles           map[string]*lakehouseRolesState                // workspaceID/lakehouseID -> state
+	lakehouseSecurityEnabled map[string]bool                                // workspaceID/lakehouseID -> bool
+	listItemsCalls           map[string]int                                 // workspaceID/itemType -> count
+	itemAccessDetails        map[string]*fabadmin.ItemAccessDetailsResponse // workspaceID/itemID -> response
+	adminForbidden           map[string]bool                                // workspaceID/itemID -> bool
+	itemsPageSize            int                                            // optional pagination page size
+	dataAccessRolesPageSize  int                                            // optional Lakehouse dataAccessRoles pagination page size
+	throttle                 *throttleRule                                  // optional fault injection for 429 / 5xx
 }
 
 // NewServer creates and starts a contract-validated Fabric mock server.
@@ -166,6 +169,8 @@ func NewServer(t testing.TB) *Server {
 		lakehouseRoles:           make(map[string]*lakehouseRolesState),
 		lakehouseSecurityEnabled: make(map[string]bool),
 		listItemsCalls:           make(map[string]int),
+		itemAccessDetails:        make(map[string]*fabadmin.ItemAccessDetailsResponse),
+		adminForbidden:           make(map[string]bool),
 	}
 
 	s.httpServer = httptest.NewServer(http.HandlerFunc(s.serveHTTP))
@@ -236,6 +241,20 @@ func (s *Server) SetLakehouseSecurityEnabled(workspaceID, lakehouseID string, en
 	defer s.mu.Unlock()
 	key := workspaceID + "/" + lakehouseID
 	s.lakehouseSecurityEnabled[key] = enabled
+}
+
+// SetItemAccessDetails sets the mock response for GET /v1/admin/workspaces/{workspaceId}/items/{itemId}/users.
+func (s *Server) SetItemAccessDetails(workspaceID, itemID string, resp *fabadmin.ItemAccessDetailsResponse) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.itemAccessDetails[workspaceID+"/"+itemID] = resp
+}
+
+// SetAdminForbidden configures the mock server to return HTTP 403 Forbidden for admin calls on the item.
+func (s *Server) SetAdminForbidden(workspaceID, itemID string, forbidden bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.adminForbidden[workspaceID+"/"+itemID] = forbidden
 }
 
 // SetItemsPageSize configures the page size for GET /v1/workspaces/{workspaceId}/items.
@@ -485,6 +504,8 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request, pathParams map
 	path := r.URL.Path
 
 	switch {
+	case r.Method == http.MethodGet && strings.HasSuffix(path, "/users"):
+		s.handleListItemAccessDetails(w, r, workspaceID, pathParams["itemId"])
 	case r.Method == http.MethodGet && strings.HasSuffix(path, "/items"):
 		s.handleListItems(w, r, workspaceID)
 	case r.Method == http.MethodGet && pathParams["itemId"] != "" && !strings.HasSuffix(path, "/dataAccessRoles"):
@@ -496,6 +517,43 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request, pathParams map
 	default:
 		writeFabricError(w, http.StatusNotFound, "OperationNotSupported", "Unsupported mock operation", false)
 	}
+}
+
+func (s *Server) handleListItemAccessDetails(w http.ResponseWriter, _ *http.Request, workspaceID, itemID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	key := workspaceID + "/" + itemID
+	if s.adminForbidden[key] {
+		writeFabricError(w, http.StatusForbidden, "AdminApiAccessDenied", "Caller is not authorized to access Fabric Admin APIs", false)
+		return
+	}
+
+	itemExists := false
+	if ws, ok := s.items[workspaceID]; ok {
+		if _, ok := ws[itemID]; ok {
+			itemExists = true
+		}
+	}
+	if !itemExists && s.itemAccessDetails[key] != nil {
+		itemExists = true
+	}
+
+	if !itemExists {
+		writeFabricError(w, http.StatusNotFound, "ItemNotFound", fmt.Sprintf("Item %s not found in workspace %s", itemID, workspaceID), false)
+		return
+	}
+
+	details := s.itemAccessDetails[key]
+	if details == nil {
+		details = &fabadmin.ItemAccessDetailsResponse{
+			AccessDetails: []fabadmin.ItemAccessDetails{},
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(details)
 }
 
 func (s *Server) handleListItems(w http.ResponseWriter, r *http.Request, workspaceID string) {
@@ -779,6 +837,7 @@ func buildOpenAPIRouter() (routers.Router, error) {
 		"warehouse/definitions.json",
 		"lakehouse/definitions.json",
 		"sqlDatabase/definitions.json",
+		"admin/definitions.json",
 	}
 
 	specFiles := []string{
@@ -786,6 +845,7 @@ func buildOpenAPIRouter() (routers.Router, error) {
 		"warehouse/swagger.json",
 		"lakehouse/swagger.json",
 		"sqlDatabase/swagger.json",
+		"admin/swagger.json",
 	}
 
 	combinedDefs := make(map[string]any)
@@ -822,6 +882,10 @@ func buildOpenAPIRouter() (routers.Router, error) {
 		if err != nil {
 			return nil, fmt.Errorf("read swagger %s: %w", rel, err)
 		}
+		basePath := "/v1"
+		if bp, ok := raw["basePath"].(string); ok && bp != "" {
+			basePath = bp
+		}
 		if paths, ok := raw["paths"].(map[string]any); ok {
 			for k, v := range paths {
 				if strings.Contains(k, "?") {
@@ -831,7 +895,7 @@ func buildOpenAPIRouter() (routers.Router, error) {
 				if !allRefsExist(normalized, combinedDefs) {
 					continue
 				}
-				fullPath := "/v1" + k
+				fullPath := basePath + k
 				combinedPaths[fullPath] = normalized
 			}
 		}

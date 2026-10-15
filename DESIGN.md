@@ -478,3 +478,39 @@ Cross-referencing all 57 item and service domains in [`microsoft/fabric-rest-api
 2. **Data Build Tool Jobs (`fabricext_data_build_tool_job`)**: High priority. Native Fabric execution of dbt projects (`dataBuildToolJob/swagger.json`).
 3. **Mirrored Warehouses (`fabricext_mirrored_warehouse`)**: Medium priority. Declarative item provisioning for mirrored external warehouses.
 4. **Graph Models & Query Sets (`fabricext_graph_model`)**: Medium priority. Fabric Knowledge Graph entity and schema definitions.
+
+---
+
+## 13. Item Share Verification Gate
+
+### 13.1 Administrative Surface & Problem
+
+Item sharing for Microsoft Fabric Warehouses and SQL Databases does not offer a public write REST API. Permissions must be granted out-of-band in the Fabric portal or via administrative scripts. To prevent downstream operations (such as SQL schema migrations via Atlas, Flyway, or Liquibase, or data pipeline runs) from failing due to propagation latency or missing shares, the provider exposes a read-only projection data source and a verification waiter resource backed by the official Fabric Admin API (`GET /v1/admin/workspaces/{workspaceId}/items/{itemId}/users`, C54).
+
+### 13.2 Security & Rate Limiting
+
+1. **Administrative Scope**: The Admin API requires Fabric Administrator privileges or a Service Principal enrolled in the tenant setting *"Service principals can access read-only admin APIs"* with delegated scope `Tenant.Read.All` or `Tenant.ReadWrite.All` (C55). Standard workspace-level service principals receive HTTP 403 Forbidden. The provider detects 403 responses and emits an explicit diagnostic citing the required tenant setting.
+2. **Quota Preservation**: Fabric limits admin metadata calls to 200 requests/hour per tenant (C56). To avoid exhausting this quota across concurrent resources:
+   - Polling uses an initial 60-second backoff doubling up to a 300-second cap with randomized jitter.
+   - The HTTP client honors `Retry-After` response headers on HTTP 429.
+   - Pacing controls serialize admin requests across concurrent goroutines.
+3. **Union Permission Evaluation**: Microsoft Fabric distinguishes standard item permissions (`permissions`: `Read`, `Write`, `Reshare`, `Explore`, `Execute`) from workload permissions (`additionalPermissions`: `ReadData`, `ReadAll`, C57). Matching evaluates against the union of both fields.
+
+### 13.3 Data Source Architecture
+
+`data.fabricext_item_access_details` reads and projects effective permissions on a given workspace item:
+
+- `workspace_id` (String, Required, UUID)
+- `item_id` (String, Required, UUID)
+- `type` (String, Optional)
+- `access_details` (List of Objects): Raw projection of all principals and their permission arrays.
+- `principal_permissions` (Map of Set of Strings): Convenience lookup keyed by raw `principal_id` (UUID), mapping to the union of all granted permissions and additional permissions.
+
+### 13.4 Waiter Resource Lifecycle
+
+`resource.fabricext_item_share_gate` provides declarative gating without granting or revoking remote permissions:
+
+1. **Create**: Polls the Admin API with exponential backoff until the named principal holds the expected permissions (subset match by default, or exact match). If the timeout expires without satisfaction, fails with an actionable diagnostic instructing the operator to complete the share in the Fabric portal.
+2. **Read**: Re-evaluates effective permissions. If the target item returns HTTP 404, or the principal is missing, or permissions no longer satisfy the match condition, calls `resp.State.RemoveResource(ctx)` and returns cleanly without error diagnostics. This ensures `terraform destroy` executes cleanly as a zero-op, while `terraform plan` detects drift and plans recreation.
+3. **Update**: In-place updates are permitted only for `expected_permissions` and `match_type`, triggering a re-poll. Changes to `workspace_id`, `item_id`, `principal_id`, `principal_type`, or `type` require resource replacement.
+4. **Delete**: Pure local state removal with zero network requests.

@@ -61,3 +61,10 @@ func (c *FabricClient) DeleteDataAccessRole(ctx context.Context, workspaceID, la
   - If `GetItemByID` returns an existing item with `Type == "Lakehouse"`: returns `&OneLakeSecurityNotEnabledError{WorkspaceID: workspaceID, LakehouseID: lakehouseID}`.
   - If `GetItemByID` returns an existing item with `Type != "Lakehouse"`: returns `&UnsupportedItemTypeError{WorkspaceID: workspaceID, ItemID: lakehouseID, ActualType: item.Type}`.
   `[@test] ../internal/client/fabric_client_test.go::TestLakehouseDataAccessRoles_ErrorDisambiguation`
+
+## Admin Item Access Details & Throttling
+
+- `ListItemAccessDetails` queries `GET /v1/admin/workspaces/{workspaceId}/items/{itemId}/users` with optional query parameter `type`, parses the `ItemAccessDetailsResponse` payload, and handles HTTP 429 `Retry-After` rate limit headers
+  `[@test] ../internal/client/fabric_client_test.go::TestListItemAccessDetails_SuccessAndRateLimitRetry`
+- When calling `ListItemAccessDetails` without sufficient tenant administrative permissions (HTTP 403 Forbidden), the client returns a structured `AdminAPIAccessDeniedError` citing the required Fabric Administrator role or tenant setting
+  `[@test] ../internal/client/fabric_client_test.go::TestListItemAccessDetails_AdminForbiddenError`

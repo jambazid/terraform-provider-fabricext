@@ -16,6 +16,8 @@ import (
 	"testing"
 	"time"
 
+	fabadmin "github.com/microsoft/fabric-sdk-go/fabric/admin"
+
 	"github.com/jambazid/terraform-provider-fabricext/internal/testutil/fabricmock"
 )
 
@@ -1025,4 +1027,119 @@ func TestLakehouseDataAccessRoles_PaginationETagMismatchAndPageCap(t *testing.T)
 			t.Fatalf("expected cycle error, got: %v", err)
 		}
 	})
+}
+
+func TestListItemAccessDetails_SuccessAndRateLimitRetry(t *testing.T) {
+	t.Parallel()
+
+	srv := fabricmock.NewServer(t)
+	c := newTestClient(t, srv)
+	ctx := context.Background()
+
+	wsID := "11111111-1111-1111-1111-111111111111"
+	itemID := "22222222-2222-2222-2222-222222222222"
+	principalID := "33333333-3333-3333-3333-333333333333"
+	principalName := "Data Engineers Group"
+	principalType := fabadmin.PrincipalTypeGroup
+	groupType := fabadmin.GroupTypeSecurityGroup
+	itemTypeStr := fabadmin.ItemTypeWarehouse
+
+	srv.UpsertItem(fabricmock.Item{
+		ID:          itemID,
+		WorkspaceID: wsID,
+		DisplayName: "gold_warehouse",
+		Type:        "Warehouse",
+	})
+
+	srv.SetItemAccessDetails(wsID, itemID, &fabadmin.ItemAccessDetailsResponse{
+		AccessDetails: []fabadmin.ItemAccessDetails{
+			{
+				Principal: &fabadmin.GroupPrincipal{
+					ID:          &principalID,
+					DisplayName: &principalName,
+					Type:        &principalType,
+					GroupDetails: &fabadmin.GroupPrincipalGroupDetails{
+						GroupType: &groupType,
+					},
+				},
+				ItemAccessDetails: &fabadmin.ItemAccessDetail{
+					Type:                  &itemTypeStr,
+					Permissions:           []fabadmin.ItemPermissions{fabadmin.ItemPermissionsRead},
+					AdditionalPermissions: []string{"ReadData"},
+				},
+			},
+		},
+	})
+
+	// Inject 429 rate limit to verify Retry-After handling
+	srv.InjectThrottle(http.StatusTooManyRequests, 1, 1)
+
+	typeParam := "Warehouse"
+	resp, err := c.ListItemAccessDetails(ctx, wsID, itemID, &typeParam)
+	if err != nil {
+		t.Fatalf("expected ListItemAccessDetails to succeed after retry, got: %v", err)
+	}
+
+	if len(resp.AccessDetails) != 1 {
+		t.Fatalf("expected 1 access detail, got %d", len(resp.AccessDetails))
+	}
+
+	detail := resp.AccessDetails[0]
+	if detail.Principal.ID != principalID {
+		t.Errorf("expected principal ID %s, got %s", principalID, detail.Principal.ID)
+	}
+	if detail.Principal.DisplayName != principalName {
+		t.Errorf("expected principal display name %s, got %s", principalName, detail.Principal.DisplayName)
+	}
+	if detail.Principal.Type != "Group" {
+		t.Errorf("expected principal type Group, got %s", detail.Principal.Type)
+	}
+	if detail.Principal.GroupDetails == nil || detail.Principal.GroupDetails.GroupType != "SecurityGroup" {
+		t.Errorf("expected groupType SecurityGroup, got %+v", detail.Principal.GroupDetails)
+	}
+	if !slices.Contains(detail.ItemAccessDetails.Permissions, "Read") {
+		t.Errorf("expected permissions to contain Read, got %v", detail.ItemAccessDetails.Permissions)
+	}
+	if !slices.Contains(detail.ItemAccessDetails.AdditionalPermissions, "ReadData") {
+		t.Errorf("expected additionalPermissions to contain ReadData, got %v", detail.ItemAccessDetails.AdditionalPermissions)
+	}
+}
+
+func TestListItemAccessDetails_AdminForbiddenError(t *testing.T) {
+	t.Parallel()
+
+	srv := fabricmock.NewServer(t)
+	c := newTestClient(t, srv)
+	ctx := context.Background()
+
+	wsID := "11111111-1111-1111-1111-111111111111"
+	itemID := "22222222-2222-2222-2222-222222222222"
+
+	srv.UpsertItem(fabricmock.Item{
+		ID:          itemID,
+		WorkspaceID: wsID,
+		DisplayName: "gold_warehouse",
+		Type:        "Warehouse",
+	})
+
+	srv.SetAdminForbidden(wsID, itemID, true)
+
+	resp, err := c.ListItemAccessDetails(ctx, wsID, itemID, nil)
+	if err == nil {
+		t.Fatalf("expected error from ListItemAccessDetails when forbidden, got resp: %+v", resp)
+	}
+
+	var adminErr *AdminAPIAccessDeniedError
+	if !errors.As(err, &adminErr) {
+		t.Fatalf("expected AdminAPIAccessDeniedError, got %T: %v", err, err)
+	}
+
+	if adminErr.WorkspaceID != wsID || adminErr.ItemID != itemID {
+		t.Errorf("expected workspaceID %s and itemID %s, got %+v", wsID, itemID, adminErr)
+	}
+
+	errStr := adminErr.Error()
+	if !strings.Contains(errStr, "Fabric Administrator") || !strings.Contains(errStr, "Service principals can access read-only admin APIs") {
+		t.Errorf("error string does not cite required tenant settings: %s", errStr)
+	}
 }
