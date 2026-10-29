@@ -13,6 +13,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
@@ -21,10 +22,11 @@ import (
 )
 
 var (
-	_ resource.Resource                = &WarehousePermissionResource{}
-	_ resource.ResourceWithConfigure   = &WarehousePermissionResource{}
-	_ resource.ResourceWithImportState = &WarehousePermissionResource{}
-	_ resource.ResourceWithModifyPlan  = &WarehousePermissionResource{}
+	_ resource.Resource                   = &WarehousePermissionResource{}
+	_ resource.ResourceWithConfigure      = &WarehousePermissionResource{}
+	_ resource.ResourceWithImportState    = &WarehousePermissionResource{}
+	_ resource.ResourceWithModifyPlan     = &WarehousePermissionResource{}
+	_ resource.ResourceWithValidateConfig = &WarehousePermissionResource{}
 )
 
 // WarehousePermissionResource manages direct item-level permissions on a Microsoft Fabric Warehouse.
@@ -41,6 +43,8 @@ type WarehousePermissionResourceModel struct {
 	PrincipalID   types.String `tfsdk:"principal_id"`
 	PrincipalType types.String `tfsdk:"principal_type"`
 	Permissions   types.Set    `tfsdk:"permissions"`
+	Notify        types.Bool   `tfsdk:"notify"`
+	Message       types.String `tfsdk:"message"`
 }
 
 // NewWarehousePermissionResource constructs a new fabricext_warehouse_permission resource.
@@ -132,7 +136,39 @@ func (r *WarehousePermissionResource) Schema(_ context.Context, _ resource.Schem
 					),
 				},
 			},
+			"notify": schema.BoolAttribute{
+				Optional:            true,
+				Computed:            true,
+				Default:             booldefault.StaticBool(false),
+				MarkdownDescription: "Whether to send an email notification when granting or updating item permissions. Defaults to `false`.",
+			},
+			"message": schema.StringAttribute{
+				Optional:            true,
+				MarkdownDescription: "Custom email notification message sent when `notify` is set to `true`. Requires `notify = true`.",
+				Validators: []validator.String{
+					stringvalidator.LengthAtLeast(1),
+				},
+			},
 		},
+	}
+}
+
+// ValidateConfig enforces that message requires notify = true.
+func (r *WarehousePermissionResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
+	var config WarehousePermissionResourceModel
+	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	if !config.Message.IsNull() && !config.Message.IsUnknown() && config.Message.ValueString() != "" {
+		if !config.Notify.IsUnknown() && (config.Notify.IsNull() || !config.Notify.ValueBool()) {
+			resp.Diagnostics.AddAttributeError(
+				path.Root("message"),
+				"Invalid Configuration",
+				"The 'message' attribute requires 'notify = true'. Either set 'notify = true' or remove 'message'.",
+			)
+		}
 	}
 }
 
@@ -210,9 +246,11 @@ func (r *WarehousePermissionResource) Create(ctx context.Context, req resource.C
 	}
 
 	share := client.ItemDirectShare{
-		PrincipalID:   plan.PrincipalID.ValueString(),
-		PrincipalType: normType,
-		Permissions:   perms,
+		PrincipalID:         plan.PrincipalID.ValueString(),
+		PrincipalType:       normType,
+		Permissions:         perms,
+		Notify:              plan.Notify.ValueBool(),
+		NotificationMessage: plan.Message.ValueString(),
 	}
 
 	if err := r.client.UpsertItemDirectPermissions(ctx, wsID, resolvedID, "Warehouse", share); err != nil {
@@ -328,9 +366,11 @@ func (r *WarehousePermissionResource) Update(ctx context.Context, req resource.U
 	}
 
 	share := client.ItemDirectShare{
-		PrincipalID:   state.PrincipalID.ValueString(),
-		PrincipalType: state.PrincipalType.ValueString(),
-		Permissions:   perms,
+		PrincipalID:         state.PrincipalID.ValueString(),
+		PrincipalType:       state.PrincipalType.ValueString(),
+		Permissions:         perms,
+		Notify:              plan.Notify.ValueBool(),
+		NotificationMessage: plan.Message.ValueString(),
 	}
 
 	if err := r.client.UpsertItemDirectPermissions(ctx, wsID, whID, "Warehouse", share); err != nil {
@@ -339,6 +379,8 @@ func (r *WarehousePermissionResource) Update(ctx context.Context, req resource.U
 	}
 
 	state.Permissions = plan.Permissions
+	state.Notify = plan.Notify
+	state.Message = plan.Message
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
@@ -384,7 +426,7 @@ func (r *WarehousePermissionResource) ImportState(ctx context.Context, req resou
 	whName := ""
 	if !uuidRegex.MatchString(whID) {
 		whName = whID
-		resolvedID, err := r.client.GetItemIDByName(ctx, wsID, "Warehouse", whName)
+		resolvedID, err := r.client.GetItemIDByName(ctx, wsID, whName, "Warehouse")
 		if err != nil {
 			resp.Diagnostics.AddError("Error Resolving Warehouse", fmt.Sprintf("Failed to resolve warehouse %q in workspace %q: %s", whName, wsID, err))
 			return
@@ -401,4 +443,5 @@ func (r *WarehousePermissionResource) ImportState(ctx context.Context, req resou
 	}
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("principal_type"), principalType)...)
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("principal_id"), principalID)...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("notify"), false)...)
 }

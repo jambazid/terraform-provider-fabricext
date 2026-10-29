@@ -28,3 +28,5 @@ resource "fabricext_warehouse_permission" "example" {
   `[@test] ../internal/provider/warehouse_permission_resource_test.go::TestAccWarehousePermissionResource_DriftDetectionAndRecreation`
 - Validates item type during Read and Create and reports actionable diagnostic error when target item type is not Warehouse
   `[@test] ../internal/provider/warehouse_permission_resource_test.go::TestAccWarehousePermissionResource_TypeMismatchError`
+- Supports optional recipient email notification (`notify = true`) and custom message delivery, and fails validation if `message` is configured with `notify = false`
+  `[@test] ../internal/provider/warehouse_permission_resource_test.go::TestAccWarehousePermissionResource_NotificationAndValidation`

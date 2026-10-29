@@ -55,6 +55,8 @@ resource "fabricext_sql_database_permission" "app_managed_identity" {
 
 ### Optional
 
+- `message` (String) Custom email notification message sent when `notify` is set to `true`. Requires `notify = true`.
+- `notify` (Boolean) Whether to send an email notification when granting or updating item permissions. Defaults to `false`.
 - `sql_database_id` (String) Resolved or explicitly specified UUID of the Microsoft Fabric SQL Database. At least one of `sql_database_name` or `sql_database_id` must be specified.
 - `sql_database_name` (String) Display name of the target Microsoft Fabric SQL Database. At least one of `sql_database_name` or `sql_database_id` must be specified.
 

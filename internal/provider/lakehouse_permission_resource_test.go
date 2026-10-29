@@ -171,3 +171,82 @@ resource "fabricext_lakehouse_permission" "test" {
 		},
 	})
 }
+
+func TestAccLakehousePermissionResource_NotificationAndValidation(t *testing.T) {
+	t.Parallel()
+
+	fabricSrv := fabricmock.NewServer(t)
+	pbiSrv, err := pbimock.NewServer()
+	if err != nil {
+		t.Fatalf("starting pbimock: %v", err)
+	}
+	defer pbiSrv.Close()
+
+	wsID := "11111111-1111-1111-1111-111111111111"
+	lhID := "22222222-2222-2222-2222-222222222222"
+	principalID := "33333333-3333-3333-3333-333333333333"
+
+	fabricSrv.UpsertItem(fabricmock.Item{
+		ID:          lhID,
+		WorkspaceID: wsID,
+		DisplayName: "notify_lakehouse",
+		Type:        "Lakehouse",
+	})
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			// 1. Validation error when message is set without notify=true
+			{
+				Config: testAccProviderConfigWithPBI(fabricSrv, pbiSrv) + fmt.Sprintf(`
+resource "fabricext_lakehouse_permission" "test" {
+  workspace_id   = %q
+  lakehouse_id   = %q
+  principal_id   = %q
+  principal_type = "User"
+  permissions    = ["Read"]
+  message        = "Invalid without notify"
+}
+`, wsID, lhID, principalID),
+				ExpectError: regexp.MustCompile(`The 'message' attribute requires 'notify = true'`),
+			},
+			// 2. Successful create with notify=true and message
+			{
+				Config: testAccProviderConfigWithPBI(fabricSrv, pbiSrv) + fmt.Sprintf(`
+resource "fabricext_lakehouse_permission" "test" {
+  workspace_id   = %q
+  lakehouse_id   = %q
+  principal_id   = %q
+  principal_type = "User"
+  permissions    = ["Read", "ReadData"]
+  notify         = true
+  message        = "Welcome to lakehouse access!"
+}
+`, wsID, lhID, principalID),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.test", "notify", "true"),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.test", "message", "Welcome to lakehouse access!"),
+				),
+			},
+			// 3. Update message and permissions in-place
+			{
+				Config: testAccProviderConfigWithPBI(fabricSrv, pbiSrv) + fmt.Sprintf(`
+resource "fabricext_lakehouse_permission" "test" {
+  workspace_id   = %q
+  lakehouse_id   = %q
+  principal_id   = %q
+  principal_type = "User"
+  permissions    = ["Read", "ReadData", "ReadAll"]
+  notify         = true
+  message        = "Updated lakehouse access permissions."
+}
+`, wsID, lhID, principalID),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.test", "notify", "true"),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.test", "message", "Updated lakehouse access permissions."),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.test", "permissions.#", "3"),
+				),
+			},
+		},
+	})
+}

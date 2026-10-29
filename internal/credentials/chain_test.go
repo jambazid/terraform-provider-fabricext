@@ -679,6 +679,15 @@ func TestStaticProvider_PowerBIScope(t *testing.T) {
 			t.Fatalf("expected SourceStaticPowerBI, got %q", creds.Source)
 		}
 	})
+
+	t.Run("staticProvider Resolve default", func(t *testing.T) {
+		t.Parallel()
+		prov := &staticProvider{cfg: Config{AccessToken: "tok-default"}}
+		creds, continueNext, err := prov.Resolve(context.Background())
+		if err != nil || continueNext || creds.AccessToken != "tok-default" {
+			t.Fatalf("unexpected result from staticProvider.Resolve: %v, continueNext=%v, %v", creds, continueNext, err)
+		}
+	})
 }
 
 type mockScopedProvider struct {
@@ -761,4 +770,33 @@ func TestChain_ScopeIsolationAndPowerBIScope(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+func TestResolvePowerBIEnvironmentHelpers(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		env        string
+		wantScope  string
+		wantPortal string
+		wantSuffix string
+	}{
+		{"public", PowerBIScopePublic, "https://app.powerbi.com", "analysis.windows.net"},
+		{"usgovernment", PowerBIScopeUSGovernment, "https://app.powerbigov.us", "analysis.usgovcloudapi.net"},
+		{"china", PowerBIScopeChina, "https://app.powerbi.cn", "analysis.chinacloudapi.cn"},
+		{"unknown", PowerBIScopePublic, "https://app.powerbi.com", "analysis.windows.net"},
+		{"", PowerBIScopePublic, "https://app.powerbi.com", "analysis.windows.net"},
+	}
+
+	for _, tc := range testCases {
+		if got := ResolvePowerBIScope(tc.env); got != tc.wantScope {
+			t.Errorf("ResolvePowerBIScope(%q) = %q, want %q", tc.env, got, tc.wantScope)
+		}
+		if got := ResolvePowerBIPortalURL(tc.env); got != tc.wantPortal {
+			t.Errorf("ResolvePowerBIPortalURL(%q) = %q, want %q", tc.env, got, tc.wantPortal)
+		}
+		if got := ResolvePowerBIAllowedHostSuffix(tc.env); got != tc.wantSuffix {
+			t.Errorf("ResolvePowerBIAllowedHostSuffix(%q) = %q, want %q", tc.env, got, tc.wantSuffix)
+		}
+	}
 }

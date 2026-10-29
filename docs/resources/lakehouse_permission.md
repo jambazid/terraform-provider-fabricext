@@ -57,6 +57,8 @@ resource "fabricext_lakehouse_permission" "pipeline_service_principal" {
 
 - `lakehouse_id` (String) Resolved or explicitly specified UUID of the Microsoft Fabric Lakehouse. At least one of `lakehouse_name` or `lakehouse_id` must be specified.
 - `lakehouse_name` (String) Display name of the target Microsoft Fabric Lakehouse. At least one of `lakehouse_name` or `lakehouse_id` must be specified.
+- `message` (String) Custom email notification message sent when `notify` is set to `true`. Requires `notify = true`.
+- `notify` (Boolean) Whether to send an email notification when granting or updating item permissions. Defaults to `false`.
 
 ### Read-Only
 

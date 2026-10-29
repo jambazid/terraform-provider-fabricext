@@ -14,6 +14,8 @@ locals {
           principal_id       = p_id
           principal_type     = coalesce(p.type, "Group")
           permissions        = coalesce(p.permissions, toset(["Read"]))
+          notify             = coalesce(p.notify, var.notify)
+          message            = p.message != null ? p.message : var.message
           verify_item_shares = coalesce(wh.verify_item_shares, var.fabric_permissions_matrix.verify_item_shares, true)
         }
       ]
@@ -30,6 +32,8 @@ locals {
           principal_id       = p_id
           principal_type     = coalesce(p.type, "Group")
           permissions        = coalesce(p.permissions, toset(["Read"]))
+          notify             = coalesce(p.notify, var.notify)
+          message            = p.message != null ? p.message : var.message
           verify_item_shares = coalesce(db.verify_item_shares, var.fabric_permissions_matrix.verify_item_shares, true)
         }
       ]
@@ -46,6 +50,8 @@ locals {
           principal_id       = p_id
           principal_type     = coalesce(p.type, "Group")
           permissions        = coalesce(p.permissions, toset(["Read"]))
+          notify             = coalesce(p.notify, var.notify)
+          message            = p.message != null ? p.message : var.message
           verify_item_shares = coalesce(lh.verify_item_shares, var.fabric_permissions_matrix.verify_item_shares, true)
         }
       ]
@@ -94,6 +100,8 @@ resource "fabricext_warehouse_permission" "this" {
   principal_id   = each.value.principal_id
   principal_type = each.value.principal_type
   permissions    = each.value.permissions
+  notify         = each.value.notify
+  message        = each.value.message
 }
 
 resource "fabricext_item_share_gate" "warehouse" {
@@ -125,6 +133,8 @@ resource "fabricext_sql_database_permission" "this" {
   principal_id      = each.value.principal_id
   principal_type    = each.value.principal_type
   permissions       = each.value.permissions
+  notify            = each.value.notify
+  message           = each.value.message
 }
 
 resource "fabricext_item_share_gate" "sql_database" {
@@ -156,6 +166,8 @@ resource "fabricext_lakehouse_permission" "this" {
   principal_id   = each.value.principal_id
   principal_type = each.value.principal_type
   permissions    = each.value.permissions
+  notify         = each.value.notify
+  message        = each.value.message
 }
 
 resource "fabricext_item_share_gate" "lakehouse" {

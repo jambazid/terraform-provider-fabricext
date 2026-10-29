@@ -276,6 +276,14 @@ module "workspace_permissions" {
 }
 ```
 
+## Module Inputs
+
+| Input | Type | Required | Default | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `fabric_permissions_matrix` | `object` | yes | - | Declarative permission matrix mapping Fabric workloads to Entra principals. |
+| `notify` | `bool` | no | `false` | Module-level flag to send email notifications for item shares via `/metadata/access/notify`. |
+| `message` | `string` | no | `null` | Module-level custom notification message. Requires `notify = true`. |
+
 ## Matrix Object Geometry
 
 The `fabric_permissions_matrix` variable accepts a structured object with the following schema hierarchy:
@@ -301,7 +309,7 @@ Entries in `warehouses` support:
 | Field | Type | Required | Default | Description |
 | :--- | :--- | :--- | :--- | :--- |
 | `verify_item_shares` | `bool` | no | `null` | Per-item override for Admin API share verification. |
-| `permissions` | `map(object)` | no | `{}` | Map of Entra ID UUIDs to permissions (`type`, `permissions`). Must include `"Read"`. |
+| `permissions` | `map(object)` | no | `{}` | Map of Entra ID UUIDs to permissions (`type`, `permissions`, `notify`, `message`). Must include `"Read"`. |
 
 ### SQL Database Configuration
 
@@ -310,7 +318,7 @@ Entries in `sql_databases` support:
 | Field | Type | Required | Default | Description |
 | :--- | :--- | :--- | :--- | :--- |
 | `verify_item_shares` | `bool` | no | `null` | Per-item override for Admin API share verification. |
-| `permissions` | `map(object)` | no | `{}` | Map of Entra ID UUIDs to permissions (`type`, `permissions`). Must include `"Read"`. |
+| `permissions` | `map(object)` | no | `{}` | Map of Entra ID UUIDs to permissions (`type`, `permissions`, `notify`, `message`). Must include `"Read"`. |
 
 ### Lakehouse Configuration
 
@@ -321,7 +329,7 @@ Entries in `lakehouses` support:
 | `verify_item_shares` | `bool` | no | `null` | Per-item override for Admin API share verification. |
 | `manage_onelake_security` | `bool` | no | `null` | Per-Lakehouse override for OneLake security management. |
 | `remove_default_reader_role` | `bool` | no | `null` | Per-Lakehouse override for default reader purging. |
-| `permissions` | `map(object)` | no | `{}` | Direct item-level share permissions (`type`, `permissions`). |
+| `permissions` | `map(object)` | no | `{}` | Direct item-level share permissions (`type`, `permissions`, `notify`, `message`). |
 | `data_access_roles` | `map(object)` | no | `{}` | Map of role names to Simple Mode or Advanced Mode role definitions. |
 
 ### Lakehouse Simple Mode

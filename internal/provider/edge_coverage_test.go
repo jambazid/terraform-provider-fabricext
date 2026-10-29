@@ -619,6 +619,71 @@ func TestResource_UpdateAndDeleteErrors(t *testing.T) {
 		if !updateBadResp.Diagnostics.HasError() {
 			t.Fatal("expected error updating lakehouse security with failing client")
 		}
+
+		var createBadResp tfsdkresource.CreateResponse
+		rBad.Create(ctx, tfsdkresource.CreateRequest{Plan: plan}, &createBadResp)
+		if !createBadResp.Diagnostics.HasError() {
+			t.Fatal("expected error creating lakehouse security with failing client")
+		}
+
+		var readBadResp tfsdkresource.ReadResponse
+		rBad.Read(ctx, tfsdkresource.ReadRequest{State: state}, &readBadResp)
+		if !readBadResp.Diagnostics.HasError() {
+			t.Fatal("expected error reading lakehouse security with failing client")
+		}
+
+		var delBadResp tfsdkresource.DeleteResponse
+		rBad.Delete(ctx, tfsdkresource.DeleteRequest{State: state}, &delBadResp)
+		if delBadResp.Diagnostics.WarningsCount() == 0 {
+			t.Fatal("expected warning deleting lakehouse security")
+		}
+
+		var impNilResp tfsdkresource.ImportStateResponse
+		rNil.ImportState(ctx, tfsdkresource.ImportStateRequest{ID: "11111111-1111-1111-1111-111111111111/33333333-3333-3333-3333-333333333333"}, &impNilResp)
+		if !impNilResp.Diagnostics.HasError() {
+			t.Fatal("expected error importing lakehouse security with nil client")
+		}
+
+		var impBadResp tfsdkresource.ImportStateResponse
+		rBad.ImportState(ctx, tfsdkresource.ImportStateRequest{ID: "11111111-1111-1111-1111-111111111111/33333333-3333-3333-3333-333333333333"}, &impBadResp)
+		if !impBadResp.Diagnostics.HasError() {
+			t.Fatal("expected error importing lakehouse security with failing client")
+		}
+
+		planNameOnly := LakehouseOnelakeSecurityResourceModel{
+			WorkspaceID:   types.StringValue("11111111-1111-1111-1111-111111111111"),
+			LakehouseName: types.StringValue("lh-name-only"),
+		}
+		pName := tfsdk.Plan{Schema: schemaResp.Schema}
+		_ = pName.Set(ctx, &planNameOnly)
+		var createBadNameResp tfsdkresource.CreateResponse
+		rBad.Create(ctx, tfsdkresource.CreateRequest{Plan: pName}, &createBadNameResp)
+		if !createBadNameResp.Diagnostics.HasError() {
+			t.Fatal("expected error creating lakehouse security with failing client on name only")
+		}
+
+		planIDOnly := LakehouseOnelakeSecurityResourceModel{
+			WorkspaceID: types.StringValue("11111111-1111-1111-1111-111111111111"),
+			LakehouseID: types.StringValue("33333333-3333-3333-3333-333333333333"),
+		}
+		pID := tfsdk.Plan{Schema: schemaResp.Schema}
+		_ = pID.Set(ctx, &planIDOnly)
+		var createBadIDResp tfsdkresource.CreateResponse
+		rBad.Create(ctx, tfsdkresource.CreateRequest{Plan: pID}, &createBadIDResp)
+		if !createBadIDResp.Diagnostics.HasError() {
+			t.Fatal("expected error creating lakehouse security with failing client on id only")
+		}
+
+		planEmpty := LakehouseOnelakeSecurityResourceModel{
+			WorkspaceID: types.StringValue("11111111-1111-1111-1111-111111111111"),
+		}
+		pEmpty := tfsdk.Plan{Schema: schemaResp.Schema}
+		_ = pEmpty.Set(ctx, &planEmpty)
+		var createBadEmptyResp tfsdkresource.CreateResponse
+		rBad.Create(ctx, tfsdkresource.CreateRequest{Plan: pEmpty}, &createBadEmptyResp)
+		if !createBadEmptyResp.Diagnostics.HasError() {
+			t.Fatal("expected error creating lakehouse security with missing identifier")
+		}
 	})
 
 	t.Run("ItemDataSource Read error", func(t *testing.T) {

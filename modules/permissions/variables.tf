@@ -1,6 +1,23 @@
 # Copyright jambazid 2026
 # SPDX-License-Identifier: MPL-2.0
 
+variable "notify" {
+  description = "Optional boolean flag to send email notifications for item share permissions across all workloads in the matrix. When true, permissions are granted via /metadata/access/notify. When false, permissions are granted silently via /metadata/access. Default: false."
+  type        = bool
+  default     = false
+}
+
+variable "message" {
+  description = "Optional custom email notification message sent when notify is true. If notify is true and message is null or empty, the Power BI service default notification message is used. Setting message when notify is false is disallowed."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.message == null || var.notify == true
+    error_message = "The 'message' variable can only be set when 'notify' is true."
+  }
+}
+
 variable "fabric_permissions_matrix" {
   description = <<-EOT
 Declarative permission matrix mapping Microsoft Fabric Warehouses, SQL Databases, and Lakehouses (item-level sharing and OneLake Data Access Roles) to Microsoft Entra principals within a workspace.
@@ -61,6 +78,8 @@ EOT
       permissions = optional(map(object({
         type        = optional(string, "Group")
         permissions = optional(set(string), ["Read"])
+        notify      = optional(bool)
+        message     = optional(string)
       })), {})
     })), {})
 
@@ -70,6 +89,8 @@ EOT
       permissions = optional(map(object({
         type        = optional(string, "Group")
         permissions = optional(set(string), ["Read"])
+        notify      = optional(bool)
+        message     = optional(string)
       })), {})
     })), {})
 
@@ -86,6 +107,8 @@ EOT
       permissions = optional(map(object({
         type        = optional(string, "Group")
         permissions = optional(set(string), ["Read"])
+        notify      = optional(bool)
+        message     = optional(string)
       })), {})
 
       data_access_roles = optional(map(object({
@@ -148,12 +171,13 @@ EOT
             can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", p_id)) &&
             contains(["User", "Group", "ServicePrincipal", "ManagedIdentity"], coalesce(p.type, "Group")) &&
             contains(coalesce(p.permissions, ["Read"]), "Read") &&
-            alltrue([for perm in coalesce(p.permissions, ["Read"]) : contains(["Read", "ReadData", "ReadAll", "Reshare"], perm)])
+            alltrue([for perm in coalesce(p.permissions, ["Read"]) : contains(["Read", "ReadData", "ReadAll", "Reshare"], perm)]) &&
+            (p.message == null || coalesce(p.notify, var.notify) == true)
           )
         ])
       ]
     ]))
-    error_message = "Warehouse permissions must be keyed by unique Microsoft Entra UUIDs, use a valid principal type, include 'Read', and contain only allowed permissions: Read, ReadData, ReadAll, Reshare."
+    error_message = "Warehouse permissions must be keyed by unique Microsoft Entra UUIDs, use a valid principal type, include 'Read', contain only allowed permissions (Read, ReadData, ReadAll, Reshare), and require notify=true when message is set."
   }
 
   validation {
@@ -165,12 +189,13 @@ EOT
             can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", p_id)) &&
             contains(["User", "Group", "ServicePrincipal", "ManagedIdentity"], coalesce(p.type, "Group")) &&
             contains(coalesce(p.permissions, ["Read"]), "Read") &&
-            alltrue([for perm in coalesce(p.permissions, ["Read"]) : contains(["Read", "ReadData", "Execute", "Reshare"], perm)])
+            alltrue([for perm in coalesce(p.permissions, ["Read"]) : contains(["Read", "ReadData", "Execute", "Reshare"], perm)]) &&
+            (p.message == null || coalesce(p.notify, var.notify) == true)
           )
         ])
       ]
     ]))
-    error_message = "SQL Database permissions must be keyed by unique Microsoft Entra UUIDs, use a valid principal type, include 'Read', and contain only allowed permissions: Read, ReadData, Execute, Reshare."
+    error_message = "SQL Database permissions must be keyed by unique Microsoft Entra UUIDs, use a valid principal type, include 'Read', contain only allowed permissions (Read, ReadData, Execute, Reshare), and require notify=true when message is set."
   }
 
   validation {
@@ -182,7 +207,8 @@ EOT
             can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", p_id)) &&
             contains(["User", "Group", "ServicePrincipal", "ManagedIdentity"], coalesce(p.type, "Group")) &&
             contains(coalesce(p.permissions, ["Read"]), "Read") &&
-            alltrue([for perm in coalesce(p.permissions, ["Read"]) : contains(["Read", "ReadData", "ReadAll", "Reshare"], perm)])
+            alltrue([for perm in coalesce(p.permissions, ["Read"]) : contains(["Read", "ReadData", "ReadAll", "Reshare"], perm)]) &&
+            (p.message == null || coalesce(p.notify, var.notify) == true)
           )
         ]),
         alltrue([

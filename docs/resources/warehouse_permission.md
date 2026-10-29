@@ -55,6 +55,8 @@ resource "fabricext_warehouse_permission" "etl_service_principal" {
 
 ### Optional
 
+- `message` (String) Custom email notification message sent when `notify` is set to `true`. Requires `notify = true`.
+- `notify` (Boolean) Whether to send an email notification when granting or updating item permissions. Defaults to `false`.
 - `warehouse_id` (String) Resolved or explicitly specified UUID of the Microsoft Fabric Warehouse. At least one of `warehouse_name` or `warehouse_id` must be specified.
 - `warehouse_name` (String) Display name of the target Microsoft Fabric Warehouse. At least one of `warehouse_name` or `warehouse_id` must be specified.
 

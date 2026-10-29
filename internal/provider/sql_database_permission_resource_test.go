@@ -171,3 +171,82 @@ resource "fabricext_sql_database_permission" "test" {
 		},
 	})
 }
+
+func TestAccSQLDatabasePermissionResource_NotificationAndValidation(t *testing.T) {
+	t.Parallel()
+
+	fabricSrv := fabricmock.NewServer(t)
+	pbiSrv, err := pbimock.NewServer()
+	if err != nil {
+		t.Fatalf("starting pbimock: %v", err)
+	}
+	defer pbiSrv.Close()
+
+	wsID := "11111111-1111-1111-1111-111111111111"
+	dbID := "22222222-2222-2222-2222-222222222222"
+	principalID := "33333333-3333-3333-3333-333333333333"
+
+	fabricSrv.UpsertItem(fabricmock.Item{
+		ID:          dbID,
+		WorkspaceID: wsID,
+		DisplayName: "notify_database",
+		Type:        "SQLDatabase",
+	})
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			// 1. Validation error when message is set without notify=true
+			{
+				Config: testAccProviderConfigWithPBI(fabricSrv, pbiSrv) + fmt.Sprintf(`
+resource "fabricext_sql_database_permission" "test" {
+  workspace_id    = %q
+  sql_database_id = %q
+  principal_id    = %q
+  principal_type  = "User"
+  permissions     = ["Read"]
+  message         = "Invalid without notify"
+}
+`, wsID, dbID, principalID),
+				ExpectError: regexp.MustCompile(`The 'message' attribute requires 'notify = true'`),
+			},
+			// 2. Successful create with notify=true and message
+			{
+				Config: testAccProviderConfigWithPBI(fabricSrv, pbiSrv) + fmt.Sprintf(`
+resource "fabricext_sql_database_permission" "test" {
+  workspace_id    = %q
+  sql_database_id = %q
+  principal_id    = %q
+  principal_type  = "User"
+  permissions     = ["Read", "ReadData"]
+  notify          = true
+  message         = "Welcome to SQL database access!"
+}
+`, wsID, dbID, principalID),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("fabricext_sql_database_permission.test", "notify", "true"),
+					resource.TestCheckResourceAttr("fabricext_sql_database_permission.test", "message", "Welcome to SQL database access!"),
+				),
+			},
+			// 3. Update message and permissions in-place
+			{
+				Config: testAccProviderConfigWithPBI(fabricSrv, pbiSrv) + fmt.Sprintf(`
+resource "fabricext_sql_database_permission" "test" {
+  workspace_id    = %q
+  sql_database_id = %q
+  principal_id    = %q
+  principal_type  = "User"
+  permissions     = ["Read", "ReadData", "Execute"]
+  notify          = true
+  message         = "Updated SQL database permissions."
+}
+`, wsID, dbID, principalID),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("fabricext_sql_database_permission.test", "notify", "true"),
+					resource.TestCheckResourceAttr("fabricext_sql_database_permission.test", "message", "Updated SQL database permissions."),
+					resource.TestCheckResourceAttr("fabricext_sql_database_permission.test", "permissions.#", "3"),
+				),
+			},
+		},
+	})
+}

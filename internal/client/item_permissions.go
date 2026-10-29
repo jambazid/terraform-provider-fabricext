@@ -30,6 +30,8 @@ type ItemDirectShare struct {
 	InternalUserID         int
 	InternalGroupID        int
 	IsServicePrincipal     bool
+	Notify                 bool
+	NotificationMessage    string
 }
 
 type accessRequestBody struct {
@@ -215,7 +217,7 @@ func (c *FabricClient) DiscoverClusterURI(ctx context.Context) (string, error) {
 				break
 			}
 			resolved := req.URL.ResolveReference(nextURL)
-			if valErr := validateClusterURI(resolved.String(), customHost); valErr != nil {
+			if valErr := validateRedirectURL(resolved.String(), customHost); valErr != nil {
 				return "", fmt.Errorf("untrusted redirect target %q during cluster discovery: %w", resolved.String(), valErr)
 			}
 			currentURL = resolved.String()
@@ -256,6 +258,41 @@ func extractClusterURIFromCookie(cookieHeader string) string {
 		}
 	}
 	return ""
+}
+
+func validateRedirectURL(raw string, allowedCustomHost string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("parsing redirect url: %w", err)
+	}
+	if u.Scheme != "https" {
+		if u.Scheme != "http" || !isLoopback(u.Hostname()) {
+			return fmt.Errorf("redirect url scheme must be https, got %q", u.Scheme)
+		}
+	}
+	if u.User != nil {
+		return errors.New("redirect url must not contain credentials")
+	}
+	host := strings.ToLower(u.Hostname())
+	if isLoopback(host) {
+		return nil
+	}
+	if allowedCustomHost != "" && host == strings.ToLower(allowedCustomHost) {
+		return nil
+	}
+	allowedSuffixes := []string{
+		".analysis.windows.net",
+		".analysis.usgovcloudapi.net",
+		".analysis.chinacloudapi.cn",
+		".pbidedicated.windows.net",
+		".powerbi.com",
+	}
+	for _, suffix := range allowedSuffixes {
+		if host == strings.TrimPrefix(suffix, ".") || strings.HasSuffix(host, suffix) {
+			return nil
+		}
+	}
+	return fmt.Errorf("redirect host %q is not an authorized Power BI domain", host)
 }
 
 func validateClusterURI(raw string, allowedCustomHost string) error {
@@ -580,8 +617,16 @@ func (c *FabricClient) UpsertItemDirectPermissions(ctx context.Context, workspac
 	}
 
 	method := http.MethodPost
-	if existing != nil {
+	if existing != nil && !share.Notify {
 		method = http.MethodPut
+		if existing.InternalUserID != 0 {
+			share.InternalUserID = existing.InternalUserID
+		}
+		if existing.InternalGroupID != 0 {
+			share.InternalGroupID = existing.InternalGroupID
+		}
+	} else if existing != nil && share.Notify {
+		method = http.MethodPost
 		if existing.InternalUserID != 0 {
 			share.InternalUserID = existing.InternalUserID
 		}
@@ -621,7 +666,7 @@ func (c *FabricClient) UpsertItemDirectPermissions(ctx context.Context, workspac
 	var endpointURL string
 	var payloadBytes []byte
 
-	if method == http.MethodPost {
+	if share.Notify {
 		endpointURL = fmt.Sprintf("%s/metadata/access/notify", cluster)
 		reqBody := notifyAccessRequestBody{
 			Dashboards:               []any{},
@@ -630,7 +675,7 @@ func (c *FabricClient) UpsertItemDirectPermissions(ctx context.Context, workspac
 			Models:                   []any{},
 			Datamarts:                []any{},
 			Artifacts:                []artifactGrantEntry{entry},
-			EmailNotificationMessage: "",
+			EmailNotificationMessage: share.NotificationMessage,
 		}
 		payloadBytes, err = json.Marshal(reqBody)
 	} else {

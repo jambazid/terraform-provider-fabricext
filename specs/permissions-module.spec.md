@@ -79,6 +79,8 @@ module "fabric_permissions" {
   `[@test] ../internal/provider/provider_test.go::TestAccPermissionsModule_MatrixWithRLSandCLS`
 - Supports opting out of OneLake security enablement management via `manage_lakehouse_security = false`
   `[@test] ../internal/provider/provider_test.go::TestAccPermissionsModule_LakehouseSecurityOptOut`
+- Threads top-level `notify` and `message` input variables with optional per-principal overrides into `fabricext_warehouse_permission`, `fabricext_sql_database_permission`, and `fabricext_lakehouse_permission`, enforcing that `message` requires `notify = true`
+  `[@test] ../internal/provider/provider_test.go::TestAccPermissionsModule_NotificationAndValidation`
 - Enforces explicit `depends_on = [fabricext_lakehouse_onelake_security.this, fabricext_lakehouse_permission.this, fabricext_item_share_gate.lakehouse]` on `fabricext_lakehouse_data_access_role.this` across all configured Lakehouses
   `[@test] ../internal/provider/provider_test.go::TestAccPermissionsModule_MatrixFlattening`
 - Exports `warehouse_permission_ids`, `sql_database_permission_ids`, `lakehouse_permission_ids`, `lakehouse_data_access_role_ids`, `lakehouse_onelake_security_ids`, and `item_share_gate_ids`

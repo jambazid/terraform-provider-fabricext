@@ -808,3 +808,128 @@ func TestAccPermissionsModule_LakehouseSecurityOptOut(t *testing.T) {
 		},
 	})
 }
+
+func TestAccPermissionsModule_NotificationAndValidation(t *testing.T) {
+	t.Parallel()
+
+	srv := fabricmock.NewServer(t)
+	pbiSrv, err := pbimock.NewServer()
+	if err != nil {
+		t.Fatalf("start pbimock: %v", err)
+	}
+	defer pbiSrv.Close()
+
+	wsID := "11111111-1111-1111-1111-111111111111"
+	whID := "22222222-2222-2222-2222-222222222222"
+	principalID := "55555555-5555-5555-5555-555555555551"
+
+	srv.UpsertItem(fabricmock.Item{
+		ID:          whID,
+		WorkspaceID: wsID,
+		DisplayName: "sales_analytics_wh",
+		Type:        "Warehouse",
+	})
+
+	modulePath, err := filepath.Abs(filepath.Join("..", "..", "modules", "permissions"))
+	if err != nil {
+		t.Fatalf("resolve modules/permissions path: %v", err)
+	}
+
+	varsBytes, err := os.ReadFile(filepath.Join(modulePath, "variables.tf"))
+	if err != nil {
+		t.Fatalf("read variables.tf: %v", err)
+	}
+	mainBytes, err := os.ReadFile(filepath.Join(modulePath, "main.tf"))
+	if err != nil {
+		t.Fatalf("read main.tf: %v", err)
+	}
+	outputsBytes, err := os.ReadFile(filepath.Join(modulePath, "outputs.tf"))
+	if err != nil {
+		t.Fatalf("read outputs.tf: %v", err)
+	}
+
+	varsInvalid := strings.Replace(
+		string(varsBytes),
+		"default     = null",
+		`default     = "Notification message without notify"`,
+		1,
+	)
+	varsInvalid = strings.TrimSuffix(strings.TrimSpace(varsInvalid), "}") + fmt.Sprintf(`
+  default = {
+    workspace_id       = %q
+    verify_item_shares = false
+    warehouses = {
+      sales_analytics_wh = {
+        permissions = {
+          %q = {
+            type        = "Group"
+            permissions = ["Read"]
+          }
+        }
+      }
+    }
+  }
+}
+`, wsID, principalID)
+
+	varsValid := strings.Replace(
+		string(varsBytes),
+		"default     = false",
+		"default     = true",
+		1,
+	)
+	varsValid = strings.Replace(
+		varsValid,
+		"default     = null",
+		`default     = "Team access granted"`,
+		1,
+	)
+	varsValid = strings.TrimSuffix(strings.TrimSpace(varsValid), "}") + fmt.Sprintf(`
+  default = {
+    workspace_id       = %q
+    verify_item_shares = false
+    warehouses = {
+      sales_analytics_wh = {
+        permissions = {
+          %q = {
+            type        = "Group"
+            permissions = ["Read"]
+          }
+        }
+      }
+    }
+  }
+}
+`, wsID, principalID)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: strings.Join([]string{
+					testAccProviderConfigWithPBI(srv, pbiSrv),
+					varsInvalid,
+					string(mainBytes),
+					string(outputsBytes),
+				}, "\n"),
+				ExpectError: regexp.MustCompile(`The 'message' variable can only be set when 'notify' is true`),
+			},
+			{
+				Config: strings.Join([]string{
+					testAccProviderConfigWithPBI(srv, pbiSrv),
+					varsValid,
+					string(mainBytes),
+					string(outputsBytes),
+				}, "\n"),
+				ConfigStateChecks: []statecheck.StateCheck{
+					statecheck.ExpectKnownOutputValue("warehouse_permission_ids", knownvalue.MapExact(map[string]knownvalue.Check{
+						"sales_analytics_wh/" + principalID: knownvalue.StringExact(wsID + "/" + whID + "/Group/" + principalID),
+					})),
+				},
+			},
+			{
+				Config: testAccProviderConfigWithPBI(srv, pbiSrv),
+			},
+		},
+	})
+}

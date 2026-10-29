@@ -171,3 +171,82 @@ resource "fabricext_warehouse_permission" "test" {
 		},
 	})
 }
+
+func TestAccWarehousePermissionResource_NotificationAndValidation(t *testing.T) {
+	t.Parallel()
+
+	fabricSrv := fabricmock.NewServer(t)
+	pbiSrv, err := pbimock.NewServer()
+	if err != nil {
+		t.Fatalf("starting pbimock: %v", err)
+	}
+	defer pbiSrv.Close()
+
+	wsID := "11111111-1111-1111-1111-111111111111"
+	whID := "22222222-2222-2222-2222-222222222222"
+	principalID := "33333333-3333-3333-3333-333333333333"
+
+	fabricSrv.UpsertItem(fabricmock.Item{
+		ID:          whID,
+		WorkspaceID: wsID,
+		DisplayName: "notify_warehouse",
+		Type:        "Warehouse",
+	})
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			// 1. Validation error when message is set without notify=true
+			{
+				Config: testAccProviderConfigWithPBI(fabricSrv, pbiSrv) + fmt.Sprintf(`
+resource "fabricext_warehouse_permission" "test" {
+  workspace_id   = %q
+  warehouse_id   = %q
+  principal_id   = %q
+  principal_type = "User"
+  permissions    = ["Read"]
+  message        = "Invalid without notify"
+}
+`, wsID, whID, principalID),
+				ExpectError: regexp.MustCompile(`The 'message' attribute requires 'notify = true'`),
+			},
+			// 2. Successful create with notify=true and message
+			{
+				Config: testAccProviderConfigWithPBI(fabricSrv, pbiSrv) + fmt.Sprintf(`
+resource "fabricext_warehouse_permission" "test" {
+  workspace_id   = %q
+  warehouse_id   = %q
+  principal_id   = %q
+  principal_type = "User"
+  permissions    = ["Read", "ReadData"]
+  notify         = true
+  message        = "Welcome to warehouse access!"
+}
+`, wsID, whID, principalID),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("fabricext_warehouse_permission.test", "notify", "true"),
+					resource.TestCheckResourceAttr("fabricext_warehouse_permission.test", "message", "Welcome to warehouse access!"),
+				),
+			},
+			// 3. Update message and permissions in-place
+			{
+				Config: testAccProviderConfigWithPBI(fabricSrv, pbiSrv) + fmt.Sprintf(`
+resource "fabricext_warehouse_permission" "test" {
+  workspace_id   = %q
+  warehouse_id   = %q
+  principal_id   = %q
+  principal_type = "User"
+  permissions    = ["Read", "ReadData", "ReadAll"]
+  notify         = true
+  message        = "Updated warehouse access permissions."
+}
+`, wsID, whID, principalID),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("fabricext_warehouse_permission.test", "notify", "true"),
+					resource.TestCheckResourceAttr("fabricext_warehouse_permission.test", "message", "Updated warehouse access permissions."),
+					resource.TestCheckResourceAttr("fabricext_warehouse_permission.test", "permissions.#", "3"),
+				),
+			},
+		},
+	})
+}

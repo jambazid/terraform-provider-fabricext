@@ -609,3 +609,13 @@ Every `fabricext_*_permission` inside `modules/permissions` chains directly to a
 - `verify_item_shares = optional(bool, true)` at matrix root and per-item.
 - Chained with explicit `depends_on = [fabricext_*_permission.this]`.
 - Downstream OneLake roles and module outputs depend on the gate, throwing a hard apply failure if cross-plane effective ACL verification fails.
+
+### 15.6 Notification Routing & Messages
+
+Item permissions support optional recipient notification and custom message delivery:
+
+1. **Routing Mechanics**:
+   - When `notify = true`: Dispatches `POST {cluster}/metadata/access/notify` using `notifyAccessRequestBody` with `emailNotificationMessage`. If `message` is empty or unset, Power BI delivers its standard template.
+   - When `notify = false` (default): Grants execute silently via `POST /metadata/access` (new grant) or `PUT /metadata/access` (update) with `accessRequestBody`.
+2. **Schema Validation Invariant**: `message` strictly requires `notify = true`. Configuring `message` without enabling `notify` fails configuration validation with an actionable diagnostic.
+3. **Module Composition**: `modules/permissions` exposes top-level inputs `variable "notify"` and `variable "message"` providing module-level defaults, with optional per-principal overrides in the permission matrix (`coalesce(p.notify, var.notify)` and `coalesce(p.message, var.message)`).
