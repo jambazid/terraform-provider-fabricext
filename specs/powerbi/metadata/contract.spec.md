@@ -1,6 +1,6 @@
 ---
 name: powerbi-metadata-contract
-description: Behavioral contract specification for Power BI metadata /metadata/* service endpoints and mock server schema validation.
+description: Behavioral contract specification for undocumented Power BI metadata /metadata/* service endpoints and mock server schema validation.
 targets:
   - openapi.json
   - README.md

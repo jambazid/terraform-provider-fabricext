@@ -1168,3 +1168,170 @@ func TestRetryDelay_RFC9110HTTPDate(t *testing.T) {
 		t.Errorf("expected 15s delay for integer seconds, got %v", numericDelay)
 	}
 }
+
+func TestFabricClient_PermissionMethodsAndCoverage(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	// 1. NewFabricClient endpoint and token provider defaults/errors
+	cDefault, err := NewFabricClient(Config{
+		TokenProvider: func(context.Context) (string, error) { return "tok", nil },
+	})
+	if err != nil {
+		t.Fatalf("unexpected error creating client with default endpoint: %v", err)
+	}
+	if cDefault.baseURL != DefaultEndpoint {
+		t.Errorf("expected default endpoint %s, got %s", DefaultEndpoint, cDefault.baseURL)
+	}
+
+	_, errNoToken := NewFabricClient(Config{})
+	if errNoToken == nil {
+		t.Fatal("expected error on NewFabricClient with nil token provider and chain")
+	}
+
+	// 2. getLakehouseMutex caching
+	mu1 := cDefault.getLakehouseMutex("ws1", "lh1")
+	mu2 := cDefault.getLakehouseMutex("ws1", "lh1")
+	if mu1 != mu2 {
+		t.Errorf("expected identical mutex pointer for same lakehouse, got %p vs %p", mu1, mu2)
+	}
+	mu3 := cDefault.getLakehouseMutex("ws1", "lh2")
+	if mu1 == mu3 {
+		t.Errorf("expected different mutex for different lakehouse")
+	}
+
+	// 3. GetItemPermissions, UpdateItemPermissions, RevokeItemPermissions with mock server
+	wsID := "11111111-1111-1111-1111-111111111111"
+	whID := "22222222-2222-2222-2222-222222222222"
+	principalID := "33333333-3333-3333-3333-333333333333"
+
+	mockHTTP := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		switch {
+		case strings.HasSuffix(path, "/permissions") && r.Method == http.MethodGet:
+			if strings.Contains(path, "missing-wh") {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{
+				"value": [
+					{
+						"principal": {
+							"id": "33333333-3333-3333-3333-333333333333",
+							"type": "User"
+						},
+						"permissions": ["Read", "ReadWrite"]
+					},
+					{
+						"principal": {
+							"id": "44444444-4444-4444-4444-444444444444",
+							"type": "User"
+						},
+						"permissions": ["UnknownPermission"]
+					}
+				]
+			}`))
+		case strings.HasSuffix(path, "/grantPermissions") && r.Method == http.MethodPost:
+			w.WriteHeader(http.StatusOK)
+		case strings.HasSuffix(path, "/revokePermissions") && r.Method == http.MethodPost:
+			if strings.Contains(path, "missing-revoke") {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+		case strings.Contains(path, "/admin/workspaces/") && strings.Contains(path, "/items/") && strings.HasSuffix(path, "/users"):
+			// Verify type query parameter passed
+			if r.URL.Query().Get("type") != "Warehouse" {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"accessDetails": []}`))
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer mockHTTP.Close()
+
+	c, err := NewFabricClient(Config{
+		Endpoint:      mockHTTP.URL,
+		TokenProvider: func(context.Context) (string, error) { return "tok", nil },
+		BaseBackoff:   5 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	// 3a. GetItemPermissions invalid itemType
+	_, errInvalidType := c.GetItemPermissions(ctx, wsID, whID, "Lakehouse", principalID, "User")
+	if errInvalidType == nil {
+		t.Fatal("expected error on GetItemPermissions with unsupported item type")
+	}
+
+	// 3b. GetItemPermissions item 404
+	_, errNotFound := c.GetItemPermissions(ctx, wsID, "missing-wh", "Warehouse", principalID, "User")
+	if errNotFound == nil || !IsNotFound(errNotFound) {
+		t.Fatalf("expected NotFoundError on 404 item: %v", errNotFound)
+	}
+
+	// 3c. GetItemPermissions match
+	perms, err := c.GetItemPermissions(ctx, wsID, whID, "Warehouse", principalID, "User")
+	if err != nil {
+		t.Fatalf("unexpected error getting item permissions: %v", err)
+	}
+	if len(perms) == 0 || !slices.Contains(perms, "read") {
+		t.Errorf("expected permissions to contain read, got %v", perms)
+	}
+
+	// 3d. GetItemPermissions principal with only unrecognized permissions
+	_, errUnknown := c.GetItemPermissions(ctx, wsID, whID, "Warehouse", "44444444-4444-4444-4444-444444444444", "User")
+	if errUnknown == nil || !IsNotFound(errUnknown) {
+		t.Fatalf("expected NotFoundError for principal with unknown perms: %v", errUnknown)
+	}
+
+	// 3e. GetItemPermissions principal not in list
+	_, errMissingPrincipal := c.GetItemPermissions(ctx, wsID, whID, "Warehouse", "99999999-9999-9999-9999-999999999999", "User")
+	if errMissingPrincipal == nil || !IsNotFound(errMissingPrincipal) {
+		t.Fatalf("expected NotFoundError for non-existent principal: %v", errMissingPrincipal)
+	}
+
+	// 3f. UpdateItemPermissions invalid old/new permissions
+	p := Principal{ID: principalID, Type: "User"}
+	errBadOld := c.UpdateItemPermissions(ctx, wsID, whID, "Warehouse", p, []string{"BadPerm"}, []string{"read"})
+	if errBadOld == nil {
+		t.Fatal("expected error on invalid old permission")
+	}
+	errBadNew := c.UpdateItemPermissions(ctx, wsID, whID, "Warehouse", p, []string{"read"}, []string{"BadPerm"})
+	if errBadNew == nil {
+		t.Fatal("expected error on invalid new permission")
+	}
+
+	// 3g. UpdateItemPermissions success (downgrade revoking read_data and granting read)
+	errUpdate := c.UpdateItemPermissions(ctx, wsID, whID, "Warehouse", p, []string{"read", "read_data"}, []string{"read"})
+	if errUpdate != nil {
+		t.Fatalf("unexpected error updating item permissions: %v", errUpdate)
+	}
+
+	// 3h. RevokeItemPermissions 404 is idempotent
+	errRevoke404 := c.RevokeItemPermissions(ctx, wsID, "missing-revoke", "Warehouse", p, []string{"read"})
+	if errRevoke404 != nil {
+		t.Fatalf("expected 404 revoke to succeed idempotently: %v", errRevoke404)
+	}
+
+	// 3i. RevokeItemPermissions invalid itemType
+	errRevokeBadType := c.RevokeItemPermissions(ctx, wsID, whID, "InvalidItemType", p, []string{"read"})
+	if errRevokeBadType == nil {
+		t.Fatal("expected error revoking on invalid item type")
+	}
+
+	// 3j. ListItemAccessDetails with itemType query filter
+	itemTypeFilter := "Warehouse"
+	_, errAccess := c.ListItemAccessDetails(ctx, wsID, whID, &itemTypeFilter)
+	if errAccess != nil {
+		t.Fatalf("unexpected error listing access details with type filter: %v", errAccess)
+	}
+}

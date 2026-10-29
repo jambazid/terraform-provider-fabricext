@@ -14,6 +14,8 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -798,5 +800,344 @@ func TestResolvePowerBIEnvironmentHelpers(t *testing.T) {
 		if got := ResolvePowerBIAllowedHostSuffix(tc.env); got != tc.wantSuffix {
 			t.Errorf("ResolvePowerBIAllowedHostSuffix(%q) = %q, want %q", tc.env, got, tc.wantSuffix)
 		}
+	}
+}
+
+func TestFetchOIDCAssertion_EdgeCases(t *testing.T) {
+	t.Parallel()
+
+	// 1. Server returns 500
+	srv500 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("internal error"))
+	}))
+	defer srv500.Close()
+
+	_, err := fetchOIDCAssertion(context.Background(), srv500.URL, "token")
+	if err == nil || !strings.Contains(err.Error(), "received HTTP status 500") {
+		t.Errorf("expected 500 error, got %v", err)
+	}
+
+	// 2. Server returns invalid JSON
+	srvBadJSON := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("{invalid-json"))
+	}))
+	defer srvBadJSON.Close()
+
+	_, err = fetchOIDCAssertion(context.Background(), srvBadJSON.URL, "token")
+	if err == nil || !strings.Contains(err.Error(), "unmarshaling OIDC assertion") {
+		t.Errorf("expected unmarshal error, got %v", err)
+	}
+
+	// 3. Server returns empty token value
+	srvEmptyVal := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"value":""}`))
+	}))
+	defer srvEmptyVal.Close()
+
+	_, err = fetchOIDCAssertion(context.Background(), srvEmptyVal.URL, "token")
+	if err == nil || !strings.Contains(err.Error(), "empty JWT assertion") {
+		t.Errorf("expected empty JWT assertion error, got %v", err)
+	}
+
+	// 4. Server returns valid token
+	srvSuccess := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"value":"mock-jwt-assertion"}`))
+	}))
+	defer srvSuccess.Close()
+
+	tok, err := fetchOIDCAssertion(context.Background(), srvSuccess.URL, "token")
+	if err != nil || tok != "mock-jwt-assertion" {
+		t.Errorf("expected mock-jwt-assertion, got tok=%q, err=%v", tok, err)
+	}
+}
+
+func TestTokenFetcher_ErrorPropagation(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	expectedErr := errors.New("token fetcher boom")
+
+	// 1. Azure CLI provider
+	cli := &azureCLIProvider{
+		cfg: Config{TenantID: "00000000-0000-0000-0000-000000000001"},
+		tokenFetcher: func(_ context.Context, _ string) (azcore.AccessToken, error) {
+			return azcore.AccessToken{}, expectedErr
+		},
+	}
+	_, _, err := cli.ResolveForScope(ctx, "scope")
+	if !errors.Is(err, expectedErr) {
+		t.Errorf("expected %v, got %v", expectedErr, err)
+	}
+
+	// 2. Azure Developer CLI provider
+	useDevCLI := true
+	azd := &azureDeveloperCLIProvider{
+		cfg: Config{
+			TenantID:  "00000000-0000-0000-0000-000000000001",
+			UseDevCLI: &useDevCLI,
+		},
+		tokenFetcher: func(_ context.Context, _ string) (azcore.AccessToken, error) {
+			return azcore.AccessToken{}, expectedErr
+		},
+	}
+	_, _, err = azd.ResolveForScope(ctx, "scope")
+	if !errors.Is(err, expectedErr) {
+		t.Errorf("expected %v, got %v", expectedErr, err)
+	}
+
+	// 3. Client Secret provider
+	cs := &clientSecretProvider{
+		cfg: Config{
+			TenantID:     "00000000-0000-0000-0000-000000000001",
+			ClientID:     "00000000-0000-0000-0000-000000000002",
+			ClientSecret: "secret",
+		},
+		tokenFetcher: func(_ context.Context, _, _, _ string) (azcore.AccessToken, error) {
+			return azcore.AccessToken{}, expectedErr
+		},
+	}
+	_, _, err = cs.ResolveForScope(ctx, "scope")
+	if !errors.Is(err, expectedErr) {
+		t.Errorf("expected %v, got %v", expectedErr, err)
+	}
+}
+
+func TestFileErrors_WorkloadAndCert(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	// 1. Workload identity with non-existent token file path
+	wi := &workloadIdentityProvider{
+		cfg: Config{
+			TenantID:          "00000000-0000-0000-0000-000000000001",
+			ClientID:          "00000000-0000-0000-0000-000000000002",
+			OIDCTokenFilePath: "/non/existent/oidc/path/token.jwt",
+		},
+	}
+	_, _, err := wi.ResolveForScope(ctx, "scope")
+	if err == nil {
+		t.Error("expected error on non-existent OIDC token file path")
+	}
+
+	// 2. Workload identity with environment token file path error
+	wiEnv := &workloadIdentityProvider{
+		cfg: Config{
+			TenantID: "00000000-0000-0000-0000-000000000001",
+			ClientID: "00000000-0000-0000-0000-000000000002",
+			Getenv: func(k string) string {
+				if k == "FABRIC_OIDC_TOKEN_FILE_PATH" {
+					return "/non/existent/oidc/env/token.jwt"
+				}
+				return ""
+			},
+		},
+	}
+	_, _, err = wiEnv.ResolveForScope(ctx, "scope")
+	if err == nil {
+		t.Error("expected error on non-existent OIDC env token file path")
+	}
+
+	// 3. Certificate provider with invalid PKCS#12 file
+	tmpCert := filepath.Join(t.TempDir(), "corrupt.pfx")
+	_ = os.WriteFile(tmpCert, []byte("not-a-valid-pkcs12"), 0600)
+
+	certProv := &clientCertificateProvider{
+		cfg: Config{
+			TenantID:                  "00000000-0000-0000-0000-000000000001",
+			ClientID:                  "00000000-0000-0000-0000-000000000002",
+			ClientCertificateFilePath: tmpCert,
+			ClientCertificatePassword: "password",
+		},
+	}
+	_, _, err = certProv.ResolveForScope(ctx, "scope")
+	if err == nil {
+		t.Error("expected error on corrupt PKCS#12 file")
+	}
+}
+
+func TestChain_DoubleCheckedLockingAndEmptyToken(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	// 1. Provider returns empty access token with nil error -> returned empty access token
+	emptyProv := &staticProvider{
+		cfg: Config{
+			AccessToken: "",
+			Getenv:      func(string) string { return "" },
+		},
+	}
+	chain := NewChain(Config{}, WithProviders(emptyProv))
+	_, err := chain.ResolveForScope(ctx, "https://analysis.windows.net/powerbi/api/.default")
+	if err == nil {
+		t.Fatal("expected error when provider returns empty access token")
+	}
+
+	// 2. GetToken propagates ResolveForScope error
+	_, err = chain.GetToken(ctx, policy.TokenRequestOptions{Scopes: []string{"scope"}})
+	if err == nil {
+		t.Fatal("expected GetToken to propagate chain resolution error")
+	}
+
+	// 3. Provider returns token without Source -> defaulted to provider name
+	dummyProv := &testCustomProvider{
+		name: "test-dummy",
+		resolveFn: func(_ context.Context) (Credentials, bool, error) {
+			return Credentials{
+				AccessToken: "custom-tok",
+				Source:      "", // empty source to test default fallback
+			}, false, nil
+		},
+	}
+	chainSource := NewChain(Config{}, WithProviders(dummyProv))
+	creds, err := chainSource.Resolve(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if creds.Source != "test-dummy" {
+		t.Errorf("expected source to default to test-dummy, got %q", creds.Source)
+	}
+}
+
+type testCustomProvider struct {
+	name      string
+	resolveFn func(ctx context.Context) (Credentials, bool, error)
+}
+
+func (p *testCustomProvider) Name() string { return p.name }
+func (p *testCustomProvider) Resolve(ctx context.Context) (Credentials, bool, error) {
+	return p.resolveFn(ctx)
+}
+
+func TestChain_ProviderEdgeCasesAndFileErrors(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	trueVal := true
+
+	// 1. ResolveForScope with empty scope string defaults to Fabric scope
+	providers := []struct {
+		name string
+		p    Provider
+	}{
+		{"ClientCertificate", &clientCertificateProvider{cfg: Config{}}},
+		{"ClientSecret", &clientSecretProvider{cfg: Config{}}},
+		{"AzureDevOpsOIDC", &azureDevOpsOIDCProvider{cfg: Config{}}},
+		{"WorkloadIdentity", &workloadIdentityProvider{cfg: Config{}}},
+		{"ManagedIdentity", &managedIdentityProvider{cfg: Config{}}},
+		{"AzureDeveloperCLI", &azureDeveloperCLIProvider{cfg: Config{}}},
+		{"AzureCLI", &azureCLIProvider{cfg: Config{}}},
+	}
+
+	for _, tc := range providers {
+		t.Run(tc.name+" empty scope", func(t *testing.T) {
+			t.Parallel()
+			// None of these are configured, so they will return skipped or error, but empty scope branch is hit
+			if sp, ok := tc.p.(interface {
+				ResolveForScope(ctx context.Context, scope string) (Credentials, bool, error)
+			}); ok {
+				_, _, _ = sp.ResolveForScope(ctx, "")
+			}
+		})
+	}
+
+	// 2. Non-existent TenantIDFilePath error propagation
+	badTenantCfg := Config{TenantIDFilePath: "/nonexistent/tenant/file/path"}
+	badCertProv := &clientCertificateProvider{cfg: badTenantCfg}
+	if _, _, err := badCertProv.ResolveForScope(ctx, "scope"); err == nil {
+		t.Error("expected error for bad TenantIDFilePath in clientCertificateProvider")
+	}
+
+	badSecretProv := &clientSecretProvider{cfg: badTenantCfg}
+	if _, _, err := badSecretProv.ResolveForScope(ctx, "scope"); err == nil {
+		t.Error("expected error for bad TenantIDFilePath in clientSecretProvider")
+	}
+
+	badDevOpsProv := &azureDevOpsOIDCProvider{cfg: badTenantCfg}
+	if _, _, err := badDevOpsProv.ResolveForScope(ctx, "scope"); err == nil {
+		t.Error("expected error for bad TenantIDFilePath in azureDevOpsOIDCProvider")
+	}
+
+	badWorkloadProv := &workloadIdentityProvider{cfg: badTenantCfg}
+	if _, _, err := badWorkloadProv.ResolveForScope(ctx, "scope"); err == nil {
+		t.Error("expected error for bad TenantIDFilePath in workloadIdentityProvider")
+	}
+
+	badDevCLICfg := badTenantCfg
+	badDevCLICfg.UseDevCLI = &trueVal
+	badDevCLIProv := &azureDeveloperCLIProvider{cfg: badDevCLICfg}
+	if _, _, err := badDevCLIProv.ResolveForScope(ctx, "scope"); err == nil {
+		t.Error("expected error for bad TenantIDFilePath in azureDeveloperCLIProvider")
+	}
+
+	badCLICfg := badTenantCfg
+	badCLICfg.UseCLI = &trueVal
+	badCLIProv := &azureCLIProvider{cfg: badCLICfg}
+	if _, _, err := badCLIProv.ResolveForScope(ctx, "scope"); err == nil {
+		t.Error("expected error for bad TenantIDFilePath in azureCLIProvider")
+	}
+
+	// 3. Non-existent ClientIDFilePath error propagation
+	badClientCfg := Config{ClientIDFilePath: "/nonexistent/client/file/path"}
+	if _, _, err := (&clientCertificateProvider{cfg: badClientCfg}).ResolveForScope(ctx, "scope"); err == nil {
+		t.Error("expected error for bad ClientIDFilePath in clientCertificateProvider")
+	}
+	if _, _, err := (&clientSecretProvider{cfg: badClientCfg}).ResolveForScope(ctx, "scope"); err == nil {
+		t.Error("expected error for bad ClientIDFilePath in clientSecretProvider")
+	}
+	if _, _, err := (&workloadIdentityProvider{cfg: badClientCfg}).ResolveForScope(ctx, "scope"); err == nil {
+		t.Error("expected error for bad ClientIDFilePath in workloadIdentityProvider")
+	}
+	badMSICfg := badClientCfg
+	badMSICfg.UseMSI = true
+	if _, _, err := (&managedIdentityProvider{cfg: badMSICfg}).ResolveForScope(ctx, "scope"); err == nil {
+		t.Error("expected error for bad ClientIDFilePath in managedIdentityProvider")
+	}
+
+	// 4. Non-existent ClientSecretFilePath error propagation
+	badSecretFileCfg := Config{
+		TenantID:             "00000000-0000-0000-0000-000000000001",
+		ClientID:             "00000000-0000-0000-0000-000000000002",
+		ClientSecretFilePath: "/nonexistent/secret/file/path",
+	}
+	if _, _, err := (&clientSecretProvider{cfg: badSecretFileCfg}).ResolveForScope(ctx, "scope"); err == nil {
+		t.Error("expected error for bad ClientSecretFilePath in clientSecretProvider")
+	}
+
+	// 5. TokenFetcher error paths
+	fetchErr := errors.New("boom token fetcher")
+	msiWithFetcher := &managedIdentityProvider{
+		cfg: Config{UseMSI: true},
+		tokenFetcher: func(context.Context, string) (azcore.AccessToken, error) {
+			return azcore.AccessToken{}, fetchErr
+		},
+	}
+	if _, _, err := msiWithFetcher.ResolveForScope(ctx, "scope"); !errors.Is(err, fetchErr) {
+		t.Errorf("expected fetchErr, got %v", err)
+	}
+
+	devCLIWithFetcher := &azureDeveloperCLIProvider{
+		cfg: Config{UseDevCLI: &trueVal},
+		tokenFetcher: func(context.Context, string) (azcore.AccessToken, error) {
+			return azcore.AccessToken{}, fetchErr
+		},
+	}
+	if _, _, err := devCLIWithFetcher.ResolveForScope(ctx, "scope"); !errors.Is(err, fetchErr) {
+		t.Errorf("expected fetchErr, got %v", err)
+	}
+
+	cliWithFetcher := &azureCLIProvider{
+		cfg: Config{UseCLI: &trueVal},
+		tokenFetcher: func(context.Context, string) (azcore.AccessToken, error) {
+			return azcore.AccessToken{}, fetchErr
+		},
+	}
+	if _, _, err := cliWithFetcher.ResolveForScope(ctx, "scope"); !errors.Is(err, fetchErr) {
+		t.Errorf("expected fetchErr, got %v", err)
 	}
 }

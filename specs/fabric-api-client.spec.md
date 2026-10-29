@@ -75,7 +75,7 @@ func (c *FabricClient) DeleteDataAccessRole(ctx context.Context, workspaceID, la
 
 - `EncodePermissions` and `DecodePermissions` provide a deterministic bijection between high-level permission tokens (`Read`, `ReadData`, `ReadAll`, `Reshare`, `Execute`) and low-level Core and Artifact bitmasks across Warehouses, Lakehouses, and SQL Databases
   `[@test] ../internal/client/item_permissions_test.go::TestItemPermissions_BitmaskBijection`
-- `GetItemDirectPermissions`, `UpsertItemDirectPermissions`, and `RevokeItemDirectPermissions` manage direct item permissions via Power BI metadata endpoints (`/metadata/access` and `/metadata/access/artifacts/{itemId}`), isolating direct shares from workspace inheritance and verifying propagation via read-back polling
+- `GetItemDirectPermissions`, `UpsertItemDirectPermissions`, and `RevokeItemDirectPermissions` manage direct item permissions via undocumented Power BI metadata endpoints (`/metadata/access` and `/metadata/access/artifacts/{itemId}`), isolating direct shares from workspace inheritance and verifying propagation via read-back polling
   `[@test] ../internal/client/item_permissions_test.go::TestItemPermissions_LifecycleWithPBIMock`
 - Item permission mutations acquire per-item mutexes (`workspaceID + "/" + itemID`), preventing race conditions and payload clobbering across concurrent goroutines
   `[@test] ../internal/client/item_permissions_test.go::TestItemPermissions_ConcurrentAccessSafety`

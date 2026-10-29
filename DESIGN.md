@@ -574,7 +574,7 @@ stateDiagram-v2
 
 ### 15.1 Wire Protocol & Bitmasks
 
-Item-level permissions across Fabric Warehouses, Lakehouses, and SQL Databases are managed via Power BI `/metadata/access` endpoints using bijective bitmask encoding:
+Item-level permissions across Fabric Warehouses, Lakehouses, and SQL Databases are managed via undocumented Power BI `/metadata/access` endpoints using bijective bitmask encoding:
 
 1. **Core Permissions Bitmask**: `None = 0`, `Read = 1`, `Write = 2`, `ReShare = 4`, `Explore = 8`, `CopyOnWrite = 16`, `WriteCheckRelaxForReadOnlyGroup = 32`, `Execute = 64`, `Subscribe = 128`.
 2. **Workload Artifact Permissions Bitmask**:

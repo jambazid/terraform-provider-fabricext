@@ -86,6 +86,13 @@ func (s *Server) Close() {
 	}
 }
 
+// SeedDirectAccess adds direct access entries for an item.
+func (s *Server) SeedDirectAccess(itemID string, entries ...map[string]any) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.entries[itemID] = append(s.entries[itemID], entries...)
+}
+
 func (s *Server) wrapValidation(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {

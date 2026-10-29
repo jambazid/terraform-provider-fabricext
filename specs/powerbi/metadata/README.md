@@ -1,6 +1,6 @@
 # Power BI Metadata Engineering Protocol
 
-This document provides a sanitized engineering reference for the Power BI service `/metadata/*` endpoints that back declarative item-level permissions for Microsoft Fabric Lakehouses, Warehouses, and SQL Databases in `terraform-provider-fabricext`.
+This document provides a sanitized engineering reference for the undocumented Power BI service `/metadata/*` endpoints that back declarative item-level permissions for Microsoft Fabric Lakehouses, Warehouses, and SQL Databases in `terraform-provider-fabricext`.
 
 ---
 

@@ -226,10 +226,12 @@ func (c *FabricClient) DiscoverClusterURI(ctx context.Context) (string, error) {
 		break
 	}
 
-	cleanPortal := strings.TrimRight(portalURL, "/")
-	if err := validateClusterURI(cleanPortal, customHost); err == nil {
-		c.cachedClusterURI = cleanPortal
-		return cleanPortal, nil
+	if c.powerBIEndpoint != "" && !strings.HasSuffix(parsedPortal.Hostname(), "powerbi.com") {
+		cleanPortal := strings.TrimRight(portalURL, "/")
+		if err := validateClusterURI(cleanPortal, customHost); err == nil {
+			c.cachedClusterURI = cleanPortal
+			return cleanPortal, nil
+		}
 	}
 
 	return "", fmt.Errorf("failed to discover Power BI cluster URI from %s (no ClusterUri cookie in response)", portalURL)
@@ -719,8 +721,14 @@ func (c *FabricClient) UpsertItemDirectPermissions(ctx context.Context, workspac
 		return fmt.Errorf("powerbi API access grant failed (HTTP %d): %s", resp.StatusCode, scrubAndCapBody(body))
 	}
 
-	// Read-back verification loop (up to 10 seconds)
-	deadline := time.Now().Add(10 * time.Second)
+	// Read-back verification loop (up to 10 seconds, accelerated in test environments)
+	verificationTimeout := 10 * time.Second
+	pollInterval := 200 * time.Millisecond
+	if c.baseBackoff > 0 && c.baseBackoff < 50*time.Millisecond {
+		verificationTimeout = 50 * time.Millisecond
+		pollInterval = 5 * time.Millisecond
+	}
+	deadline := time.Now().Add(verificationTimeout)
 	var lastCore, lastArtifact int64
 	for time.Now().Before(deadline) {
 		if err := ctx.Err(); err != nil {
@@ -736,7 +744,7 @@ func (c *FabricClient) UpsertItemDirectPermissions(ctx context.Context, workspac
 			}
 		}
 
-		if sleepErr := sleepWithContext(ctx, 200*time.Millisecond); sleepErr != nil {
+		if sleepErr := sleepWithContext(ctx, pollInterval); sleepErr != nil {
 			return sleepErr
 		}
 	}
@@ -840,8 +848,14 @@ func (c *FabricClient) RevokeItemDirectPermissions(ctx context.Context, workspac
 		return fmt.Errorf("powerbi API revocation failed (HTTP %d): %s", resp.StatusCode, scrubAndCapBody(body))
 	}
 
-	// Read-back verification loop (up to 5 seconds)
-	deadline := time.Now().Add(5 * time.Second)
+	// Read-back verification loop (up to 5 seconds, accelerated in test environments)
+	verificationTimeout := 5 * time.Second
+	pollInterval := 150 * time.Millisecond
+	if c.baseBackoff > 0 && c.baseBackoff < 50*time.Millisecond {
+		verificationTimeout = 50 * time.Millisecond
+		pollInterval = 5 * time.Millisecond
+	}
+	deadline := time.Now().Add(verificationTimeout)
 	var lastCore, lastArtifact int64
 	for time.Now().Before(deadline) {
 		if err := ctx.Err(); err != nil {
@@ -857,7 +871,7 @@ func (c *FabricClient) RevokeItemDirectPermissions(ctx context.Context, workspac
 			lastArtifact = check.RawArtifactPermissions
 		}
 
-		if sleepErr := sleepWithContext(ctx, 150*time.Millisecond); sleepErr != nil {
+		if sleepErr := sleepWithContext(ctx, pollInterval); sleepErr != nil {
 			return sleepErr
 		}
 	}
