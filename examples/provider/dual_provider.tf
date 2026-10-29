@@ -41,7 +41,17 @@ resource "fabricext_lakehouse_data_access_role" "analysts" {
 
   depends_on = [
     fabricext_lakehouse_onelake_security.sales,
+    fabricext_lakehouse_permission.sales,
   ]
+}
+
+# Grant direct item-level sharing using fabricext:
+resource "fabricext_lakehouse_permission" "sales" {
+  workspace_id   = fabric_lakehouse.sales.workspace_id
+  lakehouse_id   = fabric_lakehouse.sales.id
+  principal_id   = var.analysts_group_id
+  principal_type = "Group"
+  permissions    = ["Read"]
 }
 
 variable "workspace_id" {

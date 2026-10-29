@@ -1,0 +1,6 @@
+kind: breaking
+body: >-
+  Unify `modules/permissions` matrix structure: compose item-level permissions and
+  OneLake Data Access Roles under a unified `$.lakehouses` key, key principal permissions
+  by Entra ID UUID maps across all workloads, and add `verify_item_shares` Admin API gate lever.
+time: 2026-10-29T20:00:00.000000000+00:00

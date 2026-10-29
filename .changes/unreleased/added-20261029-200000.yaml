@@ -1,0 +1,7 @@
+kind: added
+body: >-
+  Restore declarative item-level permission resources `fabricext_warehouse_permission`,
+  `fabricext_sql_database_permission`, and `fabricext_lakehouse_permission` backed by
+  Power BI metadata access endpoints with in-place drift reconciliation. Add Power BI
+  credentials support, dual-scope Entra token resolution, and in-memory mock server `pbimock`.
+time: 2026-10-29T20:00:00.000000000+00:00

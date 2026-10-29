@@ -70,7 +70,7 @@ repos:
         name: openapi | specs-check
         entry: mise exec -- python3 scripts/check_openapi_specs.py
         language: system
-        files: ^specs/openapi/
+        files: ^specs/(fabric|powerbi)/
         pass_filenames: false
         stages: [pre-commit]
 

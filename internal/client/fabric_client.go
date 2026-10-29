@@ -150,14 +150,18 @@ func (e *OneLakeSecurityNotEnabledError) Error() string {
 	return fmt.Sprintf("OneLake Data Access Security is not enabled for Lakehouse %q in workspace %q: navigate to the Fabric portal, open the Lakehouse ribbon, and select 'Manage OneLake security' to enable data access roles", e.LakehouseID, e.WorkspaceID)
 }
 
-// UnsupportedItemTypeError indicates that OneLake Data Access Security was invoked on an unsupported item type.
+// UnsupportedItemTypeError indicates that an operation was invoked on an item of an unexpected or unsupported type.
 type UnsupportedItemTypeError struct {
-	WorkspaceID string
-	ItemID      string
-	ActualType  string
+	WorkspaceID  string
+	ItemID       string
+	ActualType   string
+	ExpectedType string
 }
 
 func (e *UnsupportedItemTypeError) Error() string {
+	if e.ExpectedType != "" {
+		return fmt.Sprintf("item %q in workspace %q has type %q, expected %q", e.ItemID, e.WorkspaceID, e.ActualType, e.ExpectedType)
+	}
 	return fmt.Sprintf("OneLake Data Access Security is only supported on Lakehouses; item %q in workspace %q has type %q", e.ItemID, e.WorkspaceID, e.ActualType)
 }
 
@@ -232,15 +236,36 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("fabric API error (HTTP %d, code %s): %s", e.StatusCode, e.ErrorCode, e.Message)
 }
 
+// SilentPermissionDropError indicates that an item permission mutation succeeded on the HTTP wire,
+// but the target bitmask was not reflected within the verification polling deadline.
+type SilentPermissionDropError struct {
+	WorkspaceID      string
+	ItemID           string
+	PrincipalID      string
+	ItemType         string
+	ExpectedCore     int64
+	ExpectedArtifact int64
+	ActualCore       int64
+	ActualArtifact   int64
+}
+
+func (e *SilentPermissionDropError) Error() string {
+	return fmt.Sprintf("silent permission drop on %s %s in workspace %s for principal %s: expected (core=%d, artifact=%d), got (core=%d, artifact=%d)",
+		e.ItemType, e.ItemID, e.WorkspaceID, e.PrincipalID, e.ExpectedCore, e.ExpectedArtifact, e.ActualCore, e.ActualArtifact)
+}
+
 // Config configures a FabricClient instance.
 type Config struct {
-	Endpoint        string
-	HTTPClient      *http.Client
-	CredentialChain *credentials.Chain
-	TokenProvider   func(ctx context.Context) (string, error)
-	MaxRetries      int
-	MaxETagRetries  int
-	BaseBackoff     time.Duration
+	Endpoint             string
+	PowerBIEndpoint      string
+	Environment          string
+	HTTPClient           *http.Client
+	CredentialChain      *credentials.Chain
+	TokenProvider        func(ctx context.Context) (string, error)
+	PowerBITokenProvider func(ctx context.Context) (string, error)
+	MaxRetries           int
+	MaxETagRetries       int
+	BaseBackoff          time.Duration
 }
 
 type itemCacheKey struct {
@@ -250,17 +275,22 @@ type itemCacheKey struct {
 
 // FabricClient is a thread-safe Microsoft Fabric REST API client.
 type FabricClient struct {
-	baseURL        string
-	httpClient     *http.Client
-	tokenProvider  func(ctx context.Context) (string, error)
-	maxRetries     int
-	maxETagRetries int
-	baseBackoff    time.Duration
+	baseURL              string
+	powerBIEndpoint      string
+	httpClient           *http.Client
+	tokenProvider        func(ctx context.Context) (string, error)
+	powerBITokenProvider func(ctx context.Context) (string, error)
+	maxRetries           int
+	maxETagRetries       int
+	baseBackoff          time.Duration
 
-	cacheMu        sync.Mutex
-	itemCache      map[itemCacheKey]map[string]string
-	lakehouseLocks sync.Map // map[string]*sync.Mutex keyed by workspaceID + "/" + lakehouseID
-	adminMu        sync.Mutex
+	cacheMu          sync.Mutex
+	itemCache        map[itemCacheKey]map[string]string
+	lakehouseLocks   sync.Map // map[string]*sync.Mutex keyed by workspaceID + "/" + lakehouseID
+	adminMu          sync.Mutex
+	itemAccessLocks  sync.Map // map[string]*sync.Mutex keyed by workspaceID + "/" + itemID
+	clusterURIMu     sync.RWMutex
+	cachedClusterURI string
 }
 
 // NewFabricClient creates a new FabricClient with normalized endpoint and retry defaults.
@@ -271,6 +301,9 @@ func NewFabricClient(cfg Config) (*FabricClient, error) {
 	}
 	endpoint = strings.TrimRight(endpoint, "/")
 	endpoint = strings.TrimSuffix(endpoint, "/v1")
+
+	powerBIEndpoint := strings.TrimSpace(cfg.PowerBIEndpoint)
+	powerBIEndpoint = strings.TrimRight(powerBIEndpoint, "/")
 
 	httpClient := cfg.HTTPClient
 	if httpClient == nil {
@@ -292,6 +325,19 @@ func NewFabricClient(cfg Config) (*FabricClient, error) {
 		return nil, errors.New("fabric client requires either CredentialChain or TokenProvider")
 	}
 
+	pbiTokenProvider := cfg.PowerBITokenProvider
+	if pbiTokenProvider == nil && cfg.CredentialChain != nil {
+		chain := cfg.CredentialChain
+		pbiScope := credentials.ResolvePowerBIScope(cfg.Environment)
+		pbiTokenProvider = func(ctx context.Context) (string, error) {
+			creds, err := chain.ResolveForScope(ctx, pbiScope)
+			if err != nil {
+				return "", err
+			}
+			return creds.AccessToken, nil
+		}
+	}
+
 	maxRetries := cfg.MaxRetries
 	if maxRetries <= 0 {
 		maxRetries = defaultMaxRetries
@@ -306,13 +352,15 @@ func NewFabricClient(cfg Config) (*FabricClient, error) {
 	}
 
 	return &FabricClient{
-		baseURL:        endpoint,
-		httpClient:     httpClient,
-		tokenProvider:  tokenProvider,
-		maxRetries:     maxRetries,
-		maxETagRetries: maxETagRetries,
-		baseBackoff:    baseBackoff,
-		itemCache:      make(map[itemCacheKey]map[string]string),
+		baseURL:              endpoint,
+		powerBIEndpoint:      powerBIEndpoint,
+		httpClient:           httpClient,
+		tokenProvider:        tokenProvider,
+		powerBITokenProvider: pbiTokenProvider,
+		maxRetries:           maxRetries,
+		maxETagRetries:       maxETagRetries,
+		baseBackoff:          baseBackoff,
+		itemCache:            make(map[itemCacheKey]map[string]string),
 	}, nil
 }
 
@@ -572,14 +620,22 @@ func (c *FabricClient) GetItemByID(ctx context.Context, workspaceID, itemID, ite
 		return nil, err
 	}
 	if itemType != "" && !strings.EqualFold(item.Type, itemType) {
-		return nil, &NotFoundError{
-			ResourceType: itemType,
-			ResourceID:   itemID,
+		return nil, &UnsupportedItemTypeError{
 			WorkspaceID:  workspaceID,
-			Message:      fmt.Sprintf("item %q in workspace %q has type %q, expected %q", itemID, workspaceID, item.Type, itemType),
+			ItemID:       itemID,
+			ActualType:   item.Type,
+			ExpectedType: itemType,
 		}
 	}
 	return &item, nil
+}
+
+// InvalidateItemNameCache removes cached item name-to-ID mappings for (workspaceID, itemType).
+func (c *FabricClient) InvalidateItemNameCache(workspaceID, itemType string) {
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
+	key := itemCacheKey{workspaceID: workspaceID, itemType: itemType}
+	delete(c.itemCache, key)
 }
 
 func itemPermissionsBasePath(workspaceID, itemID, itemType string) (string, error) {

@@ -17,10 +17,16 @@ const (
     FabricScopePublic       = "https://api.fabric.microsoft.com/.default"
     FabricScopeUSGovernment = "https://api.fabric.microsoft.us/.default"
     FabricScopeChina        = "https://api.fabric.microsoft.cn/.default"
+
+    PowerBIScopePublic       = "https://analysis.windows.net/powerbi/api/.default"
+    PowerBIScopeUSGovernment = "https://analysis.usgovcloudapi.net/powerbi/api/.default"
+    PowerBIScopeChina        = "https://analysis.chinacloudapi.cn/powerbi/api/.default"
 )
 
 type Config struct {
     AccessToken                    string
+    PowerBIAccessToken             string
+    PowerBIEndpoint                string
     TenantID                       string
     TenantIDFilePath               string
     ClientID                       string
@@ -57,10 +63,13 @@ type Chain struct { ... }
 
 func NewChain(cfg Config, opts ...Option) *Chain
 func (c *Chain) Resolve(ctx context.Context) (Credentials, error)
+func (c *Chain) ResolveForScope(ctx context.Context, scope string) (Credentials, error)
 func (c *Chain) GetToken(ctx context.Context, opts policy.TokenRequestOptions) (azcore.AccessToken, error)
 ```
 
 `[@test] ../internal/credentials/chain_test.go::TestStaticProvider_Resolution`
+`[@test] ../internal/credentials/chain_test.go::TestStaticProvider_PowerBIScope`
+`[@test] ../internal/credentials/chain_test.go::TestChain_ScopeIsolationAndPowerBIScope`
 
 ## Deterministic Precedence & Fallthrough Rules
 
@@ -95,5 +104,9 @@ func (c *Chain) GetToken(ctx context.Context, opts policy.TokenRequestOptions) (
 
 - Resolved tokens are cached in memory and reused across concurrent requests until within 2 minutes of `ExpiresOn`, at which point a fresh token is acquired automatically
   `[@test] ../internal/credentials/chain_test.go::TestTokenCachingAndNearExpiryRefresh`
+- Isolates in-memory token caches across Entra ID audience scopes (`Chain.ResolveForScope`), ensuring Fabric and Power BI tokens are cached and refreshed independently without cross-scope leakage or cache collisions under concurrent access
+  `[@test] ../internal/credentials/chain_test.go::TestChain_ScopeIsolationAndPowerBIScope`
+- Resolves static Power BI tokens (`powerbi_access_token` / `FABRIC_POWERBI_ACCESS_TOKEN`) with `SourceStaticPowerBI`, falling back to `access_token` with `SourceStaticFallback` when unconfigured
+  `[@test] ../internal/credentials/chain_test.go::TestStaticProvider_PowerBIScope`
 - `Credentials.String()` and `Credentials.GoString()` redact `AccessToken` as `"[REDACTED]"` so raw bearer tokens never leak via `%s`, `%v`, `%+v`, or `%#v` formatting
   `[@test] ../internal/credentials/chain_test.go::TestCredentialsRedaction`

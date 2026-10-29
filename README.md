@@ -8,13 +8,19 @@
 
 ## Overview
 
-`terraform-provider-fabricext` is a Terraform Plugin Framework (Protocol v6) provider for declaratively managing Microsoft Fabric OneLake Data Access Roles and security lifecycles:
+`terraform-provider-fabricext` is a Terraform Plugin Framework (Protocol v6) provider for declaratively managing Microsoft Fabric item-level permissions, OneLake Data Access Roles, and security lifecycles:
 
 | Resource / Data Source | Microsoft Fabric Item Type | Capabilities | Status |
 | :--- | :--- | :--- | :--- |
+| `fabricext_warehouse_permission` | `Warehouse` | Declaratively manages direct item-level sharing permissions (`Read`, `ReadWrite`, `Reshare`, `Explore`) with in-place drift reconciliation. | Active |
+| `fabricext_sql_database_permission` | `SQLDatabase` | Declaratively manages direct item-level sharing permissions (`Read`, `ReadWrite`, `Reshare`, `Explore`) with in-place drift reconciliation. | Active |
+| `fabricext_lakehouse_permission` | `Lakehouse` | Declaratively manages direct item-level sharing permissions (`Read`, `ReadWrite`, `Reshare`, `Explore`) with in-place drift reconciliation. | Active |
+| `fabricext_item_share_gate` | `Warehouse`, `Lakehouse`, `SQLDatabase` | Waiter resource verifying effective direct and inherited item permissions via the official Fabric Admin REST API. | Active |
 | `fabricext_lakehouse_data_access_role` | `Lakehouse` | Manages OneLake Data Access Roles (`/dataAccessRoles`) with per-Lakehouse mutex locking and `If-Match` ETag Read-Modify-Write concurrency control. | Active |
 | `fabricext_lakehouse_onelake_security` | `Lakehouse` | Validates OneLake security enablement and manages the `DefaultReader` role lifecycle. | Active |
 | `data.fabricext_item` | `Warehouse`, `Lakehouse`, `SQLDatabase`, `SQLEndpoint`, `SemanticModel` | Resolves `(workspace_id, display_name, type)` to canonical item UUIDs (`id`) using a paginated, type-isolated lookup cache. | Active |
+
+~> **Note:** Item-level permissions (`fabricext_{warehouse,sql_database,lakehouse}_permission`) configure direct item shares via Power BI metadata access endpoints. Permissions drift is detected and reconciled in-place. For tenant-wide verification, `fabricext_item_share_gate` verifies applied permissions through the official Fabric Admin REST API.
 
 ## Quick Start
 
@@ -25,7 +31,7 @@ terraform {
   required_providers {
     fabricext = {
       source  = "jambazid/fabricext"
-      version = "~> 0.6.0"
+      version = "~> 0.7.0"
     }
   }
 }
@@ -39,10 +45,30 @@ data "fabricext_item" "bronze_lh" {
   type         = "Lakehouse"
 }
 
+# Declaratively share the Lakehouse item:
+resource "fabricext_lakehouse_permission" "bronze_share" {
+  workspace_id   = data.fabricext_item.bronze_lh.workspace_id
+  lakehouse_id   = data.fabricext_item.bronze_lh.id
+  principal_id   = "11111111-1111-1111-1111-111111111111"
+  principal_type = "Group"
+  permissions    = ["Read"]
+}
+
+# Verify effective permissions via the Fabric Admin API gate:
+resource "fabricext_item_share_gate" "bronze_gate" {
+  workspace_id         = data.fabricext_item.bronze_lh.workspace_id
+  item_id              = data.fabricext_item.bronze_lh.id
+  principal_id         = "11111111-1111-1111-1111-111111111111"
+  principal_type       = "Group"
+  expected_permissions = ["Read"]
+
+  depends_on = [fabricext_lakehouse_permission.bronze_share]
+}
+
 # Verify OneLake security enablement and purge open DefaultReader role:
 resource "fabricext_lakehouse_onelake_security" "bronze_lh" {
-  workspace_id                = data.fabricext_item.bronze_lh.workspace_id
-  lakehouse_id                = data.fabricext_item.bronze_lh.id
+  workspace_id               = data.fabricext_item.bronze_lh.workspace_id
+  lakehouse_id               = data.fabricext_item.bronze_lh.id
   remove_default_reader_role = true
 }
 
@@ -56,7 +82,10 @@ resource "fabricext_lakehouse_data_access_role" "bronze_readers" {
   principal_ids  = ["11111111-1111-1111-1111-111111111111"]
   principal_type = "Group"
 
-  depends_on = [fabricext_lakehouse_onelake_security.bronze_lh]
+  depends_on = [
+    fabricext_lakehouse_onelake_security.bronze_lh,
+    fabricext_item_share_gate.bronze_gate,
+  ]
 }
 ```
 
@@ -77,7 +106,7 @@ See the [Provider Documentation](docs/index.md) for full authentication examples
 
 ## Permissions Module
 
-An in-repo reusable HCL module (`modules/permissions`) is provided to declaratively manage Lakehouse OneLake Data Access Roles and security lifecycles across workspaces in a single invocation. See [modules/permissions/README.md](modules/permissions/README.md) for documentation and examples.
+An in-repo reusable HCL module (`modules/permissions`) is provided to declaratively manage Lakehouse, Warehouse, and SQL Database permissions alongside OneLake Data Access Roles and security lifecycles across workspaces in a single invocation. See [modules/permissions/README.md](modules/permissions/README.md) for documentation and examples.
 
 ## Development and Verification
 

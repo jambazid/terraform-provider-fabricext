@@ -1,0 +1,442 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Power BI Metadata Access and Artifact Definitions API",
+    "description": "Internal Power BI service API for item-level sharing, access management, and workload artifact definitions across Microsoft Fabric Warehouses, Lakehouses, and SQL Databases.",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "https://{cluster}",
+      "description": "Regional Power BI Web Frontend Cluster URL (resolved via ClusterUri cookie)",
+      "variables": {
+        "cluster": {
+          "default": "wabi-region-redirect.analysis.windows.net",
+          "description": "Regional cluster host"
+        }
+      }
+    }
+  ],
+  "paths": {
+    "/metadata/access": {
+      "post": {
+        "summary": "Grant item-level permissions (silent)",
+        "operationId": "grantAccess",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccessRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Access granted successfully"
+          },
+          "204": {
+            "description": "Access granted successfully with no content"
+          },
+          "400": {
+            "description": "Bad Request - invalid payload or schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - invalid or expired token"
+          },
+          "403": {
+            "description": "Forbidden - caller lacks permission to grant access on the item"
+          },
+          "404": {
+            "description": "Not Found - workspace or item does not exist"
+          }
+        }
+      },
+      "put": {
+        "summary": "Update or revoke item-level permissions (in-place overwrite)",
+        "operationId": "updateAccess",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccessRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Access updated or revoked successfully"
+          },
+          "204": {
+            "description": "Access updated or revoked successfully with no content"
+          },
+          "400": {
+            "description": "Bad Request - invalid payload or schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/metadata/access/notify": {
+      "post": {
+        "summary": "Grant item-level permissions with optional notification message",
+        "operationId": "grantAccessWithNotify",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotifyAccessRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Access granted successfully"
+          },
+          "204": {
+            "description": "Access granted successfully with no content"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/metadata/access/artifacts/{itemId}": {
+      "get": {
+        "summary": "Get access details for an artifact",
+        "operationId": "getArtifactAccess",
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "description": "Fabric item UUID (artifactObjectId)",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Access details retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactAccessResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Item Not Found"
+          }
+        }
+      }
+    },
+    "/metadata/artifacts/definitions": {
+      "get": {
+        "summary": "Get workload artifact permission bitmask definitions",
+        "operationId": "getArtifactDefinitions",
+        "responses": {
+          "200": {
+            "description": "Artifact definitions retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactDefinitionsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal Error"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AccessRequest": {
+        "type": "object",
+        "properties": {
+          "dashboards": {
+            "type": "array",
+            "items": { "type": "object" }
+          },
+          "reports": {
+            "type": "array",
+            "items": { "type": "object" }
+          },
+          "workbooks": {
+            "type": "array",
+            "items": { "type": "object" }
+          },
+          "models": {
+            "type": "array",
+            "items": { "type": "object" }
+          },
+          "datamarts": {
+            "type": "array",
+            "items": { "type": "object" }
+          },
+          "artifacts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ArtifactGrantEntry"
+            }
+          },
+          "emailNotificationMessage": {
+            "type": "string",
+            "description": "Optional email notification message sent to the recipient"
+          }
+        },
+        "required": [
+          "dashboards",
+          "reports",
+          "workbooks",
+          "models",
+          "datamarts",
+          "artifacts"
+        ],
+        "additionalProperties": false
+      },
+      "NotifyAccessRequest": {
+        "allOf": [
+          { "$ref": "#/components/schemas/AccessRequest" }
+        ],
+        "required": [
+          "emailNotificationMessage"
+        ]
+      },
+      "ArtifactGrantEntry": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "1-based ordinal identifier"
+          },
+          "artifactObjectId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Fabric item UUID"
+          },
+          "permissions": {
+            "type": "integer",
+            "description": "Core permissions bitmask (Read=1, Write=2, Reshare=4, Execute=64, etc.)"
+          },
+          "artifactPermissions": {
+            "type": "integer",
+            "description": "Workload artifact permissions bitmask (ReadData=2, ReadAll=4, Reshare=8, etc.)"
+          },
+          "userId": {
+            "type": "integer",
+            "description": "Internal Power BI user identifier"
+          },
+          "groupId": {
+            "type": "integer",
+            "description": "Internal Power BI group identifier"
+          },
+          "userObjectId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Entra User or Service Principal Object ID"
+          },
+          "groupObjectId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Entra Security Group Object ID"
+          },
+          "isServicePrincipal": {
+            "type": "boolean",
+            "description": "True if principal is an Entra Service Principal or Managed Identity"
+          }
+        },
+        "required": [
+          "id",
+          "artifactObjectId",
+          "permissions",
+          "artifactPermissions"
+        ],
+        "additionalProperties": false
+      },
+      "ArtifactAccessResponse": {
+        "type": "object",
+        "properties": {
+          "artifactAccessEntities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ArtifactAccessEntity"
+            }
+          }
+        },
+        "required": ["artifactAccessEntities"],
+        "additionalProperties": false
+      },
+      "ArtifactAccessEntity": {
+        "type": "object",
+        "properties": {
+          "objectId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AccessDetailEntry"
+            }
+          }
+        },
+        "required": ["objectId", "detail"],
+        "additionalProperties": false
+      },
+      "AccessDetailEntry": {
+        "type": "object",
+        "properties": {
+          "user": {
+            "type": "string"
+          },
+          "userType": {
+            "type": "string"
+          },
+          "userId": {
+            "type": "integer"
+          },
+          "groupId": {
+            "type": "integer"
+          },
+          "aadAppId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "userObjectId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "groupObjectId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "groupType": {
+            "type": "string"
+          },
+          "isServicePrincipal": {
+            "type": "boolean"
+          },
+          "permissions": {
+            "type": "integer"
+          },
+          "artifactPermissions": {
+            "type": "integer"
+          },
+          "accessSource": {
+            "type": "integer",
+            "nullable": true,
+            "description": "Null for direct item grants; non-null integer for workspace-inherited roles"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ArtifactDefinitionsResponse": {
+        "type": "object",
+        "additionalProperties": {
+          "$ref": "#/components/schemas/ArtifactDefinition"
+        }
+      },
+      "ArtifactDefinition": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "permissions": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer"
+            }
+          }
+        },
+        "required": ["type", "permissions"],
+        "additionalProperties": false
+      },
+      "ApiError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": ["code", "message"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["error"],
+        "additionalProperties": false
+      }
+    }
+  }
+}
+

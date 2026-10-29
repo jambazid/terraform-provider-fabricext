@@ -50,9 +50,9 @@ def parse_frontmatter(text: str, spec_path: pathlib.Path) -> tuple[dict[str, obj
 
 
 def main() -> int:
-    spec_files = sorted(SPECS_DIR.glob("*.spec.md"))
+    spec_files = sorted(p for p in SPECS_DIR.rglob("*.spec.md") if "inputs" not in p.parts)
     if not spec_files:
-        print("ERROR: no specs/*.spec.md files found", file=sys.stderr)
+        print("ERROR: no specs/**/*.spec.md files found", file=sys.stderr)
         return 1
 
     errors: list[str] = []
@@ -100,7 +100,7 @@ def main() -> int:
             print(f"ERROR: {err}", file=sys.stderr)
         return 1
 
-    print(f"Verified {len(spec_files)} spec files in specs/*.spec.md (all frontmatter, targets, and [@test] links valid).")
+    print(f"Verified {len(spec_files)} spec files in specs/**/*.spec.md (all frontmatter, targets, and [@test] links valid).")
     return 0
 
 

@@ -5,7 +5,8 @@ unreleasedDir: unreleased
 headerPath: header.tpl.md
 changelogPath: CHANGELOG.md
 versionExt: md
-versionFormat: '## {{.Version}} - {{.Time.Format "January 02, 2006"}}'
+versionFileFormat: 'v{{.VersionNoPrefix}}.{{.VersionExt}}'
+versionFormat: '## v{{.VersionNoPrefix}} - {{.Time.Format "January 02, 2006"}}'
 kindFormat: "### {{.Kind}}"
 changeFormat: "* {{.Body}}"
 kinds:
@@ -83,6 +84,9 @@ replacements:
   - path: ./examples/modules/permissions/versions.tf
     find: ' version = ".*"'
     replace: ' version = "~> {{.VersionNoPrefix}}"'
+  - path: ./modules/permissions/versions.tf
+    find: ' version = ".*"'
+    replace: ' version = ">= {{.VersionNoPrefix}}"'
   - path: ./README.md
     find: ' version = ".*"'
     replace: ' version = "~> {{.VersionNoPrefix}}"'

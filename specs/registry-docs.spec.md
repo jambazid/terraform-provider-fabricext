@@ -25,14 +25,15 @@ Because `fabricext` is a community extension operating in a pre-`v1.0.0` state t
 - The experimental banner (`!> **Warning:**`) must appear prominently across `templates/index.md.tmpl`, resource templates, and `README.md`.
 - Documentation clearly positions `fabricext` alongside Microsoft's official [`microsoft/fabric`](https://registry.terraform.io/providers/microsoft/fabric/latest) provider, recommending upstream for core workspace and item management.
 
-## 3. Deprecated Resources
+## 3. Item Permissions & Guides Alignment
 
-- `fabricext_warehouse_permission` and `fabricext_sql_database_permission` were removed in v0.5.0 because Microsoft Fabric does not offer public item-sharing REST endpoints for Warehouses or SQL Databases.
-- Fine-grained database access is grounded in primary-source Microsoft Learn documentation:
-  - Warehouses: In-database T-SQL permissions (`GRANT`/`DENY`/`REVOKE`).
-  - SQL Databases: In-database T-SQL roles and permissions or Purview policies.
-  - Lakehouses: OneLake Data Access Roles (`fabricext_lakehouse_data_access_role`, `fabricext_lakehouse_onelake_security`).
-- **REQ-DOCS-008 (No Active Item-Sharing Claims)**: Documentation, templates, guides, and README must contain zero claims that `/permissions`, `/grantPermissions`, or `/revokePermissions` exist via REST or that `fabricext` bridges them via an overlay.
+- `fabricext_warehouse_permission`, `fabricext_sql_database_permission`, and `fabricext_lakehouse_permission` provide declarative item-level sharing via Power BI metadata access endpoints with in-place drift reconciliation.
+- `fabricext_item_share_gate` provides an Admin REST API waiter resource for tenant-wide verification of effective direct/inherited permissions.
+- Fine-grained database access is coordinated across layers:
+  - Warehouses: Declarative item sharing (`fabricext_warehouse_permission`) + in-database T-SQL permissions (`GRANT`/`DENY`/`REVOKE`).
+  - SQL Databases: Declarative item sharing (`fabricext_sql_database_permission`) + in-database T-SQL roles and permissions.
+  - Lakehouses: Declarative item sharing (`fabricext_lakehouse_permission`) + OneLake Data Access Roles (`fabricext_lakehouse_data_access_role`, `fabricext_lakehouse_onelake_security`).
+- **REQ-DOCS-008 (No Fake Overlay Claims)**: Documentation, templates, guides, and README must contain zero claims that `/grantPermissions` or `/revokePermissions` exist via Fabric public REST or that `fabricext` bridges them via a repository-authored OpenAPI overlay.
 - **REQ-DOCS-009 (Honest Technical Comparison Narrative)**: Official provider comparison documentation must present an honest technical comparison focusing on OneLake security `DefaultReader` purging, RFC 9110 ETag Read-Modify-Write concurrency, multi-page pagination, and offline contract testing, with zero nonexistent REST sequence diagrams.
 - **REQ-DOCS-010 (Guides Reorganization & Phrasing Standards)**: All access control and use-case guide templates under `templates/guides/` must specify `subcategory: "Guides"` (and no guide template may retain `subcategory: "Use Cases"`), contain no `Use Cases:` prefixes in `page_title`, include `Atlas` alongside database migration tools (Flyway/Liquibase/sqlcmd), and express connectivity tools using open-ended phrasing (`any ODBC or JDBC client`).
 
@@ -41,8 +42,8 @@ Because `fabricext` is a community extension operating in a pre-`v1.0.0` state t
 - `[@test] ../internal/provider/registry_docs_test.go::TestRegistryDocs_ExperimentalBannerPresent`
   Verifies that `templates/index.md.tmpl`, `README.md`, `modules/permissions/README.md`, and all active resource templates contain the experimental banner.
 
-- `[@test] ../internal/provider/registry_docs_test.go::TestRegistryDocs_DeprecationNoticePresent`
-  Verifies that `templates/resources/warehouse_permission.md.tmpl` and `templates/resources/sql_database_permission.md.tmpl` are removed and documented in `ROADMAP.md`.
+- `[@test] ../internal/provider/registry_docs_test.go::TestRegistryDocs_ActivePermissionResourcesPresent`
+  Verifies that `templates/resources/warehouse_permission.md.tmpl`, `templates/resources/sql_database_permission.md.tmpl`, `templates/resources/lakehouse_permission.md.tmpl`, and `templates/resources/item_share_gate.md.tmpl` exist and are tracked.
 
 - `[@test] ../internal/provider/registry_docs_test.go::TestRegistryDocs_AccessControlPlaybook`
   Verifies that `templates/guides/access_control_playbook.md.tmpl` exists, contains the Start Here routing table, and provides structured cards with verified verify queries.

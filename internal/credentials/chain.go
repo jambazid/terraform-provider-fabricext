@@ -39,8 +39,22 @@ const (
 	// FabricScope is preserved for backwards-compatibility referencing the public scope.
 	FabricScope = FabricScopePublic
 
+	// PowerBIScopePublic is the Entra ID scope for the Public Power BI Service.
+	PowerBIScopePublic = "https://analysis.windows.net/powerbi/api/.default"
+	// PowerBIScopeUSGovernment is the Entra ID scope for US Government Power BI Service.
+	PowerBIScopeUSGovernment = "https://analysis.usgovcloudapi.net/powerbi/api/.default"
+	// PowerBIScopeChina is the Entra ID scope for China Power BI Service.
+	PowerBIScopeChina = "https://analysis.chinacloudapi.cn/powerbi/api/.default"
+
+	// PowerBIScope is preserved referencing the public scope.
+	PowerBIScope = PowerBIScopePublic
+
 	// SourceStatic identifies credentials resolved from a static bearer token.
 	SourceStatic = "static_access_token"
+	// SourceStaticPowerBI identifies credentials resolved from a static Power BI bearer token.
+	SourceStaticPowerBI = "static_powerbi_access_token"
+	// SourceStaticFallback identifies credentials resolved from static_access_token fallback.
+	SourceStaticFallback = "static_access_token_fallback"
 	// SourceClientCertificate identifies credentials resolved via Service Principal client certificate.
 	SourceClientCertificate = "service_principal_client_certificate"
 	// SourceClientSecret identifies credentials resolved via Service Principal client secret.
@@ -71,6 +85,42 @@ func ResolveFabricScope(env string) string {
 		return FabricScopeChina
 	default:
 		return FabricScopePublic
+	}
+}
+
+// ResolvePowerBIScope returns the canonical Entra ID token scope for Power BI in the given environment.
+func ResolvePowerBIScope(env string) string {
+	switch strings.ToLower(strings.TrimSpace(env)) {
+	case "usgovernment":
+		return PowerBIScopeUSGovernment
+	case "china":
+		return PowerBIScopeChina
+	default:
+		return PowerBIScopePublic
+	}
+}
+
+// ResolvePowerBIPortalURL returns the bootstrap portal URL for cluster discovery.
+func ResolvePowerBIPortalURL(env string) string {
+	switch strings.ToLower(strings.TrimSpace(env)) {
+	case "usgovernment":
+		return "https://app.powerbigov.us"
+	case "china":
+		return "https://app.powerbi.cn"
+	default:
+		return "https://app.powerbi.com"
+	}
+}
+
+// ResolvePowerBIAllowedHostSuffix returns the expected domain suffix for cluster discovery.
+func ResolvePowerBIAllowedHostSuffix(env string) string {
+	switch strings.ToLower(strings.TrimSpace(env)) {
+	case "usgovernment":
+		return "analysis.usgovcloudapi.net"
+	case "china":
+		return "analysis.chinacloudapi.cn"
+	default:
+		return "analysis.windows.net"
 	}
 }
 
@@ -134,6 +184,8 @@ func (c Credentials) GoString() string {
 // Config configures the Microsoft Entra ID credential chain matching official Fabric provider options.
 type Config struct {
 	AccessToken                    string
+	PowerBIAccessToken             string
+	PowerBIEndpoint                string
 	TenantID                       string
 	TenantIDFilePath               string
 	ClientID                       string
@@ -160,8 +212,8 @@ type Config struct {
 
 // String masks sensitive secrets in the configuration.
 func (c Config) String() string {
-	return fmt.Sprintf("Config{TenantID:%q, ClientID:%q, Environment:%q, UseMSI:%v, HasSecret:%v, HasCert:%v}",
-		c.TenantID, c.ClientID, c.Environment, c.UseMSI, c.ClientSecret != "", c.ClientCertificate != "" || c.ClientCertificateFilePath != "")
+	return fmt.Sprintf("Config{TenantID:%q, ClientID:%q, Environment:%q, UseMSI:%v, HasSecret:%v, HasCert:%v, HasPowerBIToken:%v, PowerBIEndpoint:%q}",
+		c.TenantID, c.ClientID, c.Environment, c.UseMSI, c.ClientSecret != "", c.ClientCertificate != "" || c.ClientCertificateFilePath != "", c.PowerBIAccessToken != "", c.PowerBIEndpoint)
 }
 
 // GoString masks sensitive secrets in the configuration when formatted with %#v.
@@ -272,6 +324,12 @@ type Provider interface {
 	Resolve(ctx context.Context) (Credentials, bool, error)
 }
 
+// ScopedProvider allows a credential provider to resolve tokens for a specific Entra ID resource scope.
+type ScopedProvider interface {
+	Provider
+	ResolveForScope(ctx context.Context, scope string) (Credentials, bool, error)
+}
+
 // Option customizes a Chain instance.
 type Option func(*Chain)
 
@@ -291,18 +349,21 @@ func WithClock(now func() time.Time) Option {
 
 // Chain evaluates an ordered sequence of credential providers and caches the active token.
 type Chain struct {
+	cfg       Config
 	providers []Provider
 	now       func() time.Time
 
 	mu     sync.RWMutex
-	cached *Credentials
+	cached map[string]Credentials
 }
 
 // NewChain constructs the unified Microsoft Fabric credential chain with 100% official provider parity:
 // StaticToken -> ClientCertificate -> ClientSecret -> AzureDevOpsOIDC -> WorkloadIdentity -> ManagedIdentity -> AzureDeveloperCLI -> AzureCLI.
 func NewChain(cfg Config, opts ...Option) *Chain {
 	c := &Chain{
-		now: time.Now,
+		cfg:    cfg,
+		now:    time.Now,
+		cached: make(map[string]Credentials),
 		providers: []Provider{
 			&staticProvider{cfg: cfg},
 			&clientCertificateProvider{cfg: cfg},
@@ -341,15 +402,22 @@ func ValidateConfig(cfg Config) error {
 	return nil
 }
 
-// Resolve returns a cached valid token or evaluates the credential chain in order.
+// Resolve returns a cached valid token for the default Fabric scope or evaluates the credential chain in order.
 func (c *Chain) Resolve(ctx context.Context) (Credentials, error) {
+	return c.ResolveForScope(ctx, ResolveFabricScope(c.cfg.resolveEnvironment()))
+}
+
+// ResolveForScope returns a cached valid token for the specified Entra ID scope or evaluates the credential chain.
+func (c *Chain) ResolveForScope(ctx context.Context, scope string) (Credentials, error) {
+	if strings.TrimSpace(scope) == "" {
+		scope = ResolveFabricScope(c.cfg.resolveEnvironment())
+	}
 	now := c.now()
 
 	c.mu.RLock()
-	if c.cached != nil && c.cached.AccessToken != "" && c.cached.ExpiresOn.After(now.Add(refreshWindow)) {
-		creds := *c.cached
+	if cred, ok := c.cached[scope]; ok && cred.AccessToken != "" && cred.ExpiresOn.After(now.Add(refreshWindow)) {
 		c.mu.RUnlock()
-		return creds, nil
+		return cred, nil
 	}
 	c.mu.RUnlock()
 
@@ -357,8 +425,8 @@ func (c *Chain) Resolve(ctx context.Context) (Credentials, error) {
 	defer c.mu.Unlock()
 
 	now = c.now()
-	if c.cached != nil && c.cached.AccessToken != "" && c.cached.ExpiresOn.After(now.Add(refreshWindow)) {
-		return *c.cached, nil
+	if cred, ok := c.cached[scope]; ok && cred.AccessToken != "" && cred.ExpiresOn.After(now.Add(refreshWindow)) {
+		return cred, nil
 	}
 
 	var attempts []AttemptError
@@ -366,7 +434,14 @@ func (c *Chain) Resolve(ctx context.Context) (Credentials, error) {
 		if err := ctx.Err(); err != nil {
 			return Credentials{}, err
 		}
-		creds, skipped, err := p.Resolve(ctx)
+		var creds Credentials
+		var skipped bool
+		var err error
+		if sp, ok := p.(ScopedProvider); ok {
+			creds, skipped, err = sp.ResolveForScope(ctx, scope)
+		} else {
+			creds, skipped, err = p.Resolve(ctx)
+		}
 		if err == nil && strings.TrimSpace(creds.AccessToken) != "" {
 			if creds.Source == "" {
 				creds.Source = p.Name()
@@ -374,7 +449,7 @@ func (c *Chain) Resolve(ctx context.Context) (Credentials, error) {
 			if creds.ExpiresOn.IsZero() {
 				creds.ExpiresOn = now.Add(1 * time.Hour)
 			}
-			c.cached = &creds
+			c.cached[scope] = creds
 			return creds, nil
 		}
 		if err == nil {
@@ -391,8 +466,12 @@ func (c *Chain) Resolve(ctx context.Context) (Credentials, error) {
 }
 
 // GetToken implements azcore.TokenCredential so Chain can be used directly with Azure SDK pipelines.
-func (c *Chain) GetToken(ctx context.Context, _ policy.TokenRequestOptions) (azcore.AccessToken, error) {
-	creds, err := c.Resolve(ctx)
+func (c *Chain) GetToken(ctx context.Context, opts policy.TokenRequestOptions) (azcore.AccessToken, error) {
+	scope := ""
+	if len(opts.Scopes) > 0 {
+		scope = opts.Scopes[0]
+	}
+	creds, err := c.ResolveForScope(ctx, scope)
 	if err != nil {
 		return azcore.AccessToken{}, err
 	}
@@ -412,7 +491,26 @@ type staticProvider struct {
 
 func (p *staticProvider) Name() string { return SourceStatic }
 
-func (p *staticProvider) Resolve(_ context.Context) (Credentials, bool, error) {
+func (p *staticProvider) Resolve(ctx context.Context) (Credentials, bool, error) {
+	return p.ResolveForScope(ctx, ResolveFabricScope(p.cfg.resolveEnvironment()))
+}
+
+func (p *staticProvider) ResolveForScope(_ context.Context, scope string) (Credentials, bool, error) {
+	isPBI := strings.Contains(strings.ToLower(scope), "powerbi")
+	if isPBI {
+		tok := strings.TrimSpace(p.cfg.PowerBIAccessToken)
+		if tok == "" {
+			tok = p.cfg.firstEnv("FABRIC_POWERBI_ACCESS_TOKEN")
+		}
+		if tok != "" {
+			return Credentials{
+				AccessToken: tok,
+				Source:      SourceStaticPowerBI,
+			}, false, nil
+		}
+		return Credentials{}, true, errors.New("neither powerbi_access_token attribute nor FABRIC_POWERBI_ACCESS_TOKEN env var is set")
+	}
+
 	tok := strings.TrimSpace(p.cfg.AccessToken)
 	if tok == "" {
 		tok = p.cfg.firstEnv("FABRIC_ACCESS_TOKEN")
@@ -438,6 +536,13 @@ type clientCertificateProvider struct {
 func (p *clientCertificateProvider) Name() string { return SourceClientCertificate }
 
 func (p *clientCertificateProvider) Resolve(ctx context.Context) (Credentials, bool, error) {
+	return p.ResolveForScope(ctx, ResolveFabricScope(p.cfg.resolveEnvironment()))
+}
+
+func (p *clientCertificateProvider) ResolveForScope(ctx context.Context, scope string) (Credentials, bool, error) {
+	if strings.TrimSpace(scope) == "" {
+		scope = ResolveFabricScope(p.cfg.resolveEnvironment())
+	}
 	tenantID, err := p.cfg.resolveTenantID()
 	if err != nil {
 		return Credentials{}, false, err
@@ -503,7 +608,6 @@ func (p *clientCertificateProvider) Resolve(ctx context.Context) (Credentials, b
 		}, false, nil
 	}
 
-	scope := ResolveFabricScope(p.cfg.resolveEnvironment())
 	cred, err := azidentity.NewClientCertificateCredential(tenantID, clientID, certs, key, &azidentity.ClientCertificateCredentialOptions{
 		AdditionallyAllowedTenants: p.cfg.resolveAuxiliaryTenants(),
 		ClientOptions: azcore.ClientOptions{
@@ -538,6 +642,13 @@ type clientSecretProvider struct {
 func (p *clientSecretProvider) Name() string { return SourceClientSecret }
 
 func (p *clientSecretProvider) Resolve(ctx context.Context) (Credentials, bool, error) {
+	return p.ResolveForScope(ctx, ResolveFabricScope(p.cfg.resolveEnvironment()))
+}
+
+func (p *clientSecretProvider) ResolveForScope(ctx context.Context, scope string) (Credentials, bool, error) {
+	if strings.TrimSpace(scope) == "" {
+		scope = ResolveFabricScope(p.cfg.resolveEnvironment())
+	}
 	if err := ValidateConfig(p.cfg); err != nil {
 		return Credentials{}, false, err
 	}
@@ -572,7 +683,6 @@ func (p *clientSecretProvider) Resolve(ctx context.Context) (Credentials, bool, 
 		}, false, nil
 	}
 
-	scope := ResolveFabricScope(p.cfg.resolveEnvironment())
 	cred, err := azidentity.NewClientSecretCredential(tenantID, clientID, clientSecret, &azidentity.ClientSecretCredentialOptions{
 		AdditionallyAllowedTenants: p.cfg.resolveAuxiliaryTenants(),
 		ClientOptions: azcore.ClientOptions{
@@ -607,6 +717,13 @@ type azureDevOpsOIDCProvider struct {
 func (p *azureDevOpsOIDCProvider) Name() string { return SourceAzureDevOpsOIDC }
 
 func (p *azureDevOpsOIDCProvider) Resolve(ctx context.Context) (Credentials, bool, error) {
+	return p.ResolveForScope(ctx, ResolveFabricScope(p.cfg.resolveEnvironment()))
+}
+
+func (p *azureDevOpsOIDCProvider) ResolveForScope(ctx context.Context, scope string) (Credentials, bool, error) {
+	if strings.TrimSpace(scope) == "" {
+		scope = ResolveFabricScope(p.cfg.resolveEnvironment())
+	}
 	connID := strings.TrimSpace(p.cfg.AzureDevOpsServiceConnectionID)
 	if connID == "" {
 		connID = p.cfg.firstEnv("FABRIC_AZURE_DEVOPS_SERVICE_CONNECTION_ID")
@@ -644,7 +761,6 @@ func (p *azureDevOpsOIDCProvider) Resolve(ctx context.Context) (Credentials, boo
 		}, false, nil
 	}
 
-	scope := ResolveFabricScope(p.cfg.resolveEnvironment())
 	cred, err := azidentity.NewAzurePipelinesCredential(tenantID, clientID, connID, sysToken, &azidentity.AzurePipelinesCredentialOptions{
 		AdditionallyAllowedTenants: p.cfg.resolveAuxiliaryTenants(),
 		ClientOptions: azcore.ClientOptions{
@@ -679,6 +795,13 @@ type workloadIdentityProvider struct {
 func (p *workloadIdentityProvider) Name() string { return SourceWorkloadIdentity }
 
 func (p *workloadIdentityProvider) Resolve(ctx context.Context) (Credentials, bool, error) {
+	return p.ResolveForScope(ctx, ResolveFabricScope(p.cfg.resolveEnvironment()))
+}
+
+func (p *workloadIdentityProvider) ResolveForScope(ctx context.Context, scope string) (Credentials, bool, error) {
+	if strings.TrimSpace(scope) == "" {
+		scope = ResolveFabricScope(p.cfg.resolveEnvironment())
+	}
 	if p.cfg.UseOIDC != nil && !*p.cfg.UseOIDC {
 		return Credentials{}, true, errors.New("workload identity disabled via use_oidc=false")
 	}
@@ -749,7 +872,6 @@ func (p *workloadIdentityProvider) Resolve(ctx context.Context) (Credentials, bo
 		}, false, nil
 	}
 
-	scope := ResolveFabricScope(p.cfg.resolveEnvironment())
 	cloudCfg := ResolveCloudConfiguration(p.cfg.resolveEnvironment())
 
 	// Handle direct token or URL assertion
@@ -868,6 +990,13 @@ type managedIdentityProvider struct {
 func (p *managedIdentityProvider) Name() string { return SourceManagedIdentity }
 
 func (p *managedIdentityProvider) Resolve(ctx context.Context) (Credentials, bool, error) {
+	return p.ResolveForScope(ctx, ResolveFabricScope(p.cfg.resolveEnvironment()))
+}
+
+func (p *managedIdentityProvider) ResolveForScope(ctx context.Context, scope string) (Credentials, bool, error) {
+	if strings.TrimSpace(scope) == "" {
+		scope = ResolveFabricScope(p.cfg.resolveEnvironment())
+	}
 	useMSI := p.cfg.UseMSI ||
 		strings.EqualFold(p.cfg.firstEnv("FABRIC_USE_MSI", "AZURE_USE_MSI", "ARM_USE_MSI"), "true") ||
 		p.cfg.firstEnv("IDENTITY_ENDPOINT", "MSI_ENDPOINT") != ""
@@ -907,7 +1036,6 @@ func (p *managedIdentityProvider) Resolve(ctx context.Context) (Credentials, boo
 	if err != nil {
 		return Credentials{}, false, fmt.Errorf("creating azidentity ManagedIdentityCredential: %w", err)
 	}
-	scope := ResolveFabricScope(p.cfg.resolveEnvironment())
 	tok, err := cred.GetToken(ctx, policy.TokenRequestOptions{Scopes: []string{scope}})
 	if err != nil {
 		return Credentials{}, false, fmt.Errorf("acquiring token via ManagedIdentityCredential: %w", err)
@@ -931,6 +1059,13 @@ type azureDeveloperCLIProvider struct {
 func (p *azureDeveloperCLIProvider) Name() string { return SourceAzureDeveloperCLI }
 
 func (p *azureDeveloperCLIProvider) Resolve(ctx context.Context) (Credentials, bool, error) {
+	return p.ResolveForScope(ctx, ResolveFabricScope(p.cfg.resolveEnvironment()))
+}
+
+func (p *azureDeveloperCLIProvider) ResolveForScope(ctx context.Context, scope string) (Credentials, bool, error) {
+	if strings.TrimSpace(scope) == "" {
+		scope = ResolveFabricScope(p.cfg.resolveEnvironment())
+	}
 	useDevCLI := false
 	if p.cfg.UseDevCLI != nil {
 		useDevCLI = *p.cfg.UseDevCLI
@@ -967,7 +1102,6 @@ func (p *azureDeveloperCLIProvider) Resolve(ctx context.Context) (Credentials, b
 	if err != nil {
 		return Credentials{}, false, fmt.Errorf("creating azidentity AzureDeveloperCLICredential: %w", err)
 	}
-	scope := ResolveFabricScope(p.cfg.resolveEnvironment())
 	tok, err := cred.GetToken(ctx, policy.TokenRequestOptions{Scopes: []string{scope}})
 	if err != nil {
 		return Credentials{}, false, fmt.Errorf("acquiring token via AzureDeveloperCLICredential: %w", err)
@@ -991,6 +1125,13 @@ type azureCLIProvider struct {
 func (p *azureCLIProvider) Name() string { return SourceAzureCLI }
 
 func (p *azureCLIProvider) Resolve(ctx context.Context) (Credentials, bool, error) {
+	return p.ResolveForScope(ctx, ResolveFabricScope(p.cfg.resolveEnvironment()))
+}
+
+func (p *azureCLIProvider) ResolveForScope(ctx context.Context, scope string) (Credentials, bool, error) {
+	if strings.TrimSpace(scope) == "" {
+		scope = ResolveFabricScope(p.cfg.resolveEnvironment())
+	}
 	if p.cfg.UseCLI != nil && !*p.cfg.UseCLI {
 		return Credentials{}, true, errors.New("azure cli disabled via use_cli=false")
 	}
@@ -1023,7 +1164,6 @@ func (p *azureCLIProvider) Resolve(ctx context.Context) (Credentials, bool, erro
 	if err != nil {
 		return Credentials{}, false, fmt.Errorf("creating azidentity AzureCLICredential: %w", err)
 	}
-	scope := ResolveFabricScope(p.cfg.resolveEnvironment())
 	tok, err := cred.GetToken(ctx, policy.TokenRequestOptions{Scopes: []string{scope}})
 	if err != nil {
 		return Credentials{}, false, fmt.Errorf("acquiring token via AzureCLICredential: %w", err)

@@ -15,13 +15,15 @@ This guide outlines architectural patterns for composing permissions matrices ac
 
 ## Design Principles
 
-Following HashiCorp Provider Design Principles, each active `fabricext_*` resource manages a single, atomic OneLake security component:
+Following HashiCorp Provider Design Principles, each active `fabricext_*` resource manages a single, atomic component:
 
+- `fabricext_warehouse_permission`: Manages direct item-level sharing permissions on a Warehouse.
+- `fabricext_sql_database_permission`: Manages direct item-level sharing permissions on a SQL Database.
+- `fabricext_lakehouse_permission`: Manages direct item-level sharing permissions on a Lakehouse.
+- `fabricext_item_share_gate`: Verifies effective direct and inherited item permissions via the official Fabric Admin REST API.
 - `fabricext_lakehouse_data_access_role`: Manages a single OneLake Data Access Role on a Lakehouse.
 - `fabricext_lakehouse_onelake_security`: Manages OneLake Data Access Security enablement verification and `DefaultReader` role purging.
 - `fabricext_item`: (Data Source) Resolves Microsoft Fabric items by workspace and display name.
-
-~> **Note:** Early prototype resources `fabricext_warehouse_permission` and `fabricext_sql_database_permission` were removed in v0.5.0 because Microsoft Fabric does not offer public item-sharing REST APIs for Warehouses or SQL Databases. Existing configurations should detach them using Terraform 1.7+ `removed` blocks.
 
 This atomic resource model decouples individual permission bindings from one another. An issue granting permissions to one item does not block or destroy grants on unrelated items.
 
@@ -121,18 +123,20 @@ Provisions standard Lakehouse storage paths using simple mode:
 
 ```hcl
 module "workspace_permissions" {
-  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=0.6.0"
+  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=0.7.0"
 
   fabric_permissions_matrix = {
     workspace_id = "00000000-0000-0000-0000-000000000001"
 
     lakehouses = {
       raw_lakehouse = {
-        RawReaders = {
-          paths          = ["/Tables/customers", "/Files/landing"]
-          actions        = ["Read"]
-          principal_ids  = ["11111111-1111-1111-1111-111111111111"]
-          principal_type = "Group"
+        data_access_roles = {
+          RawReaders = {
+            paths          = ["/Tables/customers", "/Files/landing"]
+            actions        = ["Read"]
+            principal_ids  = ["11111111-1111-1111-1111-111111111111"]
+            principal_type = "Group"
+          }
         }
       }
     }
@@ -146,33 +150,35 @@ Restricts Lakehouse queries to authorized rows using T-SQL Boolean predicates in
 
 ```hcl
 module "workspace_permissions" {
-  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=0.6.0"
+  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=0.7.0"
 
   fabric_permissions_matrix = {
     workspace_id = "00000000-0000-0000-0000-000000000001"
 
     lakehouses = {
       curated_lakehouse = {
-        EmeaAnalysts = {
-          decision_rules = [
-            {
-              paths   = ["/Tables/sales"]
-              actions = ["Read"]
-              effect  = "Permit"
-              row_constraints = [
-                {
-                  table_path = "/Tables/sales"
-                  predicate  = "Region = 'EMEA'"
-                }
-              ]
-            }
-          ]
-          entra_members = [
-            {
-              object_id   = "11111111-1111-1111-1111-111111111111"
-              object_type = "Group"
-            }
-          ]
+        data_access_roles = {
+          EmeaAnalysts = {
+            decision_rules = [
+              {
+                paths   = ["/Tables/sales"]
+                actions = ["Read"]
+                effect  = "Permit"
+                row_constraints = [
+                  {
+                    table_path = "/Tables/sales"
+                    predicate  = "Region = 'EMEA'"
+                  }
+                ]
+              }
+            ]
+            entra_members = [
+              {
+                object_id   = "11111111-1111-1111-1111-111111111111"
+                object_type = "Group"
+              }
+            ]
+          }
         }
       }
     }
@@ -186,35 +192,37 @@ Limits Lakehouse column access using an explicit allowlist in `column_constraint
 
 ```hcl
 module "workspace_permissions" {
-  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=0.6.0"
+  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=0.7.0"
 
   fabric_permissions_matrix = {
     workspace_id = "00000000-0000-0000-0000-000000000001"
 
     lakehouses = {
       curated_lakehouse = {
-        PublicDataViewers = {
-          decision_rules = [
-            {
-              paths   = ["/Tables/customers"]
-              actions = ["Read"]
-              effect  = "Permit"
-              column_constraints = [
-                {
-                  table_path = "/Tables/customers"
-                  columns    = ["customer_id", "country", "signup_date"]
-                  action     = "Read"
-                  effect     = "Permit"
-                }
-              ]
-            }
-          ]
-          entra_members = [
-            {
-              object_id   = "11111111-1111-1111-1111-111111111111"
-              object_type = "Group"
-            }
-          ]
+        data_access_roles = {
+          PublicDataViewers = {
+            decision_rules = [
+              {
+                paths   = ["/Tables/customers"]
+                actions = ["Read"]
+                effect  = "Permit"
+                column_constraints = [
+                  {
+                    table_path = "/Tables/customers"
+                    columns    = ["customer_id", "country", "signup_date"]
+                    action     = "Read"
+                    effect     = "Permit"
+                  }
+                ]
+              }
+            ]
+            entra_members = [
+              {
+                object_id   = "11111111-1111-1111-1111-111111111111"
+                object_type = "Group"
+              }
+            ]
+          }
         }
       }
     }
@@ -228,38 +236,40 @@ In simple mode, roles require uniform principal types. In advanced mode (`entra_
 
 ```hcl
 module "workspace_permissions" {
-  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=0.6.0"
+  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=0.7.0"
 
   fabric_permissions_matrix = {
     workspace_id = "00000000-0000-0000-0000-000000000001"
 
     lakehouses = {
       gold_lakehouse = {
-        ReportingConsumers = {
-          decision_rules = [
-            {
-              paths   = ["/Tables/reporting"]
-              actions = ["Read"]
-            }
-          ]
-          entra_members = [
-            {
-              object_id   = "11111111-1111-1111-1111-111111111111"
-              object_type = "Group"
-            },
-            {
-              object_id   = "22222222-2222-2222-2222-222222222222"
-              object_type = "User"
-            },
-            {
-              object_id   = "33333333-3333-3333-3333-333333333333"
-              object_type = "ServicePrincipal"
-            },
-            {
-              object_id   = "44444444-4444-4444-4444-444444444444"
-              object_type = "ManagedIdentity"
-            }
-          ]
+        data_access_roles = {
+          ReportingConsumers = {
+            decision_rules = [
+              {
+                paths   = ["/Tables/reporting"]
+                actions = ["Read"]
+              }
+            ]
+            entra_members = [
+              {
+                object_id   = "11111111-1111-1111-1111-111111111111"
+                object_type = "Group"
+              },
+              {
+                object_id   = "22222222-2222-2222-2222-222222222222"
+                object_type = "User"
+              },
+              {
+                object_id   = "33333333-3333-3333-3333-333333333333"
+                object_type = "ServicePrincipal"
+              },
+              {
+                object_id   = "44444444-4444-4444-4444-444444444444"
+                object_type = "ManagedIdentity"
+              }
+            ]
+          }
         }
       }
     }
@@ -273,29 +283,31 @@ Dynamically derives role membership from users holding item permissions on anoth
 
 ```hcl
 module "workspace_permissions" {
-  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=0.6.0"
+  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=0.7.0"
 
   fabric_permissions_matrix = {
     workspace_id = "00000000-0000-0000-0000-000000000001"
 
     lakehouses = {
       curated_lakehouse = {
-        SharedDimensionReaders = {
-          decision_rules = [
-            {
-              # Storage-plane access granted on this curated Lakehouse:
-              paths   = ["/Tables/shared_dimension"]
-              actions = ["Read"]
-            }
-          ]
-          fabric_item_members = [
-            {
-              # Prerequisite Fabric item permission required for role membership:
-              # Users holding "ReadAll" on the consumer item are dynamically included.
-              source_path = "99999999-9999-9999-9999-999999999999/88888888-8888-8888-8888-888888888888"
-              item_access = ["ReadAll"]
-            }
-          ]
+        data_access_roles = {
+          SharedDimensionReaders = {
+            decision_rules = [
+              {
+                # Storage-plane access granted on this curated Lakehouse:
+                paths   = ["/Tables/shared_dimension"]
+                actions = ["Read"]
+              }
+            ]
+            fabric_item_members = [
+              {
+                # Prerequisite Fabric item permission required for role membership:
+                # Users holding "ReadAll" on the consumer item are dynamically included.
+                source_path = "99999999-9999-9999-9999-999999999999/88888888-8888-8888-8888-888888888888"
+                item_access = ["ReadAll"]
+              }
+            ]
+          }
         }
       }
     }
@@ -313,7 +325,7 @@ You can configure this behavior or opt out via matrix flags:
 
 ```hcl
 module "workspace_permissions" {
-  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=0.6.0"
+  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=0.7.0"
 
   fabric_permissions_matrix = {
     workspace_id = "00000000-0000-0000-0000-000000000001"
@@ -324,11 +336,72 @@ module "workspace_permissions" {
 
     lakehouses = {
       secure_lakehouse = {
-        SecureReaders = {
-          paths          = ["/Tables/confidential"]
-          actions        = ["Read"]
-          principal_ids  = ["11111111-1111-1111-1111-111111111111"]
-          principal_type = "Group"
+        data_access_roles = {
+          SecureReaders = {
+            paths          = ["/Tables/confidential"]
+            actions        = ["Read"]
+            principal_ids  = ["11111111-1111-1111-1111-111111111111"]
+            principal_type = "Group"
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+### Stage 7: Unified Permissions
+
+Item-level permissions across Warehouses, SQL Databases, and Lakehouses can be declared alongside OneLake Data Access Roles:
+
+```hcl
+module "workspace_permissions" {
+  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=0.7.0"
+
+  fabric_permissions_matrix = {
+    workspace_id = "00000000-0000-0000-0000-000000000001"
+
+    # Automatically verify direct item permissions via Admin API gate
+    verify_item_shares = true
+
+    warehouses = {
+      analytics_wh = {
+        permissions = {
+          "11111111-1111-1111-1111-111111111111" = {
+            permissions    = ["Read"]
+            principal_type = "Group"
+          }
+        }
+      }
+    }
+
+    sql_databases = {
+      orders_db = {
+        permissions = {
+          "22222222-2222-2222-2222-222222222222" = {
+            permissions    = ["Read", "ReadWrite"]
+            principal_type = "ServicePrincipal"
+          }
+        }
+      }
+    }
+
+    lakehouses = {
+      curated_lh = {
+        permissions = {
+          "11111111-1111-1111-1111-111111111111" = {
+            permissions    = ["Read"]
+            principal_type = "Group"
+          }
+        }
+
+        data_access_roles = {
+          CuratedReaders = {
+            paths          = ["/Tables/curated"]
+            actions        = ["Read"]
+            principal_ids  = ["11111111-1111-1111-1111-111111111111"]
+            principal_type = "Group"
+          }
         }
       }
     }
@@ -347,20 +420,21 @@ The `fabric_permissions_matrix` variable accepts a structured object with the fo
 | Attribute | Type | Required | Default | Description |
 | :--- | :--- | :--- | :--- | :--- |
 | `workspace_id` | `string` | yes | - | 36-character UUID of the Microsoft Fabric workspace. |
-| `warehouses` | `map(map(list(object)))` | no | `{}` | Map of Warehouse identifiers (names or UUIDs) to role maps (`read`, `write`, `reshare`). |
-| `sql_databases` | `map(map(list(object)))` | no | `{}` | Map of SQL Database identifiers (names or UUIDs) to role maps (`read`, `read_data`, `read_spark`, `write`, `reshare`). |
-| `lakehouses` | `map(map(object))` | no | `{}` | Map of Lakehouse identifiers (names or UUIDs) to role definition objects. |
-| `manage_lakehouse_security` | `bool` | no | `true` | Automatically provisions `fabricext_lakehouse_onelake_security` per unique Lakehouse. |
+| `warehouses` | `map(object)` | no | `{}` | Map of Warehouse identifiers (names or UUIDs) to item configuration with `permissions` map keyed by principal UUID. |
+| `sql_databases` | `map(object)` | no | `{}` | Map of SQL Database identifiers (names or UUIDs) to item configuration with `permissions` map keyed by principal UUID. |
+| `lakehouses` | `map(object)` | no | `{}` | Unified map of Lakehouse identifiers (names or UUIDs) configuring `permissions`, `data_access_roles`, and per-item `manage_onelake_security`. |
+| `verify_item_shares` | `bool` | no | `true` | Validates applied item permissions through `fabricext_item_share_gate` before outputs complete. |
+| `manage_lakehouse_security` | `bool` | no | `true` | Automatically provisions `fabricext_lakehouse_onelake_security` per Lakehouse when roles are configured. |
 | `remove_lakehouse_default_reader_role` | `bool` | no | `true` | Purges the open `DefaultReader` role created by Fabric upon enabling OneLake security. |
 
-### Principal Object Schema
+### Permissions Object Schema
 
-Each principal entry in `warehouses` and `sql_databases` role lists supports:
+Each principal entry in `warehouses`, `sql_databases`, and `lakehouses.*.permissions` maps is keyed by the principal's Microsoft Entra Object ID (UUID):
 
 | Field | Type | Required | Default | Description |
 | :--- | :--- | :--- | :--- | :--- |
-| `id` | `string` | yes | - | Microsoft Entra ID Object ID of the principal. |
-| `type` | `string` | no | `"Group"` | Entra ID principal type: `User`, `Group`, `ServicePrincipal`, or `ServicePrincipalProfile`. |
+| `permissions` | `set(string)` | yes | - | Item access permissions: `Read`, `ReadWrite`, `Reshare`, or `Explore`. |
+| `principal_type` | `string` | no | `"Group"` | Entra ID principal type: `User`, `Group`, `ServicePrincipal`, or `ManagedIdentity`. |
 
 ### Simple Mode Attributes
 

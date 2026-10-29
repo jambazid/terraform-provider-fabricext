@@ -30,7 +30,7 @@ resource "fabricext_item_share_gate" "example" {
 
 ## Lifecycle & Validation Behavior
 
-- Validates UUIDs for `workspace_id`, `item_id`, `principal_id`, validates `match_type` in `OneOf("subset", "exact")`, and requires replacement on identity changes
+- Validates UUIDs for `workspace_id`, `item_id`, `principal_id`, validates `match_type` in `OneOf("subset", "exact")`, validates `principal_type` in `OneOf("User", "Group", "ServicePrincipal", "ManagedIdentity")`, and requires replacement on identity changes
   `[@test] ../internal/provider/item_share_gate_resource_test.go::TestAccItemShareGateResource_ValidationErrors`
 - Create polls the Fabric Admin API with backoff until the named principal holds the expected permissions (subset or exact match) and records state
   `[@test] ../internal/provider/item_share_gate_resource_test.go::TestAccItemShareGateResource_CreateAndReadSuccess`

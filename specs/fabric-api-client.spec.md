@@ -4,6 +4,8 @@ description: Paginated item lookup cache, Retry-After HTTP backoff, Lakehouse ET
 targets:
   - ../internal/client/fabric_client.go
   - ../internal/client/fabric_client_test.go
+  - ../internal/client/item_permissions.go
+  - ../internal/client/item_permissions_test.go
   - ../internal/testutil/fabricmock/server.go
   - ../internal/testutil/fabricmock/server_test.go
 ---
@@ -50,7 +52,7 @@ func (c *FabricClient) DeleteDataAccessRole(ctx context.Context, workspaceID, la
 
 - HTTP `429 Too Many Requests` responses honor the `Retry-After` header; transient `502`/`503`/`504` responses retry with exponential backoff respecting `ctx.Done()`
   `[@test] ../internal/client/fabric_client_test.go::TestRetryAfter429And503Backoff`
-- `fabricmock.Server` loads the vendored Swagger 2.0 specs in `specs/openapi/` via `kin-openapi` (`openapi2conv.ToV3` + `openapi3filter`) and validates every HTTP request and response at runtime
+- `fabricmock.Server` loads the vendored Swagger 2.0 specs in `specs/fabric/` via `kin-openapi` (`openapi2conv.ToV3` + `openapi3filter`) and validates every HTTP request and response at runtime
   `[@test] ../internal/testutil/fabricmock/server_test.go::TestServer_OpenAPIContractValidation`
 
 ## Security Error Disambiguation
@@ -68,3 +70,12 @@ func (c *FabricClient) DeleteDataAccessRole(ctx context.Context, workspaceID, la
   `[@test] ../internal/client/fabric_client_test.go::TestListItemAccessDetails_SuccessAndRateLimitRetry`
 - When calling `ListItemAccessDetails` without sufficient tenant administrative permissions (HTTP 403 Forbidden), the client returns a structured `AdminAPIAccessDeniedError` citing the required Fabric Administrator role or tenant setting
   `[@test] ../internal/client/fabric_client_test.go::TestListItemAccessDetails_AdminForbiddenError`
+
+## Item Permissions & Cluster Discovery
+
+- `EncodePermissions` and `DecodePermissions` provide a deterministic bijection between high-level permission tokens (`Read`, `ReadData`, `ReadAll`, `Reshare`, `Execute`) and low-level Core and Artifact bitmasks across Warehouses, Lakehouses, and SQL Databases
+  `[@test] ../internal/client/item_permissions_test.go::TestItemPermissions_BitmaskBijection`
+- `GetItemDirectPermissions`, `UpsertItemDirectPermissions`, and `RevokeItemDirectPermissions` manage direct item permissions via Power BI metadata endpoints (`/metadata/access` and `/metadata/access/artifacts/{itemId}`), isolating direct shares from workspace inheritance and verifying propagation via read-back polling
+  `[@test] ../internal/client/item_permissions_test.go::TestItemPermissions_LifecycleWithPBIMock`
+- Item permission mutations acquire per-item mutexes (`workspaceID + "/" + itemID`), preventing race conditions and payload clobbering across concurrent goroutines
+  `[@test] ../internal/client/item_permissions_test.go::TestItemPermissions_ConcurrentAccessSafety`

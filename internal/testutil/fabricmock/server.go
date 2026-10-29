@@ -829,7 +829,7 @@ func buildOpenAPIRouter() (routers.Router, error) {
 	if !ok {
 		return nil, fmt.Errorf("unable to resolve runtime caller path")
 	}
-	openAPIDir := filepath.Join(filepath.Dir(callerFile), "..", "..", "..", "specs", "openapi")
+	openAPIDir := filepath.Join(filepath.Dir(callerFile), "..", "..", "..", "specs", "fabric")
 
 	defFiles := []string{
 		"common/definitions.json",

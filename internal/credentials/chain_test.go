@@ -615,3 +615,150 @@ func TestTokenCachingAndNearExpiryRefresh(t *testing.T) {
 		t.Fatalf("expected 2 underlying token fetches after expiry advance, got %d", got)
 	}
 }
+
+func TestStaticProvider_PowerBIScope(t *testing.T) {
+	t.Parallel()
+
+	t.Run("explicit powerbi_access_token resolves with SourceStaticPowerBI", func(t *testing.T) {
+		t.Parallel()
+		chain := NewChain(Config{
+			AccessToken:        "fabric-token-123",
+			PowerBIAccessToken: "pbi-token-456",
+		})
+		creds, err := chain.ResolveForScope(context.Background(), ResolvePowerBIScope("public"))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if creds.AccessToken != "pbi-token-456" {
+			t.Fatalf("expected pbi-token-456, got %q", creds.AccessToken)
+		}
+		if creds.Source != SourceStaticPowerBI {
+			t.Fatalf("expected SourceStaticPowerBI, got %q", creds.Source)
+		}
+	})
+
+	t.Run("powerbi_access_token skips static provider when unset and falls through", func(t *testing.T) {
+		t.Parallel()
+		mockP := &mockScopedProvider{name: "downstream-pbi"}
+		prov := &staticProvider{
+			cfg: Config{
+				AccessToken: "fabric-token-123",
+			},
+		}
+		chain := NewChain(Config{}, WithProviders(prov, mockP))
+		creds, err := chain.ResolveForScope(context.Background(), ResolvePowerBIScope("public"))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !strings.HasPrefix(creds.AccessToken, "token-for-https://analysis.windows.net/powerbi/api/.default") {
+			t.Fatalf("expected downstream token, got %q", creds.AccessToken)
+		}
+		if creds.Source != "downstream-pbi" {
+			t.Fatalf("expected downstream-pbi, got %q", creds.Source)
+		}
+	})
+
+	t.Run("resolves FABRIC_POWERBI_ACCESS_TOKEN from env", func(t *testing.T) {
+		t.Parallel()
+		chain := NewChain(Config{
+			Getenv: func(k string) string {
+				if k == "FABRIC_POWERBI_ACCESS_TOKEN" {
+					return "env-pbi-token-789"
+				}
+				return ""
+			},
+		})
+		creds, err := chain.ResolveForScope(context.Background(), ResolvePowerBIScope("public"))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if creds.AccessToken != "env-pbi-token-789" {
+			t.Fatalf("expected env-pbi-token-789, got %q", creds.AccessToken)
+		}
+		if creds.Source != SourceStaticPowerBI {
+			t.Fatalf("expected SourceStaticPowerBI, got %q", creds.Source)
+		}
+	})
+}
+
+type mockScopedProvider struct {
+	name       string
+	fetchCount atomic.Int64
+}
+
+func (m *mockScopedProvider) Name() string { return m.name }
+func (m *mockScopedProvider) Resolve(ctx context.Context) (Credentials, bool, error) {
+	return m.ResolveForScope(ctx, "default")
+}
+func (m *mockScopedProvider) ResolveForScope(_ context.Context, scope string) (Credentials, bool, error) {
+	count := m.fetchCount.Add(1)
+	return Credentials{
+		AccessToken: fmt.Sprintf("token-for-%s-%d", scope, count),
+		ExpiresOn:   time.Now().Add(1 * time.Hour),
+		Source:      m.name,
+	}, false, nil
+}
+
+func TestChain_ScopeIsolationAndPowerBIScope(t *testing.T) {
+	t.Parallel()
+
+	mockP := &mockScopedProvider{name: "mock-scoped"}
+	chain := NewChain(Config{}, WithProviders(mockP))
+
+	fabricScope := ResolveFabricScope("public")
+	pbiScope := ResolvePowerBIScope("public")
+
+	// 1. Resolve Fabric scope
+	c1, err := chain.ResolveForScope(context.Background(), fabricScope)
+	if err != nil {
+		t.Fatalf("resolving fabric scope: %v", err)
+	}
+	if !strings.HasPrefix(c1.AccessToken, "token-for-https://api.fabric.microsoft.com/.default") {
+		t.Fatalf("unexpected fabric token: %s", c1.AccessToken)
+	}
+
+	// 2. Resolve Power BI scope
+	c2, err := chain.ResolveForScope(context.Background(), pbiScope)
+	if err != nil {
+		t.Fatalf("resolving pbi scope: %v", err)
+	}
+	if !strings.HasPrefix(c2.AccessToken, "token-for-https://analysis.windows.net/powerbi/api/.default") {
+		t.Fatalf("unexpected pbi token: %s", c2.AccessToken)
+	}
+
+	// 3. Verify caching: re-resolving both scopes returns identical cached tokens without incrementing fetchCount
+	c1Cached, err := chain.Resolve(context.Background())
+	if err != nil {
+		t.Fatalf("re-resolving default/fabric scope: %v", err)
+	}
+	if c1Cached.AccessToken != c1.AccessToken {
+		t.Fatalf("expected cached token %s, got %s", c1.AccessToken, c1Cached.AccessToken)
+	}
+
+	c2Cached, err := chain.ResolveForScope(context.Background(), pbiScope)
+	if err != nil {
+		t.Fatalf("re-resolving pbi scope: %v", err)
+	}
+	if c2Cached.AccessToken != c2.AccessToken {
+		t.Fatalf("expected cached token %s, got %s", c2.AccessToken, c2Cached.AccessToken)
+	}
+
+	if mockP.fetchCount.Load() != 2 {
+		t.Fatalf("expected exactly 2 fetches (1 per scope), got %d", mockP.fetchCount.Load())
+	}
+
+	// 4. Concurrently request tokens across scopes to verify race safety
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			_, _ = chain.ResolveForScope(context.Background(), fabricScope)
+		}()
+		go func() {
+			defer wg.Done()
+			_, _ = chain.ResolveForScope(context.Background(), pbiScope)
+		}()
+	}
+	wg.Wait()
+}
