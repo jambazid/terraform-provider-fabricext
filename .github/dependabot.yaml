@@ -4,6 +4,8 @@ updates:
   - package-ecosystem: gomod
     directory: /
     target-branch: main
+    labels:
+      - "skip-changelog"
     assignees:
       - jambazid
     reviewers:
@@ -27,6 +29,8 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     target-branch: main
+    labels:
+      - "skip-changelog"
     assignees:
       - jambazid
     reviewers:
@@ -47,6 +51,8 @@ updates:
   - package-ecosystem: terraform
     directory: /modules/permissions
     target-branch: main
+    labels:
+      - "skip-changelog"
     assignees:
       - jambazid
     reviewers:
