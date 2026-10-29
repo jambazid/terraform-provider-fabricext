@@ -19,6 +19,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/knownvalue"
 	"github.com/hashicorp/terraform-plugin-testing/statecheck"
 	"github.com/jambazid/terraform-provider-fabricext/internal/testutil/fabricmock"
+	"github.com/jambazid/terraform-provider-fabricext/internal/testutil/pbimock"
+	fabadmin "github.com/microsoft/fabric-sdk-go/fabric/admin"
 )
 
 var testAccProtoV6ProviderFactories = map[string]func() (tfprotov6.ProviderServer, error){
@@ -33,6 +35,18 @@ provider "fabricext" {
   tenant_id    = "77777777-7777-7777-7777-777777777777"
 }
 `, srv.URL())
+}
+
+func testAccProviderConfigWithPBI(fabricSrv *fabricmock.Server, pbiSrv *pbimock.Server) string {
+	return fmt.Sprintf(`
+provider "fabricext" {
+  endpoint             = %q
+  powerbi_endpoint     = %q
+  access_token         = "mock-static-access-token"
+  powerbi_access_token = "mock-static-pbi-token"
+  tenant_id            = "77777777-7777-7777-7777-777777777777"
+}
+`, fabricSrv.URL(), pbiSrv.URL)
 }
 
 func TestProvider_MetadataAndSchema(t *testing.T) {
@@ -65,6 +79,7 @@ func TestProvider_MetadataAndSchema(t *testing.T) {
 		"use_cli", "use_dev_cli",
 		"environment", "auxiliary_tenant_ids",
 		"request_timeout", "skip_credentials_validation",
+		"powerbi_endpoint", "powerbi_access_token",
 	}
 	for _, attrName := range expectedAttrs {
 		if _, ok := schemaResp.Schema.Attributes[attrName]; !ok {
@@ -105,10 +120,53 @@ func TestAccPermissionsModule_MatrixFlattening(t *testing.T) {
 	t.Parallel()
 
 	srv := fabricmock.NewServer(t)
+	pbiSrv, err := pbimock.NewServer()
+	if err != nil {
+		t.Fatalf("start pbimock: %v", err)
+	}
+	defer pbiSrv.Close()
+
 	wsID := "11111111-1111-1111-1111-111111111111"
 	whID := "22222222-2222-2222-2222-222222222222"
 	dbID := "33333333-3333-3333-3333-333333333333"
 	lhID := "44444444-4444-4444-4444-444444444444"
+	principalID := "55555555-5555-5555-5555-555555555551"
+
+	// Sync Power BI mutations to Fabric Admin API mock
+	pbiSrv.OnMutation = func(_, itemID, pID string, perms []string) {
+		pt := fabadmin.PrincipalTypeGroup
+		gt := fabadmin.GroupTypeSecurityGroup
+		dn := "Test Group"
+		itemTypeStr := fabadmin.ItemTypeWarehouse
+		var itemPerms []fabadmin.ItemPermissions
+		var addPerms []string
+		for _, p := range perms {
+			if strings.EqualFold(p, "Read") {
+				itemPerms = append(itemPerms, fabadmin.ItemPermissionsRead)
+			} else {
+				addPerms = append(addPerms, p)
+			}
+		}
+		srv.SetItemAccessDetails(wsID, itemID, &fabadmin.ItemAccessDetailsResponse{
+			AccessDetails: []fabadmin.ItemAccessDetails{
+				{
+					Principal: &fabadmin.GroupPrincipal{
+						ID:          &pID,
+						DisplayName: &dn,
+						Type:        &pt,
+						GroupDetails: &fabadmin.GroupPrincipalGroupDetails{
+							GroupType: &gt,
+						},
+					},
+					ItemAccessDetails: &fabadmin.ItemAccessDetail{
+						Type:                  &itemTypeStr,
+						Permissions:           itemPerms,
+						AdditionalPermissions: addPerms,
+					},
+				},
+			},
+		})
+	}
 
 	srv.UpsertItem(fabricmock.Item{
 		ID:          whID,
@@ -150,43 +208,56 @@ func TestAccPermissionsModule_MatrixFlattening(t *testing.T) {
 
 	varsWithDefault := strings.TrimSuffix(strings.TrimSpace(string(varsBytes)), "}") + fmt.Sprintf(`
   default = {
-    workspace_id = %q
+    workspace_id       = %q
+    verify_item_shares = true
     warehouses = {
       sales_analytics_wh = {
-        read  = [{ id = "55555555-5555-5555-5555-555555555551", type = "Group" }]
-        write = [{ id = "55555555-5555-5555-5555-555555555552", type = "ServicePrincipal" }]
+        permissions = {
+          %q = {
+            type        = "Group"
+            permissions = ["Read", "ReadData"]
+          }
+        }
       }
     }
     sql_databases = {
       operational_orders_db = {
-        read_data = [{ id = "55555555-5555-5555-5555-555555555551", type = "Group" }]
+        permissions = {
+          %q = {
+            type        = "Group"
+            permissions = ["Read", "ReadData"]
+          }
+        }
       }
     }
     lakehouses = {
       raw_bronze_lh = {
-        BronzeReaders = {
-          paths          = ["/Tables/customers"]
-          actions        = ["Read"]
-          principal_ids  = ["55555555-5555-5555-5555-555555555551"]
-          principal_type = "Group"
+        permissions = {
+          %q = {
+            type        = "Group"
+            permissions = ["Read"]
+          }
+        }
+        data_access_roles = {
+          BronzeReaders = {
+            paths          = ["/Tables/customers"]
+            actions        = ["Read"]
+            principal_ids  = [%q]
+            principal_type = "Group"
+          }
         }
       }
     }
   }
 }
-`, wsID)
+`, wsID, principalID, principalID, principalID, principalID)
 
 	partialVarsWithDefault := strings.TrimSuffix(strings.TrimSpace(string(varsBytes)), "}") + fmt.Sprintf(`
   default = {
-    workspace_id = %q
-    warehouses = {
-      sales_analytics_wh = {
-        write = [
-          { id = "55555555-5555-5555-5555-555555555551", type = "Group" },
-          { id = "55555555-5555-5555-5555-555555555552", type = "ServicePrincipal" }
-        ]
-      }
-    }
+    workspace_id  = %q
+    warehouses    = {}
+    sql_databases = {}
+    lakehouses    = {}
   }
 }
 `, wsID)
@@ -196,29 +267,38 @@ func TestAccPermissionsModule_MatrixFlattening(t *testing.T) {
 		Steps: []resource.TestStep{
 			{
 				Config: strings.Join([]string{
-					testAccProviderConfig(srv),
+					testAccProviderConfigWithPBI(srv, pbiSrv),
 					varsWithDefault,
 					string(mainBytes),
 					string(outputsBytes),
 				}, "\n"),
 				ConfigStateChecks: []statecheck.StateCheck{
-					statecheck.ExpectKnownOutputValue("warehouse_permission_ids", knownvalue.MapExact(map[string]knownvalue.Check{})),
-					statecheck.ExpectKnownOutputValue("sql_database_permission_ids", knownvalue.MapExact(map[string]knownvalue.Check{})),
-					statecheck.ExpectKnownOutputValue("lakehouse_data_access_role_ids", knownvalue.MapExact(map[string]knownvalue.Check{
-						"raw_bronze_lh/BronzeReaders": knownvalue.StringExact(wsID + "/" + lhID + "/BronzeReaders"),
+					statecheck.ExpectKnownOutputValue("warehouse_permission_ids", knownvalue.MapExact(map[string]knownvalue.Check{
+						"sales_analytics_wh/" + principalID: knownvalue.StringExact(wsID + "/" + whID + "/Group/" + principalID),
+					})),
+					statecheck.ExpectKnownOutputValue("sql_database_permission_ids", knownvalue.MapExact(map[string]knownvalue.Check{
+						"operational_orders_db/" + principalID: knownvalue.StringExact(wsID + "/" + dbID + "/Group/" + principalID),
 					})),
 					statecheck.ExpectKnownOutputValue("lakehouse_permission_ids", knownvalue.MapExact(map[string]knownvalue.Check{
+						"raw_bronze_lh/" + principalID: knownvalue.StringExact(wsID + "/" + lhID + "/Group/" + principalID),
+					})),
+					statecheck.ExpectKnownOutputValue("lakehouse_data_access_role_ids", knownvalue.MapExact(map[string]knownvalue.Check{
 						"raw_bronze_lh/BronzeReaders": knownvalue.StringExact(wsID + "/" + lhID + "/BronzeReaders"),
 					})),
 					statecheck.ExpectKnownOutputValue("lakehouse_onelake_security_ids", knownvalue.MapExact(map[string]knownvalue.Check{
 						"raw_bronze_lh": knownvalue.StringExact(wsID + "/" + lhID),
 					})),
+					statecheck.ExpectKnownOutputValue("item_share_gate_ids", knownvalue.MapExact(map[string]knownvalue.Check{
+						"warehouse/sales_analytics_wh/" + principalID:       knownvalue.StringExact(wsID + "/" + whID + "/" + principalID),
+						"sql_database/operational_orders_db/" + principalID: knownvalue.StringExact(wsID + "/" + dbID + "/" + principalID),
+						"lakehouse/raw_bronze_lh/" + principalID:            knownvalue.StringExact(wsID + "/" + lhID + "/" + principalID),
+					})),
 				},
 			},
-			// Step 2: Omit sql_databases & lakehouses
+			// Step 2: Empty out matrix
 			{
 				Config: strings.Join([]string{
-					testAccProviderConfig(srv),
+					testAccProviderConfigWithPBI(srv, pbiSrv),
 					partialVarsWithDefault,
 					string(mainBytes),
 					string(outputsBytes),
@@ -226,14 +306,96 @@ func TestAccPermissionsModule_MatrixFlattening(t *testing.T) {
 				ConfigStateChecks: []statecheck.StateCheck{
 					statecheck.ExpectKnownOutputValue("warehouse_permission_ids", knownvalue.MapExact(map[string]knownvalue.Check{})),
 					statecheck.ExpectKnownOutputValue("sql_database_permission_ids", knownvalue.MapExact(map[string]knownvalue.Check{})),
-					statecheck.ExpectKnownOutputValue("lakehouse_data_access_role_ids", knownvalue.MapExact(map[string]knownvalue.Check{})),
 					statecheck.ExpectKnownOutputValue("lakehouse_permission_ids", knownvalue.MapExact(map[string]knownvalue.Check{})),
+					statecheck.ExpectKnownOutputValue("lakehouse_data_access_role_ids", knownvalue.MapExact(map[string]knownvalue.Check{})),
 					statecheck.ExpectKnownOutputValue("lakehouse_onelake_security_ids", knownvalue.MapExact(map[string]knownvalue.Check{})),
+					statecheck.ExpectKnownOutputValue("item_share_gate_ids", knownvalue.MapExact(map[string]knownvalue.Check{})),
 				},
 			},
-			// Cleanup step so post-test destroy sees an empty state
+			// Cleanup step
 			{
-				Config: testAccProviderConfig(srv),
+				Config: testAccProviderConfigWithPBI(srv, pbiSrv),
+			},
+		},
+	})
+}
+
+func TestAccPermissionsModule_VerifySharesDisabled(t *testing.T) {
+	t.Parallel()
+
+	srv := fabricmock.NewServer(t)
+	pbiSrv, err := pbimock.NewServer()
+	if err != nil {
+		t.Fatalf("start pbimock: %v", err)
+	}
+	defer pbiSrv.Close()
+
+	wsID := "11111111-1111-1111-1111-111111111111"
+	whID := "22222222-2222-2222-2222-222222222222"
+	principalID := "55555555-5555-5555-5555-555555555551"
+
+	srv.UpsertItem(fabricmock.Item{
+		ID:          whID,
+		WorkspaceID: wsID,
+		DisplayName: "sales_analytics_wh",
+		Type:        "Warehouse",
+	})
+
+	modulePath, err := filepath.Abs(filepath.Join("..", "..", "modules", "permissions"))
+	if err != nil {
+		t.Fatalf("resolve modules/permissions path: %v", err)
+	}
+
+	varsBytes, err := os.ReadFile(filepath.Join(modulePath, "variables.tf"))
+	if err != nil {
+		t.Fatalf("read variables.tf: %v", err)
+	}
+	mainBytes, err := os.ReadFile(filepath.Join(modulePath, "main.tf"))
+	if err != nil {
+		t.Fatalf("read main.tf: %v", err)
+	}
+	outputsBytes, err := os.ReadFile(filepath.Join(modulePath, "outputs.tf"))
+	if err != nil {
+		t.Fatalf("read outputs.tf: %v", err)
+	}
+
+	varsWithVerifyFalse := strings.TrimSuffix(strings.TrimSpace(string(varsBytes)), "}") + fmt.Sprintf(`
+  default = {
+    workspace_id       = %q
+    verify_item_shares = false
+    warehouses = {
+      sales_analytics_wh = {
+        permissions = {
+          %q = {
+            type        = "Group"
+            permissions = ["Read"]
+          }
+        }
+      }
+    }
+  }
+}
+`, wsID, principalID)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: strings.Join([]string{
+					testAccProviderConfigWithPBI(srv, pbiSrv),
+					varsWithVerifyFalse,
+					string(mainBytes),
+					string(outputsBytes),
+				}, "\n"),
+				ConfigStateChecks: []statecheck.StateCheck{
+					statecheck.ExpectKnownOutputValue("warehouse_permission_ids", knownvalue.MapExact(map[string]knownvalue.Check{
+						"sales_analytics_wh/" + principalID: knownvalue.StringExact(wsID + "/" + whID + "/Group/" + principalID),
+					})),
+					statecheck.ExpectKnownOutputValue("item_share_gate_ids", knownvalue.MapExact(map[string]knownvalue.Check{})),
+				},
+			},
+			{
+				Config: testAccProviderConfigWithPBI(srv, pbiSrv),
 			},
 		},
 	})
@@ -415,8 +577,8 @@ func TestProvider_NormalizePrincipalType(t *testing.T) {
 		{name: "warehouse group whitespace", itemType: "Warehouse", input: " Group ", want: "Group"},
 		{name: "warehouse service principal", itemType: "Warehouse", input: "serviceprincipal", want: "ServicePrincipal"},
 		{name: "warehouse service principal profile", itemType: "Warehouse", input: "ServicePrincipalProfile", want: "ServicePrincipalProfile"},
-		{name: "warehouse managed identity rejected", itemType: "Warehouse", input: "ManagedIdentity", expectErr: true},
-		{name: "sql managed identity rejected", itemType: "SQLDatabase", input: "ManagedIdentity", expectErr: true},
+		{name: "warehouse managed identity allowed", itemType: "Warehouse", input: "ManagedIdentity", want: "ManagedIdentity"},
+		{name: "sql managed identity allowed", itemType: "SQLDatabase", input: "ManagedIdentity", want: "ManagedIdentity"},
 		{name: "sql user", itemType: "SQLDatabase", input: "User", want: "User"},
 		{name: "lakehouse user", itemType: "Lakehouse", input: "user", want: "User"},
 		{name: "lakehouse managed identity allowed", itemType: "Lakehouse", input: "managedidentity", want: "ManagedIdentity"},
@@ -493,58 +655,52 @@ func TestAccPermissionsModule_MatrixWithRLSandCLS(t *testing.T) {
 	varsWithDefault := strings.TrimSuffix(strings.TrimSpace(string(varsBytes)), "}") + fmt.Sprintf(`
   default = {
     workspace_id = %q
-    warehouses = {
-      %q = {
-        read = [{ id = "55555555-5555-5555-5555-555555555551", type = "Group" }]
-      }
-    }
-    sql_databases = {
-      operational_orders_db = {
-        read_data = [{ id = "55555555-5555-5555-5555-555555555551", type = "Group" }]
-      }
-    }
+    warehouses    = {}
+    sql_databases = {}
     lakehouses = {
       %q = {
-        EmeaAnalysts = {
-          decision_rules = [
-            {
-              paths   = ["/Tables/customers"]
-              actions = ["Read"]
-              effect  = "Permit"
-              row_constraints = [
-                {
-                  table_path = "/Tables/customers"
-                  predicate  = "Region = 'EMEA'"
-                }
-              ]
-              column_constraints = [
-                {
-                  table_path = "/Tables/customers"
-                  columns    = ["customer_id", "email"]
-                  action     = "Read"
-                  effect     = "Permit"
-                }
-              ]
-            }
-          ]
-          entra_members = [
-            {
-              object_id   = "55555555-5555-5555-5555-555555555551"
-              object_type = "Group"
-            }
-          ]
-          fabric_item_members = [
-            {
-              source_path = "99999999-9999-9999-9999-999999999999/88888888-8888-8888-8888-888888888888"
-              item_access = ["ReadAll"]
-            }
-          ]
+        data_access_roles = {
+          EmeaAnalysts = {
+            decision_rules = [
+              {
+                paths   = ["/Tables/customers"]
+                actions = ["Read"]
+                effect  = "Permit"
+                row_constraints = [
+                  {
+                    table_path = "/Tables/customers"
+                    predicate  = "Region = 'EMEA'"
+                  }
+                ]
+                column_constraints = [
+                  {
+                    table_path = "/Tables/customers"
+                    columns    = ["customer_id", "email"]
+                    action     = "Read"
+                    effect     = "Permit"
+                  }
+                ]
+              }
+            ]
+            entra_members = [
+              {
+                object_id   = "55555555-5555-5555-5555-555555555551"
+                object_type = "Group"
+              }
+            ]
+            fabric_item_members = [
+              {
+                source_path = "99999999-9999-9999-9999-999999999999/88888888-8888-8888-8888-888888888888"
+                item_access = ["ReadAll"]
+              }
+            ]
+          }
         }
       }
     }
   }
 }
-`, wsID, whID, lhID)
+`, wsID, lhID)
 
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
@@ -562,9 +718,7 @@ func TestAccPermissionsModule_MatrixWithRLSandCLS(t *testing.T) {
 					statecheck.ExpectKnownOutputValue("lakehouse_data_access_role_ids", knownvalue.MapExact(map[string]knownvalue.Check{
 						lhID + "/EmeaAnalysts": knownvalue.StringExact(wsID + "/" + lhID + "/EmeaAnalysts"),
 					})),
-					statecheck.ExpectKnownOutputValue("lakehouse_permission_ids", knownvalue.MapExact(map[string]knownvalue.Check{
-						lhID + "/EmeaAnalysts": knownvalue.StringExact(wsID + "/" + lhID + "/EmeaAnalysts"),
-					})),
+					statecheck.ExpectKnownOutputValue("lakehouse_permission_ids", knownvalue.MapExact(map[string]knownvalue.Check{})),
 					statecheck.ExpectKnownOutputValue("lakehouse_onelake_security_ids", knownvalue.MapExact(map[string]knownvalue.Check{
 						lhID: knownvalue.StringExact(wsID + "/" + lhID),
 					})),
@@ -616,11 +770,13 @@ func TestAccPermissionsModule_LakehouseSecurityOptOut(t *testing.T) {
     manage_lakehouse_security = false
     lakehouses = {
       opt_out_lh = {
-        BronzeReaders = {
-          paths          = ["/Tables/customers"]
-          actions        = ["Read"]
-          principal_ids  = ["55555555-5555-5555-5555-555555555551"]
-          principal_type = "Group"
+        data_access_roles = {
+          BronzeReaders = {
+            paths          = ["/Tables/customers"]
+            actions        = ["Read"]
+            principal_ids  = ["55555555-5555-5555-5555-555555555551"]
+            principal_type = "Group"
+          }
         }
       }
     }
@@ -642,14 +798,137 @@ func TestAccPermissionsModule_LakehouseSecurityOptOut(t *testing.T) {
 					statecheck.ExpectKnownOutputValue("lakehouse_data_access_role_ids", knownvalue.MapExact(map[string]knownvalue.Check{
 						"opt_out_lh/BronzeReaders": knownvalue.StringExact(wsID + "/" + lhID + "/BronzeReaders"),
 					})),
-					statecheck.ExpectKnownOutputValue("lakehouse_permission_ids", knownvalue.MapExact(map[string]knownvalue.Check{
-						"opt_out_lh/BronzeReaders": knownvalue.StringExact(wsID + "/" + lhID + "/BronzeReaders"),
-					})),
+					statecheck.ExpectKnownOutputValue("lakehouse_permission_ids", knownvalue.MapExact(map[string]knownvalue.Check{})),
 					statecheck.ExpectKnownOutputValue("lakehouse_onelake_security_ids", knownvalue.MapExact(map[string]knownvalue.Check{})),
 				},
 			},
 			{
 				Config: testAccProviderConfig(srv),
+			},
+		},
+	})
+}
+
+func TestAccPermissionsModule_NotificationAndValidation(t *testing.T) {
+	t.Parallel()
+
+	srv := fabricmock.NewServer(t)
+	pbiSrv, err := pbimock.NewServer()
+	if err != nil {
+		t.Fatalf("start pbimock: %v", err)
+	}
+	defer pbiSrv.Close()
+
+	wsID := "11111111-1111-1111-1111-111111111111"
+	whID := "22222222-2222-2222-2222-222222222222"
+	principalID := "55555555-5555-5555-5555-555555555551"
+
+	srv.UpsertItem(fabricmock.Item{
+		ID:          whID,
+		WorkspaceID: wsID,
+		DisplayName: "sales_analytics_wh",
+		Type:        "Warehouse",
+	})
+
+	modulePath, err := filepath.Abs(filepath.Join("..", "..", "modules", "permissions"))
+	if err != nil {
+		t.Fatalf("resolve modules/permissions path: %v", err)
+	}
+
+	varsBytes, err := os.ReadFile(filepath.Join(modulePath, "variables.tf"))
+	if err != nil {
+		t.Fatalf("read variables.tf: %v", err)
+	}
+	mainBytes, err := os.ReadFile(filepath.Join(modulePath, "main.tf"))
+	if err != nil {
+		t.Fatalf("read main.tf: %v", err)
+	}
+	outputsBytes, err := os.ReadFile(filepath.Join(modulePath, "outputs.tf"))
+	if err != nil {
+		t.Fatalf("read outputs.tf: %v", err)
+	}
+
+	varsInvalid := strings.Replace(
+		string(varsBytes),
+		"default     = null",
+		`default     = "Notification message without notify"`,
+		1,
+	)
+	varsInvalid = strings.TrimSuffix(strings.TrimSpace(varsInvalid), "}") + fmt.Sprintf(`
+  default = {
+    workspace_id       = %q
+    verify_item_shares = false
+    warehouses = {
+      sales_analytics_wh = {
+        permissions = {
+          %q = {
+            type        = "Group"
+            permissions = ["Read"]
+          }
+        }
+      }
+    }
+  }
+}
+`, wsID, principalID)
+
+	varsValid := strings.Replace(
+		string(varsBytes),
+		"default     = false",
+		"default     = true",
+		1,
+	)
+	varsValid = strings.Replace(
+		varsValid,
+		"default     = null",
+		`default     = "Team access granted"`,
+		1,
+	)
+	varsValid = strings.TrimSuffix(strings.TrimSpace(varsValid), "}") + fmt.Sprintf(`
+  default = {
+    workspace_id       = %q
+    verify_item_shares = false
+    warehouses = {
+      sales_analytics_wh = {
+        permissions = {
+          %q = {
+            type        = "Group"
+            permissions = ["Read"]
+          }
+        }
+      }
+    }
+  }
+}
+`, wsID, principalID)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: strings.Join([]string{
+					testAccProviderConfigWithPBI(srv, pbiSrv),
+					varsInvalid,
+					string(mainBytes),
+					string(outputsBytes),
+				}, "\n"),
+				ExpectError: regexp.MustCompile(`The 'message' variable can only be set when 'notify' is true`),
+			},
+			{
+				Config: strings.Join([]string{
+					testAccProviderConfigWithPBI(srv, pbiSrv),
+					varsValid,
+					string(mainBytes),
+					string(outputsBytes),
+				}, "\n"),
+				ConfigStateChecks: []statecheck.StateCheck{
+					statecheck.ExpectKnownOutputValue("warehouse_permission_ids", knownvalue.MapExact(map[string]knownvalue.Check{
+						"sales_analytics_wh/" + principalID: knownvalue.StringExact(wsID + "/" + whID + "/Group/" + principalID),
+					})),
+				},
+			},
+			{
+				Config: testAccProviderConfigWithPBI(srv, pbiSrv),
 			},
 		},
 	})

@@ -49,13 +49,11 @@ For setup instructions and credential evaluation details, see the dedicated auth
 
 ## Permissions Management
 
-The active provider resources (`fabricext_lakehouse_data_access_role`, `fabricext_lakehouse_onelake_security`) manage Lakehouse OneLake Data Access Roles and security lifecycles per HashiCorp Provider Design Principles.
+The provider delivers declarative item-level sharing for Warehouses, SQL Databases, and Lakehouses (`fabricext_warehouse_permission`, `fabricext_sql_database_permission`, `fabricext_lakehouse_permission`), alongside Lakehouse OneLake Data Access Roles (`fabricext_lakehouse_data_access_role`) and security lifecycle governance (`fabricext_lakehouse_onelake_security`).
+
+The companion verification waiter [`fabricext_item_share_gate`](resources/item_share_gate.md) provides cross-plane validation confirming applied permissions propagate to Fabric Admin effective ACLs.
 
 To manage permissions across an entire workspace, you can compose them using native Terraform `for_each` maps or use the in-repo [`modules/permissions`](https://github.com/jambazid/terraform-provider-fabricext/tree/main/modules/permissions) wrapper module.
-
-### Removed Resources
-
-Early prototypes included `fabricext_warehouse_permission` and `fabricext_sql_database_permission`. Because Microsoft Fabric does not offer public item-sharing REST APIs for Warehouses or SQL Databases, these resources were tombstoned in `v0.3.0` and removed in `v0.5.0`. Existing configurations should detach them from state using Terraform 1.7+ `removed` blocks with `lifecycle { destroy = false }`.
 
 For architectural patterns, in-place lifecycle keying invariants, and code examples, see the **[Declarative Matrix Composition Guide](guides/matrix_composition.md)**.
 
@@ -95,6 +93,8 @@ For comprehensive guides on access control architecture, cross-engine identity p
 - `oidc_request_url` (String) URL for requesting an ID token from an OIDC provider. Can also be sourced from `SYSTEM_OIDCREQUESTURI`, `FABRIC_OIDC_REQUEST_URL`, or `ARM_OIDC_REQUEST_URL`.
 - `oidc_token` (String, Sensitive) OIDC JWT assertion token. Can also be sourced from `FABRIC_OIDC_TOKEN` or `ARM_OIDC_TOKEN`.
 - `oidc_token_file_path` (String) Path to a file containing the OIDC JWT assertion token. Can also be sourced from `FABRIC_OIDC_TOKEN_FILE_PATH` or `ARM_OIDC_TOKEN_FILE_PATH`.
+- `powerbi_access_token` (String, Sensitive) Static Microsoft Entra ID bearer token scoped to Power BI (`https://analysis.windows.net/powerbi/api/.default`). Can also be sourced from `FABRIC_POWERBI_ACCESS_TOKEN`.
+- `powerbi_endpoint` (String) Base URL or bootstrap portal for Power BI metadata cluster discovery. Defaults to `https://app.powerbi.com`. Can also be sourced from `FABRIC_POWERBI_ENDPOINT`.
 - `request_timeout` (String) Per-request HTTP timeout as a Go duration string (for example, `60s`). Defaults to `60s`. Can also be sourced from `FABRIC_REQUEST_TIMEOUT`.
 - `skip_credentials_validation` (Boolean) Skip eager credential validation during `Configure()`. Defaults to `false`. Can also be sourced from `FABRIC_SKIP_CREDENTIALS_VALIDATION`.
 - `tenant_id` (String) Microsoft Entra ID tenant UUID. Can also be sourced from `FABRIC_TENANT_ID`, `AZURE_TENANT_ID`, or `ARM_TENANT_ID`.

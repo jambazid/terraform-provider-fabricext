@@ -34,7 +34,7 @@ This register records primary-source citations for Microsoft Fabric access contr
 | C27 | OneLake security limits (max roles, members) and propagation latencies (~5m roles, ~1h groups) | `https://learn.microsoft.com/en-us/fabric/onelake/security/data-access-control-model#onelake-security-limitations` | Confirmed |
 | C28 | Role naming rules: alphanumeric and underscores, length <= 128 characters | `https://learn.microsoft.com/en-us/fabric/onelake/security/create-manage-roles#create-a-role` | Confirmed |
 | C29 | B2B guest users in OneLake security roles | `https://learn.microsoft.com/en-us/fabric/onelake/security/data-access-control-model#onelake-security-limitations` | Confirmed |
-| C30 | OneLake Data Access Roles list is paginated via continuationToken; bulk PUT replaces role set | `specs/openapi/platform/definitions/platform.json#definitions/DataAccessRoles` | Confirmed |
+| C30 | OneLake Data Access Roles list is paginated via continuationToken; bulk PUT replaces role set | `specs/fabric/platform/definitions/platform.json#definitions/DataAccessRoles` | Confirmed |
 | C31 | If-Match header required in quotes for optimistic concurrency; 412 on mismatch | `https://learn.microsoft.com/en-us/rest/api/fabric/core/onelake-data-access-security/create-or-update-data-access-roles#request-headers` | Confirmed |
 | C32 | Direct Lake on OneLake vs Direct Lake on SQL endpoint; table property | `https://learn.microsoft.com/en-us/fabric/fundamentals/direct-lake-overview#key-concepts-and-terminology` | Confirmed |
 | C33 | Direct Lake on SQL falls back to DirectQuery on views, SQL RLS/CLS, or guardrails | `https://learn.microsoft.com/en-us/fabric/fundamentals/direct-lake-how-it-works#directquery-fallback` | Confirmed |

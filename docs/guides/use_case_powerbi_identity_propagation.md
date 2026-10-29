@@ -57,7 +57,7 @@ Analyst               Power BI Service (Analysis Services)   Warehouse SQL Engin
 
 **Dual Consequence of DirectQuery Fallback**:
 - **Without SSO**: If Single Sign-On is not enabled, Power BI executes all report queries using the fixed credentials of the dataset owner. Because dataset creators typically hold workspace Contributor or Admin roles (`db_owner`), **queries run as `db_owner`, completely bypassing the end-user's T-SQL RLS predicates and schema isolation** (unintended query execution under elevated dataset-owner privileges).
-- **With SSO**: When Single Sign-On is enabled, every report viewer must hold an item-level `Read` share (granted via Fabric web portal) AND database-level T-SQL grants. Prototype resource `fabricext_warehouse_permission` was tombstoned in v0.3.0 and removed in v0.5.0 because Microsoft Fabric does not offer public item-sharing REST APIs. Users granted report access in Power BI without an underlying item share will experience visual errors (`Cannot connect to the data source`).
+- **With SSO**: When Single Sign-On is enabled, every report viewer must hold an item-level `Read` share (managed declaratively via `fabricext_warehouse_permission` or the Fabric portal) AND database-level T-SQL grants. Users granted report access in Power BI without an underlying item share will experience visual errors (`Cannot connect to the data source`).
 
 ### Identity & Enforcement Rules
 
@@ -117,7 +117,7 @@ If the semantic model uses a **Fixed Identity** (such as a Service Principal or 
 | **Security Layer** | T-SQL RBAC, SQL RLS, SQL CLS | OneLake Data Access Roles | Power BI Dataset RLS / OLS |
 | **Direct Lake Support** | Falls back to DirectQuery on RLS/CLS | Supported Natively (`DirectLakeOnly`) | Supported (Fixed Identity Mode) |
 | **Fallback Path** | N/A (Executes over TDS) | **None** (Fails if unsupported) | N/A (Cached / Fixed Model) |
-| **`fabricext` Role** | Portal UI Share (REST unsupported; `fabricext_warehouse_permission` removed in v0.5.0) | `fabricext_lakehouse_data_access_role` & `fabricext_lakehouse_onelake_security` | Manages Lakehouse OneLake security |
+| **`fabricext` Role** | `fabricext_warehouse_permission` | `fabricext_lakehouse_data_access_role`, `fabricext_lakehouse_permission` & `fabricext_lakehouse_onelake_security` | Manages Lakehouse OneLake security |
 
 ---
 

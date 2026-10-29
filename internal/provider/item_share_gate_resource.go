@@ -130,7 +130,7 @@ func (r *ItemShareGateResource) Schema(_ context.Context, _ resource.SchemaReque
 					stringplanmodifier.UseStateForUnknown(),
 				},
 				Validators: []validator.String{
-					stringvalidator.OneOf("User", "Group", "ServicePrincipal", "ServicePrincipalProfile", "EntireTenant"),
+					stringvalidator.OneOf("User", "Group", "ServicePrincipal", "ServicePrincipalProfile", "EntireTenant", "ManagedIdentity"),
 				},
 			},
 			"expected_permissions": schema.SetAttribute{
@@ -558,8 +558,11 @@ func (r *ItemShareGateResource) pollForItemShare(
 			}
 		}
 
+		delay := backoffWithJitter(backoff, isTestMode)
+		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			if errors.Is(ctx.Err(), context.Canceled) {
 				return "", "", ctx.Err()
 			}
@@ -567,7 +570,7 @@ func (r *ItemShareGateResource) pollForItemShare(
 				"timed out after %s waiting for principal %q to hold expected permissions %v on item %q in workspace %q: share the item in the Microsoft Fabric portal (Manage permissions) with the expected permissions, then re-apply",
 				timeout, principalID, expectedPerms, itemID, wsID,
 			)
-		case <-time.After(backoffWithJitter(backoff, isTestMode)):
+		case <-timer.C:
 		}
 
 		backoff *= 2
@@ -605,8 +608,15 @@ func checkPrincipalMatch(
 		if !strings.EqualFold(item.Principal.ID, principalID) {
 			continue
 		}
-		if principalType != "" && !strings.EqualFold(item.Principal.Type, principalType) {
-			continue
+		if principalType != "" {
+			match := strings.EqualFold(item.Principal.Type, principalType)
+			if !match {
+				isSPActual := strings.EqualFold(item.Principal.Type, "ServicePrincipal") || strings.EqualFold(item.Principal.Type, "ManagedIdentity")
+				isSPExpected := strings.EqualFold(principalType, "ServicePrincipal") || strings.EqualFold(principalType, "ManagedIdentity")
+				if !isSPActual || !isSPExpected {
+					continue
+				}
+			}
 		}
 		matchedEntries = append(matchedEntries, item)
 	}

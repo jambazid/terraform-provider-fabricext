@@ -32,8 +32,8 @@ Whenever adding a new Microsoft Fabric extension resource (such as User Data Fun
 
 ### Step 2: Vendor OpenAPI Specs
 
-1. Add the relevant Swagger 2.0 files from [`microsoft/fabric-rest-api-specs`](https://github.com/microsoft/fabric-rest-api-specs) (e.g., `<service>/swagger.json` and `<service>/definitions.json`) to `specs/openapi/` and run `mise run specs:sync` to update `specs/openapi/lock.json`.
-2. Never create repository-authored contract overlays. All endpoints must exist in upstream `microsoft/fabric-rest-api-specs`. Sync upstream specs via `mise run specs:sync` and verify digests with `mise run specs:check`.
+1. Add the relevant Swagger 2.0 files from [`microsoft/fabric-rest-api-specs`](https://github.com/microsoft/fabric-rest-api-specs) (e.g., `<service>/swagger.json` and `<service>/definitions.json`) to `specs/fabric/` and run `mise run specs:sync` to update `specs/fabric/lock.json`.
+2. Never create repository-authored contract overlays inside `specs/fabric/`. All upstream endpoints must originate directly from `microsoft/fabric-rest-api-specs`. Sync upstream specs via `mise run specs:sync` and verify digests with `mise run specs:check`.
 3. Verify schema integrity with `mise run specs:check`.
 
 ### Step 3: Mock Validation

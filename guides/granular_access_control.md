@@ -20,9 +20,9 @@ The following matrix maps enterprise access control requirements to their Micros
 | Access Goal / Scenario | Recommended Solution | Mechanism & Boundary | `fabricext` Provider Role |
 | :--- | :--- | :--- | :--- |
 | **Broad Workspace Access**<br/>User needs to read or collaborate on all items across a workspace. | Assign **Viewer** (read-only) or **Contributor** (read/write) workspace role. | **Tier 3 (Workspace)**<br/>Workspace role assignment via Fabric Portal or `microsoft/fabric`. | **Out of Scope**<br/>Handled by official `fabric_workspace_role_assignment`. |
-| **Warehouse Schema Isolation**<br/>User needs access to schema `finance` only; all other schemas (`hr`, `sales`) must be denied. | Grant item **`Read`** share via Portal (connectivity only) + grant T-SQL schema permissions. | **Tier 4 (Item Share) + Tier 5 (SQL Engine)**<br/>Item share grants Tabular Data Stream (TDS, port 1433) `CONNECT`; default-deny SQL engine restricts data access. | **Portal UI Share (REST Unsupported)**<br/>Item sharing configured via Fabric web portal; `fabricext_warehouse_permission` was removed in v0.5.0. |
-| **SQL Database Broad Access**<br/>User needs read access across all tables in a Fabric SQL Database. | Grant item-level **`ReadData`** share via Fabric Portal on the SQL database item. | **Tier 4 (Item Share)**<br/>Item permission grants connectivity and broad data access across all tables in the operational OLTP database. | **Portal UI Share (REST Unsupported)**<br/>Item sharing configured via Fabric web portal; `fabricext_sql_database_permission` was removed in v0.5.0. |
-| **SQL Database Spark Analytics**<br/>Spark notebooks require read access to OneLake mirrored database data. | Grant item-level **`ReadAll`** share via Fabric Portal on the SQL database item. | **Tier 4 (Item Share) + Tier 5 (Storage)**<br/>Grants Spark access to near-real-time mirrored Parquet data and event subscriptions. | **Portal UI Share (REST Unsupported)**<br/>Item sharing configured via Fabric web portal; `fabricext_sql_database_permission` was removed in v0.5.0. |
+| **Warehouse Schema Isolation**<br/>User needs access to schema `finance` only; all other schemas (`hr`, `sales`) must be denied. | Grant item **`Read`** share (connectivity only) + grant T-SQL schema permissions. | **Tier 4 (Item Share) + Tier 5 (SQL Engine)**<br/>Item share grants Tabular Data Stream (TDS, port 1433) `CONNECT`; default-deny SQL engine restricts data access. | **Direct**<br/>`fabricext_warehouse_permission` (declarative `Read` share for TDS endpoint connectivity). |
+| **SQL Database Broad Access**<br/>User needs read access across all tables in a Fabric SQL Database. | Grant item-level **`ReadData`** share on the SQL database item. | **Tier 4 (Item Share)**<br/>Item permission grants connectivity and broad data access across all tables in the operational OLTP database. | **Direct**<br/>`fabricext_sql_database_permission` (`permissions = ["Read", "ReadData"]`). |
+| **SQL Database Spark Analytics**<br/>Spark notebooks require read access to OneLake mirrored database data. | Grant item-level **`ReadAll`** share on the SQL database item. | **Tier 4 (Item Share) + Tier 5 (Storage)**<br/>Grants Spark access to near-real-time mirrored Parquet data and event subscriptions. | **Direct**<br/>`fabricext_sql_database_permission` (`permissions = ["Read", "ReadAll"]`). |
 | **Object-Level Security (OLS)**<br/>User can access specific tables or views within a schema, but sensitive tables are hidden. | Item **`Read`** share via Fabric Portal + T-SQL `GRANT SELECT ON table/view`. | **Tier 5 (SQL Engine)**<br/>SQL metadata hiding ensures unpermitted tables are invisible in `sys.tables`. | **Portal UI + T-SQL**<br/>Item share granted via portal; T-SQL permissions managed in-engine. |
 | **SQL Row/Column Security (RLS/CLS)**<br/>Warehouse user should only see regional rows or cannot see credit card columns. | Item **`Read`** share via Fabric Portal + T-SQL Security Policies (predicate function) & `DENY SELECT ON table(col)`. | **Tier 5 (SQL Engine)**<br/>T-SQL execution engine filters rows/columns at query runtime. | **Portal UI + T-SQL**<br/>Item share granted via portal; T-SQL permissions managed in-engine. |
 | **Lakehouse Path & Folder Access**<br/>Lakehouse user needs access to specific Delta tables without SQL engine. | Configure OneLake Data Access Role with path attribute scopes (`paths = ["/Tables/sales"]`). | **Tier 4 & 5 (OneLake Storage)**<br/>OneLake security evaluates path filters against storage operations (`actions = ["Read"]`). | **Direct**<br/>`fabricext_lakehouse_data_access_role` (simple mode with `paths` and `actions = ["Read"]`). |
@@ -102,7 +102,7 @@ When configuring item sharing in the Microsoft Fabric web portal:
 | **`ReadData`** | ReadData | Confers `db_datareader` across all tables and schemas. | Full table read access across database. |
 | **`ReadAll`** | ReadAll | Grants read access across OneLake shortcuts and Spark. | Storage and engine access. |
 
-~> **Note:** Automated item sharing via REST (`fabricext_warehouse_permission` and `fabricext_sql_database_permission`) was removed in v0.5.0 because Microsoft Fabric does not offer public item-sharing REST APIs for Warehouses or SQL Databases.
+~> **Note:** Direct item sharing on Warehouses, SQL Databases, and Lakehouses is managed declaratively via `fabricext_warehouse_permission`, `fabricext_sql_database_permission`, and `fabricext_lakehouse_permission`, or composed seamlessly using the permissions module.
 
 ```text
 Analyst (Entra Group)       Fabric Portal / Hub         Fabric Item Security       Warehouse SQL Engine (TDS)
@@ -139,15 +139,15 @@ When an Entra security group receives `Read` share via the Fabric portal without
 
 A frequent practitioner question is how Microsoft Entra ID identities map between Terraform configurations and T-SQL database statements:
 
-1. **In Terraform (`fabricext`)**: Declarative item sharing via `fabricext_warehouse_permission` was removed in v0.5.0. To safely detach existing resources from Terraform state without destructive API calls, use Terraform 1.7+ `removed` blocks:
+1. **In Terraform (`fabricext`)**: Declare item permissions directly on the Warehouse:
 
    ```hcl
-   removed {
-     from = fabricext_warehouse_permission.finance_access
-
-     lifecycle {
-       destroy = false
-     }
+   resource "fabricext_warehouse_permission" "finance_access" {
+     workspace_id   = "00000000-0000-0000-0000-000000000001"
+     warehouse_name = "sales_warehouse"
+     principal_id   = "11111111-1111-1111-1111-111111111111"
+     principal_type = "Group"
+     permissions    = ["Read"]
    }
    ```
 

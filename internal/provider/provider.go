@@ -63,15 +63,8 @@ func normalizePrincipalType(itemType, pt string) (string, error) {
 		return "", fmt.Errorf("invalid principal_type %q: must be one of User, Group, ServicePrincipal, ManagedIdentity, ServicePrincipalProfile", pt)
 	}
 
-	switch strings.ToLower(strings.TrimSpace(itemType)) {
-	case "warehouse", "sqldatabase":
-		if norm == "ManagedIdentity" {
-			return "", fmt.Errorf("invalid principal_type %q for %s: must be one of User, Group, ServicePrincipal, ServicePrincipalProfile", pt, itemType)
-		}
-	case "lakehouse":
-		if norm == "ServicePrincipalProfile" {
-			return "", fmt.Errorf("invalid principal_type %q for %s: must be one of User, Group, ServicePrincipal, ManagedIdentity", pt, itemType)
-		}
+	if strings.EqualFold(strings.TrimSpace(itemType), "lakehouse") && norm == "ServicePrincipalProfile" {
+		return "", fmt.Errorf("invalid principal_type %q for lakehouse: must be one of User, Group, ServicePrincipal, ManagedIdentity", pt)
 	}
 	return norm, nil
 }
@@ -126,6 +119,8 @@ type FabricProviderModel struct {
 	AuxiliaryTenantIDs             types.List   `tfsdk:"auxiliary_tenant_ids"`
 	RequestTimeout                 types.String `tfsdk:"request_timeout"`
 	SkipCredentialsValidation      types.Bool   `tfsdk:"skip_credentials_validation"`
+	PowerBIEndpoint                types.String `tfsdk:"powerbi_endpoint"`
+	PowerBIAccessToken             types.String `tfsdk:"powerbi_access_token"`
 }
 
 // New creates a new provider factory for the given version.
@@ -254,6 +249,15 @@ func (p *FabricProvider) Schema(_ context.Context, _ provider.SchemaRequest, res
 				Optional:            true,
 				MarkdownDescription: "Skip eager credential validation during `Configure()`. Defaults to `false`. Can also be sourced from `FABRIC_SKIP_CREDENTIALS_VALIDATION`.",
 			},
+			"powerbi_endpoint": schema.StringAttribute{
+				Optional:            true,
+				MarkdownDescription: "Base URL or bootstrap portal for Power BI metadata cluster discovery. Defaults to `https://app.powerbi.com`. Can also be sourced from `FABRIC_POWERBI_ENDPOINT`.",
+			},
+			"powerbi_access_token": schema.StringAttribute{
+				Optional:            true,
+				Sensitive:           true,
+				MarkdownDescription: "Static Microsoft Entra ID bearer token scoped to Power BI (`https://analysis.windows.net/powerbi/api/.default`). Can also be sourced from `FABRIC_POWERBI_ACCESS_TOKEN`.",
+			},
 		},
 	}
 }
@@ -338,6 +342,12 @@ func (p *FabricProvider) Configure(ctx context.Context, req provider.ConfigureRe
 	}
 	if config.SkipCredentialsValidation.IsUnknown() {
 		resp.Diagnostics.AddAttributeError(path.Root("skip_credentials_validation"), "Unknown Skip Credentials Validation Flag", "The provider cannot create the Microsoft Fabric API client as there is an unknown configuration value for skip_credentials_validation.")
+	}
+	if config.PowerBIEndpoint.IsUnknown() {
+		resp.Diagnostics.AddAttributeError(path.Root("powerbi_endpoint"), "Unknown Power BI Endpoint", "The provider cannot create the client as there is an unknown configuration value for powerbi_endpoint.")
+	}
+	if config.PowerBIAccessToken.IsUnknown() {
+		resp.Diagnostics.AddAttributeError(path.Root("powerbi_access_token"), "Unknown Power BI Access Token", "The provider cannot create the client as there is an unknown configuration value for powerbi_access_token.")
 	}
 	if resp.Diagnostics.HasError() {
 		return
@@ -435,6 +445,8 @@ func (p *FabricProvider) Configure(ctx context.Context, req provider.ConfigureRe
 		UseDevCLI:                      useDevCLIPtr,
 		Environment:                    envStr,
 		AuxiliaryTenantIDs:             auxTenants,
+		PowerBIEndpoint:                strings.TrimSpace(config.PowerBIEndpoint.ValueString()),
+		PowerBIAccessToken:             strings.TrimSpace(config.PowerBIAccessToken.ValueString()),
 	}
 
 	if err := credentials.ValidateConfig(credCfg); err != nil {
@@ -455,6 +467,8 @@ func (p *FabricProvider) Configure(ctx context.Context, req provider.ConfigureRe
 
 	fabricClient, err := client.NewFabricClient(client.Config{
 		Endpoint:        endpoint,
+		PowerBIEndpoint: strings.TrimSpace(config.PowerBIEndpoint.ValueString()),
+		Environment:     envStr,
 		CredentialChain: chain,
 		HTTPClient:      &http.Client{Timeout: requestTimeout},
 	})
@@ -486,6 +500,9 @@ func (p *FabricProvider) Resources(_ context.Context) []func() resource.Resource
 		NewLakehouseDataAccessRoleResource,
 		NewLakehouseOnelakeSecurityResource,
 		NewItemShareGateResource,
+		NewWarehousePermissionResource,
+		NewSQLDatabasePermissionResource,
+		NewLakehousePermissionResource,
 	}
 }
 

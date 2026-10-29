@@ -48,9 +48,9 @@ Whenever [`DESIGN.md`](DESIGN.md), a `.spec.md` file, or an implementation plan 
 | --- | --- | --- |
 | D1 | Zero-gap implementability | "I have no prior context; I implement from this document alone; list every question I would have to ask" — a non-empty list is a blocker per question |
 | D2 | Complete laws & invariants | Every API contract, HTTP status code, concurrency lock, ETag header, retry rule, and schema validator is explicitly stated and every boundary owned |
-| D3 | Definition of Ready | Upstream OpenAPI specs vendored in `specs/openapi/`, dependencies locked, target surface inventoried, and rollback / partial-failure recovery behavior named |
+| D3 | Definition of Ready | Upstream OpenAPI specs vendored in `specs/fabric/`, Power BI metadata contract in `specs/powerbi/metadata/`, dependencies locked, target surface inventoried, and rollback / partial-failure recovery behavior named |
 | D4 | Definition of Done | Verification gates named with exact `mise` commands, adversarial review lenses defined, and expected on-disk artifacts enumerated |
-| D5 | Acceptance criteria & falsifiers | Every requirement in `specs/*.spec.md` carries a runnable `[@test]` falsification link on disk that fails if the requirement is violated |
+| D5 | Acceptance criteria & falsifiers | Every requirement in `specs/**/*.spec.md` carries a runnable `[@test]` falsification link on disk that fails if the requirement is violated |
 | D6 | Claims bound to evidence | Each claim type bound to its evidence class: unit tests (`test:unit`), hermetic acceptance tests (`test:acc` with `TF_ACC=1`), and `kin-openapi` contract validation |
 | D7 | Soundness & concurrency safety | Bug-class hunt + end-state consistency (idempotent re-apply, 404 drift recovery, race detector `-race`, and per-item mutex + `If-Match` ETag Read-Modify-Write under parallel goroutines) |
 | D8 | Immutability & security surface | Enumerate what may **NOT** change (vendored OpenAPI contracts, public HCL schema compatibility, `tfplugindocs` ownership of `docs/`) alongside supply-chain locks (`mise.toml` `minimum_release_age = "7d"`, `.github/dependabot.yaml` 7-day cooldown, and StepSecurity-hardened GitHub Actions) |
@@ -64,16 +64,16 @@ mise tasks ls                           # List all available project tasks
 mise run init                           # Initialize Tessl rules and install prek git hooks (pre-commit + commit-msg)
 mise run build                          # Compile bin/terraform-provider-fabricext
 mise run install-local                  # Install provider into local ~/.terraform.d/plugins mirror
-mise run specs:check                    # Verify specs/openapi/lock.json SHA-256 digests and OpenAPI schemas
+mise run specs:check                    # Verify specs/fabric/lock.json SHA-256 digests and specs/powerbi/metadata/ schemas
 mise run specs:sync                     # Sync vendored OpenAPI specs from microsoft/fabric-rest-api-specs
 mise run test:unit                      # Run Go unit tests with -race and coverage
-mise run test:acc                       # Run hermetic Terraform acceptance tests (TF_ACC=1) against fabricmock
+mise run test:acc                       # Run hermetic Terraform acceptance tests (TF_ACC=1) against fabricmock and pbimock
 mise run test                           # Run all unit and acceptance tests
 mise run docs                           # Generate and validate Registry docs via tfplugindocs
 mise run docs:check                     # Verify generated docs/ are up to date with no uncommitted drift
 mise run lint                           # Run yamllint, rumdl, golangci-lint, and terraform fmt -check
 mise run scan                           # Run trivy (fs + config) and zizmor GitHub Actions security scanner
-mise run spec:verify                    # Verify YAML frontmatter, targets, and [@test] links in specs/*.spec.md
+mise run spec:verify                    # Verify YAML frontmatter, targets, and [@test] links in specs/**/*.spec.md
 mise run check                          # Run the complete verification gate (lint, scan, specs:check, test, docs:check, spec:verify)
 mise exec -- prek run --all-files       # Execute all pre-commit hooks across the repository
 ```
@@ -83,21 +83,22 @@ mise exec -- prek run --all-files       # Execute all pre-commit hooks across th
 | Path | Concern |
 | --- | --- |
 | [`main.go`](main.go) | Provider binary entrypoint (`registry.terraform.io/jambazid/fabricext`) and `//go:generate` directives |
-| `internal/credentials/` | Native Microsoft Entra ID credential chain (`github.com/Azure/azure-sdk-for-go/sdk/azidentity` & `sdk/azcore`): `Static` $\rightarrow$ `ClientSecret` $\rightarrow$ `WorkloadIdentity` (OIDC) $\rightarrow$ `ManagedIdentity` $\rightarrow$ `AzureCLI`, with token caching and `String()`/`GoString()` redaction |
-| `internal/client/` | Microsoft Fabric REST/RPC client: `Retry-After` HTTP 429/5xx backoff, paginated `(workspaceID, itemType, displayName)` lookup cache, and Lakehouse OneLake Data Access Role per-item mutex + ETag `If-Match` Read-Modify-Write |
-| `internal/testutil/fabricmock/` | Stateful in-memory Fabric mock server backed by `microsoft/fabric-sdk-go` models and wrapped in `kin-openapi` (`openapi3filter`) runtime request/response schema validation |
-| `internal/provider/` | Terraform Plugin Framework v6 provider (`fabricext`), active resources (`fabricext_lakehouse_data_access_role`, `fabricext_lakehouse_onelake_security`), and data source (`fabricext_item`) |
-| `modules/permissions/` | In-repo reusable HCL wrapper module managing Lakehouse OneLake Data Access Roles and security lifecycles |
-| `specs/` | Spec-driven `.spec.md` behavioral specifications with `[@test]` links, `specs/openapi/` vendored `microsoft/fabric-rest-api-specs` + `lock.json`, and `specs/inputs/` original requirements |
+| `internal/credentials/` | Native Microsoft Entra ID credential chain (`azidentity` & `azcore`): `Static` $\rightarrow$ `ClientSecret` $\rightarrow$ `WorkloadIdentity` (OIDC) $\rightarrow$ `ManagedIdentity` $\rightarrow$ `AzureCLI`, with `ScopedProvider` dual-scope token caching and `String()`/`GoString()` redaction |
+| `internal/client/` | Microsoft Fabric REST & Power BI metadata client: `Retry-After` HTTP 429/5xx backoff, paginated `(workspaceID, itemType, displayName)` lookup cache, OneLake Data Access Role per-item mutex + ETag `If-Match` RMW, and Power BI cluster discovery + item permissions |
+| `internal/testutil/fabricmock/` | Stateful in-memory Fabric mock server backed by `microsoft/fabric-sdk-go` models and wrapped in `kin-openapi` (`openapi3filter`) runtime request/response schema validation against `specs/fabric/` |
+| `internal/testutil/pbimock/` | Stateful in-memory Power BI metadata mock server wrapped in `kin-openapi` runtime schema validation against `specs/powerbi/metadata/openapi.json` |
+| `internal/provider/` | Terraform Plugin Framework v6 provider (`fabricext`), active resources (`fabricext_warehouse_permission`, `fabricext_sql_database_permission`, `fabricext_lakehouse_permission`, `fabricext_lakehouse_data_access_role`, `fabricext_lakehouse_onelake_security`, `fabricext_item_share_gate`), and data sources (`fabricext_item`, `fabricext_item_access_details`) |
+| `modules/permissions/` | In-repo reusable HCL wrapper module managing unified Lakehouse, Warehouse, and SQL Database permissions and security lifecycles with cross-plane `fabricext_item_share_gate` verification |
+| `specs/` | Spec-driven `.spec.md` behavioral specifications with `[@test]` links, `specs/fabric/` vendored `microsoft/fabric-rest-api-specs` + `lock.json`, and `specs/powerbi/metadata/` OpenAPI 3.0.3 contract + sanitized runbook |
 | `templates/` & `docs/` | `tfplugindocs` templates and generated Terraform Registry documentation (`docs/` is 100% owned by `tfplugindocs`) |
-| `examples/` | Runnable HCL examples and `import.sh` scripts for the provider, resources, and data source |
+| `examples/` | Runnable HCL examples and `import.sh` scripts for the provider, resources, data sources, and permissions module |
 
 ## Non-Negotiable Go & Terraform Provider Laws
 
 1. **`docs/**` is 100% generated — never hand-edit `docs/`**: All Registry documentation lives in `templates/` and resource/data-source/provider `MarkdownDescription` schema attributes. After any schema, example, or template change, run `mise run docs` and verify zero drift with `mise run docs:check`. Hand-editing any file under `docs/` is a verification blocker.
 2. **Mandatory `TF_ACC=1` execution (anti-skip law)**: Running `go test` without `TF_ACC=1` silently skips all `TestAcc*` acceptance tests while reporting `PASS`. Never claim acceptance test verification without running `mise run test:acc` (`TF_ACC=1`) and confirming non-zero executed `TestAcc*` test counts in the output.
-3. **Zero unvalidated mocks — `kin-openapi` contract enforcement**: Never use ad-hoc `httptest.Server` stubs for Microsoft Fabric APIs. Every mock endpoint in `internal/testutil/fabricmock/` must validate both incoming requests and outgoing responses through `kin-openapi` (`openapi3filter`) against the vendored schemas in `specs/openapi/` and use typed `microsoft/fabric-sdk-go` models.
-4. **Vendored OpenAPI immutability (`specs/openapi/`)**: Never hand-edit `specs/openapi/**/*.json`, create repository-authored contract overlays, or fabricate digests in `specs/openapi/lock.json`. Every contract file must originate strictly from upstream `microsoft/fabric-rest-api-specs`. Only update vendored specs via `mise run specs:sync` followed by `mise run specs:check`.
+3. **Zero unvalidated mocks — `kin-openapi` contract enforcement**: Never use ad-hoc `httptest.Server` stubs for Microsoft Fabric APIs. Every mock endpoint in `internal/testutil/fabricmock/` and `internal/testutil/pbimock/` must validate both incoming requests and outgoing responses through `kin-openapi` (`openapi3filter`) against the vendored schemas in `specs/fabric/` or `specs/powerbi/metadata/openapi.json` and use typed models.
+4. **Vendored OpenAPI immutability (`specs/fabric/`)**: Never hand-edit `specs/fabric/**/*.json`, create repository-authored contract overlays, or fabricate digests in `specs/fabric/lock.json`. Every contract file must originate strictly from upstream `microsoft/fabric-rest-api-specs`. Only update vendored specs via `mise run specs:sync` followed by `mise run specs:check`.
 5. **Terraform Plugin Framework v6 lifecycle invariants**:
    - Use `terraform-plugin-framework` (Protocol v6) exclusively; never import legacy `terraform-plugin-sdk/v2`.
    - Every managed resource must implement `Create`, `Read`, `Update`, `Delete`, and `ImportState` (`resource.ResourceWithImportState`).
@@ -113,7 +114,7 @@ Respect [`DESIGN.md`](DESIGN.md), [`CONTRIBUTING.md`](CONTRIBUTING.md), [`ROADMA
 
 - **Terraform Plugin Framework**: Follow the installed `tessl` skills in `.agents/skills/` (`new-terraform-provider`, `provider-configuration`, `provider-resources`, `provider-test-patterns`, `provider-docs`, `terraform-style-guide`).
 - **Go Engineering Standards**: Follow the installed `tessl` Go skills (`golang-code-style`, `golang-error-handling`, `golang-concurrency`, `golang-context`, `golang-testing`, `golang-lint`, `golang-safety`, `golang-security`, `golang-documentation`).
-- **Microsoft Fabric API Contracts**: Validate all endpoints and payloads against the vendored specs in `specs/openapi/` (sourced from [`microsoft/fabric-rest-api-specs`](https://github.com/microsoft/fabric-rest-api-specs) and [`microsoft/fabric-sdk-go`](https://github.com/microsoft/fabric-sdk-go)).
+- **Microsoft Fabric & Power BI Contracts**: Validate all endpoints and payloads against the vendored specs in `specs/fabric/` (sourced from [`microsoft/fabric-rest-api-specs`](https://github.com/microsoft/fabric-rest-api-specs) and [`microsoft/fabric-sdk-go`](https://github.com/microsoft/fabric-sdk-go)) and `specs/powerbi/metadata/openapi.json`.
 
 ## Tessl Managed Rules & Local Precedence
 

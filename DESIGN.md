@@ -31,12 +31,12 @@ Microsoft's official [`microsoft/fabric` Terraform provider](https://registry.te
 
 | ID | Requirement Summary | Target Artifacts | Verification Gate |
 | :--- | :--- | :--- | :--- |
-| **REQ-001** | Refine `.docx` design into an authoritative, zero-gap specification resolving all API, concurrency, auth, and lifecycle defects | [`DESIGN.md`](DESIGN.md), `specs/*.spec.md` | `mise run spec:verify` |
-| **REQ-002** | Implement custom Go Terraform provider (`fabricext`) with `fabricext_lakehouse_data_access_role`, `fabricext_lakehouse_onelake_security`, and `fabricext_item` | `main.go`, `internal/credentials/`, `internal/client/`, `internal/provider/` | `mise run test:unit`, `mise run test:acc` |
+| **REQ-001** | Refine `.docx` design into an authoritative, zero-gap specification resolving all API, concurrency, auth, and lifecycle defects | [`DESIGN.md`](DESIGN.md), `specs/**/*.spec.md` | `mise run spec:verify` |
+| **REQ-002** | Implement custom Go Terraform provider (`fabricext`) with `fabricext_lakehouse_data_access_role`, `fabricext_lakehouse_onelake_security`, `fabricext_item`, `fabricext_warehouse_permission`, `fabricext_sql_database_permission`, `fabricext_lakehouse_permission`, and `fabricext_item_share_gate` | `main.go`, `internal/credentials/`, `internal/client/`, `internal/provider/` | `mise run test:unit`, `mise run test:acc` |
 | **REQ-003** | Provide reusable HCL wrapper module (`modules/permissions/`) and zero-module native `for_each` examples | `modules/permissions/*.tf`, `examples/` | `mise run lint`, `mise run scan` |
 | **REQ-004** | Consolidate all tooling and tasks into `mise.toml` (`minimum_release_age = "7d"`), retire `Taskfile.yaml`, and enforce `prek` hooks (`commitizen`, `rumdl`, `yamllint`, `zizmor`, `trivy`, `golangci-lint`) | `mise.toml`, `.pre-commit-config.yaml`, `trivy.yaml`, `.golangci.yaml`, `.rumdl.toml`, `.yamllint.yaml` | `mise run check`, `mise exec -- prek run --all-files` |
 | **REQ-005** | Generate and validate Registry documentation via `tfplugindocs` with prominent Stopgap and Pre-Alpha banners | `templates/index.md.tmpl`, `docs/`, `README.md` | `mise run docs:check` |
-| **REQ-006** | Vendor official `microsoft/fabric-rest-api-specs` OpenAPI definitions and enforce runtime request/response schema validation in mock tests via `kin-openapi` | `specs/openapi/`, `internal/testutil/fabricmock/` | `mise run specs:check`, `mise run test` |
+| **REQ-006** | Vendor official `microsoft/fabric-rest-api-specs` OpenAPI definitions in `specs/fabric/` and native Power BI metadata contract in `specs/powerbi/metadata/`, enforcing runtime schema validation in mock tests via `kin-openapi` | `specs/fabric/`, `specs/powerbi/metadata/`, `internal/testutil/fabricmock/`, `internal/testutil/pbimock/` | `mise run specs:check`, `mise run test` |
 | **REQ-007** | Implement StepSecurity-hardened GitHub Actions CI/CD (`jambazid/gha-actions` style) with automatic Conventional Commits release (`svu` + `goreleaser`) and 7-day Dependabot cooldown | `.github/workflows/ci.yaml`, `.github/dependabot.yaml`, `.goreleaser.yaml`, `terraform-registry-manifest.json` | `mise run scan`, `goreleaser check` |
 | **REQ-008** | Document contributor extensibility, roadmap/deprecation policy, and security posture | [`CONTRIBUTING.md`](CONTRIBUTING.md), [`ROADMAP.md`](ROADMAP.md), [`SECURITY.md`](SECURITY.md) | `mise run lint` |
 | **REQ-DOCS-008** | Purge active item-sharing implications for Warehouse and SQL Database across documentation, guides, module, and examples | `templates/**`, `docs/**`, `guides/`, `examples/`, `modules/permissions/` | `go test -run TestRegistryDocs_NoActiveItemSharingClaims`, `mise run docs:check` |
@@ -154,9 +154,11 @@ In Microsoft Fabric, creating a `Lakehouse` or `SQLDatabase` named `analytics_go
 - **Rate Limiting (`429 Too Many Requests`)**: Parses the `Retry-After` response header (seconds) and waits for the specified duration (or exponential backoff with jitter starting at `BaseBackoff` (`100ms` default) if `Retry-After` is absent), respecting `ctx.Done()`.
 - **Transient Server Errors (`502`, `503`, `504`)**: Retries up to `MaxRetries` (default `5`) with exponential backoff (`BaseBackoff * 2^attempt`) plus bounded jitter, respecting `ctx.Done()`.
 
-### 5.3 Removed Permissions Lifecycle
+### 5.3 Item Permissions Concurrency & Lifecycle
 
-Because Microsoft Fabric does not offer public REST endpoints for item-level sharing on Warehouses or SQL Databases, `fabricext_warehouse_permission` and `fabricext_sql_database_permission` were tombstoned in `v0.3.0` and removed in `v0.5.0`. Prior to removal, their lifecycle invariants operated entirely offline without network calls. Existing configurations should detach any legacy references using Terraform 1.7+ `removed` blocks with `lifecycle { destroy = false }`.
+Direct item-level sharing on Warehouses, SQL Databases, and Lakehouses is managed via Power BI metadata access endpoints (`/metadata/access` and `/metadata/access/notify`) discovered from the regional cluster cookie (`ClusterUri`). Because multiple resources or configurations may mutate permissions on the same item concurrently, mutations are synchronized using an in-memory per-item mutex (`getItemAccessLock(workspaceID, itemID)`).
+
+After issuing an access grant (`POST /metadata/access/notify`) or revocation (`PUT /metadata/access`), the client executes a bounded read-back verification polling loop (up to 10s) against `GET /metadata/access/artifacts/{itemId}` to verify that effective stored bitmasks match the requested state. If permissions fail to converge or are dropped, a `*SilentPermissionDropError` is returned. Drift is detected during `Read`: if an item share is missing or revoked out of band, `resp.State.RemoveResource(ctx)` cleanly unlinks the state.
 
 ### 5.4 Lakehouse Roles Concurrency
 
@@ -235,8 +237,9 @@ sequenceDiagram
 
 ### 5.5 Runtime OpenAPI Validation
 
-- All vendored Swagger 2.0 specs under `specs/openapi/` (`platform/`, `warehouse/`, `lakehouse/`, `sqlDatabase/`, and `common/`) are verified by SHA-256 digest in `specs/openapi/lock.json` and loaded at test initialization by `github.com/getkin/kin-openapi` (`openapi2` $\rightarrow$ `openapi2conv.ToV3`). All contract files strictly originate from upstream `microsoft/fabric-rest-api-specs`.
+- All vendored Swagger 2.0 specs under `specs/fabric/` (`platform/`, `warehouse/`, `lakehouse/`, `sqlDatabase/`, and `common/`) are verified by SHA-256 digest in `specs/fabric/lock.json` and loaded at test initialization by `github.com/getkin/kin-openapi` (`openapi2` $\rightarrow$ `openapi2conv.ToV3`). All contract files strictly originate from upstream `microsoft/fabric-rest-api-specs`.
 - `fabricmock.Server` wraps its stateful HTTP router in an `openapi3filter` validation middleware that validates **every incoming HTTP request** (`openapi3filter.ValidateRequest`) and **every outgoing HTTP response** (`openapi3filter.ValidateResponse`) against the converted OpenAPI v3 schemas.
+- `pbimock.Server` loads the native OpenAPI 3.0.3 contract in `specs/powerbi/metadata/openapi.json` and enforces runtime `openapi3filter` request/response schema validation across all Power BI metadata `/metadata/*` endpoints.
 
 ---
 
@@ -261,11 +264,17 @@ See the embedded Terraform Registry guide [`docs/guides/official_provider_compar
 
 ### 6.2 `fabricext_warehouse_permission` Resource
 
-- **Status**: Removed in `v0.5.0` (tombstoned in `v0.3.0`). Declarative item sharing via REST is unsupported in Microsoft Fabric. Warehouse connectivity is granted via the Fabric web portal, and fine-grained authorization is configured in-engine via T-SQL.
+- **Status**: Active (restored in `v0.7.0` via Power BI metadata access API).
+- **Composite ID & Import Format**: `{workspace_id}/{warehouse_id_or_name}/{principal_type}/{principal_id}`
+- **Permissions**: Set of strings (`Read`, `ReadData`, `ReadAll`, `Reshare`). Must include `Read`.
+- **Plan Modifiers**: `warehouse_id` uses `RequiresReplaceIfConfigured()` so upstream renames do not force replacement when configured by name.
 
 ### 6.3 `fabricext_sql_database_permission` Resource
 
-- **Status**: Removed in `v0.5.0` (tombstoned in `v0.3.0`). Declarative item sharing via REST is unsupported in Microsoft Fabric. Operational SQL database permissions are configured via portal UI and native database roles.
+- **Status**: Active (restored in `v0.7.0` via Power BI metadata access API).
+- **Composite ID & Import Format**: `{workspace_id}/{sql_database_id_or_name}/{principal_type}/{principal_id}`
+- **Permissions**: Set of strings (`Read`, `Write`, `ReadData`, `ReadAll`, `Reshare`, `Execute`). Must include `Read`.
+- **Plan Modifiers**: `sql_database_id` uses `RequiresReplaceIfConfigured()` so upstream renames do not force replacement when configured by name.
 
 ### 6.4 `fabricext_lakehouse_data_access_role` Resource
 
@@ -323,8 +332,8 @@ See the embedded Terraform Registry guide [`docs/guides/official_provider_compar
 ### 6.7 ADR: Atomic Resources
 
 - **Context**: A single workspace-wide resource (`fabricext_workspace_permissions_model`) accepting a nested map of all item permissions across a workspace was evaluated as an alternative to atomic per-item resources (`fabricext_*`) + HCL composition.
-- **Decision**: Reject the workspace-wide monolithic resource in favor of atomic resources (`fabricext_lakehouse_data_access_role`, `fabricext_lakehouse_onelake_security`) paired with native HCL `for_each` and the in-repo `modules/permissions/` submodule.
-- **Deprecation Context**: Early prototypes included `fabricext_warehouse_permission` and `fabricext_sql_database_permission`. In v0.3.0, comprehensive audits revealed that Microsoft Fabric does not offer public item-sharing REST endpoints for Warehouses or SQL Databases. Both resources were permanently tombstoned in v0.3.0 and removed in v0.5.0, focusing the provider strictly on Lakehouse OneLake Data Access Roles and security lifecycles.
+- **Decision**: Reject the workspace-wide monolithic resource in favor of atomic resources (`fabricext_warehouse_permission`, `fabricext_sql_database_permission`, `fabricext_lakehouse_permission`, `fabricext_lakehouse_data_access_role`, `fabricext_lakehouse_onelake_security`) paired with native HCL `for_each` and the in-repo `modules/permissions/` submodule.
+- **Evolution Context**: In `v0.5.0`, warehouse and SQL database permissions were temporarily removed pending discovery of the underlying item-sharing wire protocol. In `v0.7.0`, item-level sharing across Warehouses, SQL Databases, and Lakehouses was restored using the Power BI metadata access service with full OpenAPI schema contracts, read-back verification, and cross-plane Admin API verification gates.
 - **Rationale (HashiCorp Provider Design Principles)**:
   1. **One Resource, One API**: A workspace-wide resource conflates distinct APIs.
   2. **Failure Isolation**: Each OneLake role binding is tracked independently in `terraform.tfstate`.
@@ -514,3 +523,99 @@ Item sharing for Microsoft Fabric Warehouses and SQL Databases does not offer a 
 2. **Read**: Re-evaluates effective permissions. If the target item returns HTTP 404, or the principal is missing, or permissions no longer satisfy the match condition, calls `resp.State.RemoveResource(ctx)` and returns cleanly without error diagnostics. This ensures `terraform destroy` executes cleanly as a zero-op, while `terraform plan` detects drift and plans recreation.
 3. **Update**: In-place updates are permitted only for `expected_permissions` and `match_type`, triggering a re-poll. Changes to `workspace_id`, `item_id`, `principal_id`, `principal_type`, or `type` require resource replacement.
 4. **Delete**: Pure local state removal with zero network requests.
+
+---
+
+## 14. Drift Detection & Convergence
+
+### 14.1 Drift Scenario Matrix
+
+Every `Read` and `Delete` lifecycle operation addresses Fabric items strictly by immutable `state.ItemID` (never re-looking up by mutable `state.ItemName`), ensuring deterministic drift recovery across all eight real-world drift classes:
+
+| # | Out-of-Band Drift Scenario | Upstream Signal Observed in `Read` | State Action in `Read` | Graceful Terraform Convergence |
+| :--- | :--- | :--- | :--- | :--- |
+| **1** | **Direct share revoked in portal** (admin clicks *Remove access*; principal absent or `0/0` in `accessSource == nil`, even if principal retains a workspace role `accessSource != nil`) | `GetItemPermission` returns `*NotFoundError` | `resp.State.RemoveResource(ctx)` with zero error (`AGENTS.md` Law #5) | Terraform plans `+ create` and restores the exact configured `permissions` set via `UpsertItemPermission`. |
+| **2** | **Privilege creep in portal** (someone ticks extra checkboxes such as *ReadAll* or *Reshare* in the Fabric Share dialog) | `DecodePermissions` returns superset (e.g., `["Read", "ReadData", "ReadAll"]` vs HCL `["Read", "ReadData"]`) | Writes actual superset into `resp.State` | Terraform plans **in-place `~ update`** (`- "ReadAll"`) and executes **`PUT /metadata/access`** (exact overwrite, not `POST` OR-merge) to strip unauthorized extra bits without resource replacement. |
+| **3** | **Permission downgraded in portal** (someone unchecks *ReadData* or *Reshare*, leaving only `Read`) | `DecodePermissions` returns subset (`["Read"]`) | Writes actual subset into `resp.State` | Terraform plans **in-place `~ update`** (`+ "ReadData"`) and executes `PUT /metadata/access` + 10s read-back check to restore missing bits. |
+| **4** | **Pre-existing unmanaged portal share before `Create`** (share already exists in Fabric before Terraform adopts it) | Pre-flight `GET` inside `UpsertItemPermission` finds existing `accessSource == nil` row | `UpsertItemPermission` switches from `POST` to `PUT /metadata/access` with exact target bitmask | Converges existing share cleanly to exact HCL `permissions` without duplicate errors or leftover portal bits. |
+| **5** | **Unmanaged internal portal flag set** (e.g., `SubscribeOneLakeEvents = 32` added by portal telemetry alongside managed bits) | `storedArtifact` has bit `32` set | `DecodePermissions` projects strictly onto the workload's managed permission vocabulary | Zero phantom/perpetual diffs during `terraform plan`; `PUT` normalizes canonical bits on any subsequent `Update`. |
+| **6** | **Target item deleted in portal** (Warehouse, Lakehouse, or SQL Database deleted outside Terraform) | `GetItemByID(wsID, state.ItemID, itemType)` returns HTTP `404` (`*NotFoundError`) | `Read` calls `resp.State.RemoveResource(ctx)` cleanly; `Delete` treats `404` as idempotent success | `terraform apply` plans clean recreation once the item exists; `terraform destroy` never blocks on an already-deleted item. |
+| **7** | **Target item renamed in portal** (`sales_wh` renamed to `sales_wh_v2`) | `GetItemByID(wsID, state.ItemID, itemType)` returns `DisplayName = "sales_wh_v2"` | Updates `state.ItemName = "sales_wh_v2"`; invalidates `FabricClient` `(wsID, itemType)` name cache | • **Configured via `<item>_id` only**: `<item>_name` uses `stringplanmodifier.RequiresReplaceIfConfigured()`, so unconfigured computed name drift updates state seamlessly with **zero replacement**.<br>• **Configured via `<item>_name`**: Terraform plans replacement; `Delete` revokes on old `state.ItemID` cleanly and `Create` resolves `"sales_wh"` fresh from Fabric. |
+| **8** | **Wrong item type UUID configured/imported** (e.g., companion `SQLEndpoint` UUID passed to `fabricext_lakehouse_permission`) | `GetItemByID` returns `*UnsupportedItemTypeError` (not `*NotFoundError`) | Preserves state and emits `"Item Type Mismatch"` error diagnostic | Prevents infinite `RemoveResource` $\rightarrow$ plan-recreate loops and surfaces the exact expected vs actual item type. |
+
+### 14.2 Lifecycle State Flow
+
+```mermaid
+stateDiagram-v2
+    [*] --> RefreshRead: terraform plan / apply
+    RefreshRead --> CheckItem: GetItemByID(wsId, state.ItemId, itemType)
+    CheckItem --> RemoveState: HTTP 404 (*NotFoundError)
+    CheckItem --> EmitTypeError: Wrong ItemType (*UnsupportedItemTypeError)
+    CheckItem --> CheckACL: Item Exists & Type Matches
+    CheckACL --> RemoveState: Direct Share Absent or 0/0 (accessSource == nil)
+    CheckACL --> DecodeBits: Direct Share Present
+    DecodeBits --> NoOp: Decoded Set == Configured permissions
+    DecodeBits --> InPlacePUT: Extra or Missing Bits Detected
+    DecodeBits --> RenameHandled: DisplayName Changed Upstream
+    RemoveState --> PlanCreate: Terraform Plans + create (POST/PUT)
+    InPlacePUT --> Converged: PUT /metadata/access + 10s Read-Back
+    RenameHandled --> Converged: ID-Configured -> Update Computed Name Only\nName-Configured -> Replace via state.ItemId
+```
+
+### 14.3 Immutable Addressing Invariant
+
+1. **State Addressing**: In `Read` and `Delete`, the provider invokes `GetItemByID(wsID, state.ItemID, itemType)`. It never invokes lookup by display name during refresh.
+2. **Replacement Control**: `<item>_name` and `<item>_id` use `stringplanmodifier.RequiresReplaceIfConfigured()`. When a practitioner configures `<item>_id = "..."` without configuring `<item>_name`, upstream renaming updates the computed `<item>_name` in state with zero planned changes or resource replacements.
+3. **In-Place Overwrite**: When permissions drift out-of-band, Terraform issues an in-place `Update` (`ModifyPlan` does not force replacement for `permissions`). `UpsertItemPermission` issues `PUT /metadata/access`, overwriting the permission bitmask to match HCL exactly, followed by a 10-second read-back check.
+
+---
+
+## 15. Declarative Item Permissions
+
+### 15.1 Wire Protocol & Bitmasks
+
+Item-level permissions across Fabric Warehouses, Lakehouses, and SQL Databases are managed via undocumented Power BI `/metadata/access` endpoints using bijective bitmask encoding:
+
+1. **Core Permissions Bitmask**: `None = 0`, `Read = 1`, `Write = 2`, `ReShare = 4`, `Explore = 8`, `CopyOnWrite = 16`, `WriteCheckRelaxForReadOnlyGroup = 32`, `Execute = 64`, `Subscribe = 128`.
+2. **Workload Artifact Permissions Bitmask**:
+   - `Read = 1`, `ReadData = 2`, `ReadAll = 4`, `Reshare = 8`, `Monitor = 16`, `SubscribeOneLakeEvents = 32`, `Audit = 64`, `Restore = 128`.
+   - Resolved dynamically via `GET {cluster}/metadata/artifacts/definitions` with cached fallback.
+3. **Bijective Mapping**:
+   - `fabricext_warehouse_permission`: `Datawarehouse` definitions (`Read`, `ReadData`, `ReadAll`, `Reshare`, `Audit`, `Monitor`, `Restore`).
+   - `fabricext_lakehouse_permission`: `Lakehouse` definitions (`Read`, `ReadData`, `ReadAll`, `Execute`, `Reshare`).
+   - `fabricext_sql_database_permission`: `SQLDbNative` definitions (`Read`, `Write`, `Execute`, `Reshare`, `ReadData`, `ReadAll`).
+
+### 15.2 Cluster Discovery & SSRF
+
+1. **Bootstrap Discovery**: Cloned HTTP client with `CheckRedirect: http.ErrUseLastResponse` requests `GET https://app.powerbi.com/` (or sovereign cloud equivalent) with Power BI bearer token, following up to 5 manual hops and parsing raw `Set-Cookie: ClusterUri=...` headers.
+2. **AST URL Allowlist**: Validates cluster URI using `url.Parse`, requiring HTTPS, empty query/fragment/path, and verified domain suffix (`.analysis.windows.net`, `.analysis.usgovcloudapi.net`, `.analysis.chinacloudapi.cn`) or configured `powerbi_endpoint`.
+
+### 15.3 Principal XOR Rule
+
+Every mutation payload to `/metadata/access` sets either internal Power BI IDs (`userId`/`groupId` on existing shares) XOR Entra Object IDs (`userObjectId` for Users and Service Principals/Managed Identities, XOR `groupObjectId` for Groups), never both.
+
+### 15.4 Unified Module Architecture
+
+`modules/permissions` unifies all item-level permissions and Lakehouse OneLake roles under a single matrix schema:
+
+- Single `$.lakehouses` key composing both `permissions` (item shares) and `data_access_roles` (OneLake security).
+- Principal-UUID-keyed maps (`map(object(...))`) across `warehouses`, `sql_databases`, and `lakehouses` guaranteeing duplicate immunity.
+- Smart gating on `fabricext_lakehouse_onelake_security` via `optional(bool)` defaulting to `null`.
+
+### 15.5 Share Gate Sanity Lever
+
+Every `fabricext_*_permission` inside `modules/permissions` chains directly to a post-grant `fabricext_item_share_gate` Admin API verification resource:
+
+- `verify_item_shares = optional(bool, true)` at matrix root and per-item.
+- Chained with explicit `depends_on = [fabricext_*_permission.this]`.
+- Downstream OneLake roles and module outputs depend on the gate, throwing a hard apply failure if cross-plane effective ACL verification fails.
+
+### 15.6 Notification Routing & Messages
+
+Item permissions support optional recipient notification and custom message delivery:
+
+1. **Routing Mechanics**:
+   - When `notify = true`: Dispatches `POST {cluster}/metadata/access/notify` using `notifyAccessRequestBody` with `emailNotificationMessage`. If `message` is empty or unset, Power BI delivers its standard template.
+   - When `notify = false` (default): Grants execute silently via `POST /metadata/access` (new grant) or `PUT /metadata/access` (update) with `accessRequestBody`.
+2. **Schema Validation Invariant**: `message` strictly requires `notify = true`. Configuring `message` without enabling `notify` fails configuration validation with an actionable diagnostic.
+3. **Module Composition**: `modules/permissions` exposes top-level inputs `variable "notify"` and `variable "message"` providing module-level defaults, with optional per-principal overrides in the permission matrix (`coalesce(p.notify, var.notify)` and `coalesce(p.message, var.message)`).

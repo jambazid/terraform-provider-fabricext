@@ -32,13 +32,17 @@ When no static token is configured, the provider evaluates credentials in the fo
 
 ## Sovereign Cloud Environments
 
-The provider automatically routes token acquisition and API calls to Microsoft Fabric endpoints across sovereign cloud environments:
+The provider automatically routes token acquisition and API calls to Microsoft Fabric and Power BI metadata access endpoints across sovereign cloud environments:
 
-| Cloud Environment | `environment` Attribute | Microsoft Fabric Audience Scope | Default Endpoint |
-| :--- | :--- | :--- | :--- |
-| **Public** (Default) | `"public"` | `https://api.fabric.microsoft.com/.default` | `https://api.fabric.microsoft.com` |
-| **US Government** | `"usgovernment"` | `https://api.fabric.microsoft.us/.default` | `https://api.fabric.microsoft.us` |
-| **China** | `"china"` | `https://api.fabric.microsoft.cn/.default` | `https://api.fabric.microsoft.cn` |
+| Cloud Environment | `environment` Attribute | Microsoft Fabric Audience Scope | Power BI Audience Scope | Default Fabric Endpoint |
+| :--- | :--- | :--- | :--- | :--- |
+| **Public** (Default) | `"public"` | `https://api.fabric.microsoft.com/.default` | `https://analysis.windows.net/powerbi/api/.default` | `https://api.fabric.microsoft.com` |
+| **US Government** | `"usgovernment"` | `https://api.fabric.microsoft.us/.default` | `https://analysis.usgovcloudapi.net/powerbi/api/.default` | `https://api.fabric.microsoft.us` |
+| **China** | `"china"` | `https://api.fabric.microsoft.cn/.default` | `https://analysis.chinacloudapi.cn/powerbi/api/.default` | `https://api.fabric.microsoft.cn` |
+
+### Power BI Metadata Endpoint
+
+For declarative item permissions (`fabricext_warehouse_permission`, `fabricext_sql_database_permission`, `fabricext_lakehouse_permission`), the provider authenticates against Power BI metadata access services. Token acquisition occurs automatically through the configured Entra credential chain. Custom endpoints and pre-minted tokens can be configured via `powerbi_endpoint` and `powerbi_access_token` (or `FABRIC_POWERBI_ENDPOINT` / `FABRIC_POWERBI_ACCESS_TOKEN`).
 
 ### Sovereign Cloud Configuration
 

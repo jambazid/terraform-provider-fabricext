@@ -11,8 +11,10 @@ import sys
 import urllib.request
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
-OPENAPI_DIR = REPO_ROOT / "specs" / "openapi"
-LOCK_FILE = OPENAPI_DIR / "lock.json"
+FABRIC_DIR = REPO_ROOT / "specs" / "fabric"
+LOCK_FILE = FABRIC_DIR / "lock.json"
+PBI_METADATA_DIR = REPO_ROOT / "specs" / "powerbi" / "metadata"
+PBI_METADATA_SPEC = PBI_METADATA_DIR / "openapi.json"
 
 UPSTREAM_COMMITS_URL = "https://api.github.com/repos/microsoft/fabric-rest-api-specs/commits/main"
 SPEC_REL_PATHS = [
@@ -50,7 +52,7 @@ def sync_specs() -> int:
         with urllib.request.urlopen(url, timeout=30) as resp:
             raw_bytes = resp.read()
         json.loads(raw_bytes.decode("utf-8"))
-        out_path = OPENAPI_DIR / rel_path
+        out_path = FABRIC_DIR / rel_path
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_bytes(raw_bytes)
         files_lock[rel_path] = {
@@ -89,7 +91,7 @@ def check_specs() -> int:
                 file=sys.stderr,
             )
             return 1
-        file_path = OPENAPI_DIR / rel_path
+        file_path = FABRIC_DIR / rel_path
         if not file_path.is_file():
             print(f"ERROR: missing vendored OpenAPI file: {file_path}", file=sys.stderr)
             return 1
@@ -112,8 +114,39 @@ def check_specs() -> int:
             return 1
 
     print(
-        f"Verified {len(files_lock)} vendored OpenAPI specs (commit {lock_data.get('commit_sha', 'unknown')[:12]})."
+        f"Verified {len(files_lock)} vendored Fabric Swagger 2.0 specs (commit {lock_data.get('commit_sha', 'unknown')[:12]})."
     )
+    return 0
+
+
+def check_powerbi_metadata_spec() -> int:
+    if not PBI_METADATA_SPEC.is_file():
+        # If openapi.json is not yet created on disk, skip until Layer B
+        return 0
+
+    try:
+        doc = json.loads(PBI_METADATA_SPEC.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        print(f"ERROR: invalid JSON in {PBI_METADATA_SPEC}: {exc}", file=sys.stderr)
+        return 1
+
+    if doc.get("openapi") != "3.0.3":
+        print(f"ERROR: expected openapi 3.0.3 in {PBI_METADATA_SPEC}, got {doc.get('openapi')}", file=sys.stderr)
+        return 1
+
+    required_paths = [
+        "/metadata/access",
+        "/metadata/access/notify",
+        "/metadata/access/artifacts/{itemId}",
+        "/metadata/artifacts/definitions",
+    ]
+    paths = doc.get("paths", {})
+    for p in required_paths:
+        if p not in paths:
+            print(f"ERROR: {PBI_METADATA_SPEC} missing required path: {p}", file=sys.stderr)
+            return 1
+
+    print(f"Verified Power BI metadata OpenAPI 3.0.3 spec ({len(paths)} paths).")
     return 0
 
 
@@ -125,7 +158,10 @@ def main() -> int:
         rc = sync_specs()
         if rc != 0:
             return rc
-    return check_specs()
+    rc = check_specs()
+    if rc != 0:
+        return rc
+    return check_powerbi_metadata_spec()
 
 
 if __name__ == "__main__":

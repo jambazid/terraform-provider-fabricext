@@ -2,7 +2,7 @@
 page_title: "Official Fabric Provider Comparison & Migration Guide"
 subcategory: "Architecture & Migration"
 description: |-
-  Comparative architecture analysis between Microsoft's official Terraform provider (microsoft/fabric) and the jambazid/fabricext community extension provider, including dual-provider coexistence and Terraform 1.7+ state migration playbooks for Lakehouses, Warehouses, and SQL Databases.
+  Comparative architecture analysis between Microsoft's official Terraform provider (microsoft/fabric) and the jambazid/fabricext community extension provider, including item-level sharing, OneLake roles, and drift self-healing.
 ---
 
 # Official Fabric Provider Comparison
@@ -13,19 +13,21 @@ Comparative architecture analysis between Microsoft's official Terraform provide
 
 ## Executive Summary
 
-| Dimension | `microsoft/fabric` (Official) | `jambazid/fabricext` (Community) |
+| USP Dimension | `microsoft/fabric` (Official) | `jambazid/fabricext` (Community Extension) |
 | :--- | :--- | :--- |
-| **Scope** | Workspace and item lifecycle provisioning | Specialized Lakehouse OneLake Data Access Roles |
-| **API Layer** | Generated `fabric-sdk-go` client | Targeted REST client on official `platform/v1` APIs |
-| **OneLake Roles** | Preview endpoints (`preview = true`); single-role calls | GA bulk endpoints, mutex + ETag Read-Modify-Write (RMW), automated `DefaultReader` purge |
-| **Testing** | In-memory SDK fake clients; live cloud required for acceptance | Hermetic `fabricmock` + runtime `kin-openapi` contract validation |
+| **Item-Level Sharing (`Warehouse`, `SQLDatabase`, `Lakehouse`)** | Not supported (workspace-wide role assignments only) | Declarative `fabricext_{warehouse,sql_database,lakehouse}_permission` resources for least-privilege non-member access |
+| **Drift Detection & Self-Healing Convergence** | Portal item-share changes go untracked; OneLake roles hit [#1044](https://github.com/microsoft/terraform-provider-fabric/issues/1044) `objectType` drift | Stateful drift detection & graceful convergence: strips portal privilege creep and restores downgraded shares in place, recreates revoked shares, handles `<item>_id` renames with zero replacement, and preserves OneLake `PrincipalType` |
+| **Cross-Plane Effective ACL Verification** | None | Built-in read-back verification plus [`fabricext_item_share_gate`](../resources/item_share_gate.md) Admin API (`GET /v1/admin/.../users`) hard-failure sanity lever |
+| **OneLake Zero-Trust & Concurrency** | Preview-only; manual `DefaultReader` cleanup; unserialized calls | GA endpoints, automated `DefaultReader` purge (`fabricext_lakehouse_onelake_security`), and per-Lakehouse mutex + `If-Match` ETag RMW |
+| **Hermetic Contract & Drift Testing** | Go struct stubs (`fabcore/fake`); live capacity required for acceptance | Sub-10s hermetic `TF_ACC=1` suite against `fabricmock` (`specs/fabric/` Swagger 2.0) + `pbimock` (`specs/powerbi/metadata/` OAS 3.0.3) with automated drift-injection falsifiers |
 
 ### Architectural Trade-Off Analysis
 
 | Dimension | Cost | Impact | Risk |
 | :--- | :--- | :--- | :--- |
+| **Declarative Item Sharing** | Low | High: Least-privilege non-member access across all engines | Low: Pin provider versions for upstream service stability |
+| **Cross-Plane Share Gate** | Low | High: Independent Admin API verification before downstream tasks | Low: Optional lever (`verify_item_shares = false` for non-admins) |
 | **OneLake Specialization** | Low | High: Automated zero-trust `DefaultReader` purging | Low: Distinct `fabricext_*` prefix |
-| **Targeted REST Client** | Low | High: Concurrency-safe bulk role reconciliation | Low: OpenAPI contract validation |
 | **OneLake Concurrency** | Low | High: Race-safe updates under parallel `for_each` | Low: Identical import ID format |
 | **Offline Test Suite** | Low | High: Sub-10s hermetic `TF_ACC=1` acceptance testing | Low: Continuous Swagger sync checks |
 
@@ -37,15 +39,17 @@ Comparative architecture analysis between Microsoft's official Terraform provide
 
 `microsoft/fabric` is the official general-purpose Terraform provider for Microsoft Fabric infrastructure. It manages workspaces, capacities, domains, and first-wave items (Notebooks, Lakehouses, Warehouses, SQL Databases, Data Pipelines), alongside workspace role assignments.
 
-`jambazid/fabricext` is a specialized security companion provider designed specifically to manage Lakehouse OneLake Data Access Roles and security lifecycles with strict concurrency safety.
+`jambazid/fabricext` is a specialized security companion provider designed specifically to manage direct item-level sharing permissions and Lakehouse OneLake Data Access Roles with strict concurrency safety and stateful drift self-healing.
 
-### Item Sharing Platform Reality
+### Declarative Item Sharing USP
 
-A common misconception in early provider prototypes was that Microsoft Fabric exposed public REST endpoints for item-level permissions on Warehouses and SQL Databases. Comprehensive factual audits against upstream [`microsoft/fabric-rest-api-specs`](https://github.com/microsoft/fabric-rest-api-specs) confirmed that **no such REST endpoints exist in Microsoft Fabric**:
+Microsoft Fabric workspace roles (Admin, Member, Contributor, Viewer) grant broad access across every item in a workspace. For enterprise least-privilege architectures, organizations require granular item-level sharing:
 
-1. **Neither Provider Automates Item Sharing via REST**: The official provider does not offer item-sharing resources for Warehouses or SQL Databases because Microsoft Fabric lacks the underlying REST API. `jambazid/fabricext` removed its early prototype resources (`fabricext_warehouse_permission` and `fabricext_sql_database_permission`) in `v0.5.0`.
-2. **Supported Administration Pattern**: For Warehouses and SQL Databases, item connectivity must be granted via the Fabric Portal UI Share quick action, while all fine-grained authorization is configured in-database using standard T-SQL permissions (`GRANT`, `REVOKE`, `DENY`).
-3. **Where `fabricext` Provides Technical Value**: `fabricext` focuses entirely on areas where the Fabric platform exposes robust, public REST APIs: Lakehouse OneLake Data Access Roles (`/dataAccessRoles`), automated `DefaultReader` purging, RFC 9110 ETag optimistic locking, and cycle-safe multi-page role pagination.
+1. **Declarative Item Permissions**: `jambazid/fabricext` provides `fabricext_warehouse_permission`, `fabricext_sql_database_permission`, and `fabricext_lakehouse_permission` to grant non-member principals direct access (such as `["Read"]`, `["Read", "ReadData"]`, or `["Read", "ReadData", "Execute"]`) to specific items without workspace membership.
+2. **Stateful Drift Self-Healing**: When item permissions are modified out-of-band in the Fabric portal, `fabricext` detects the drift during refresh and converges back to the declared configuration in place.
+3. **Cross-Plane Verification**: Through `fabricext_item_share_gate`, the provider queries the official Fabric Admin API (`GET /v1/admin/workspaces/{workspaceId}/items/{itemId}/users`) to verify that granted permissions are active in effective ACLs before downstream operations proceed.
+
+~> **Note:** Item-level permission resources call internal Power BI service endpoints because Microsoft Fabric does not yet offer a v1 REST write API for item sharing. Endpoint behavior may change without notice; pin provider versions and validate upgrades in non-production workspaces first.
 
 ### OneLake Roles Comparison
 
@@ -65,16 +69,16 @@ A common misconception in early provider prototypes was that Microsoft Fabric ex
 
 #### OneLake Roles vs Sharing
 
-Practitioners sometimes conflate Fabric item-level sharing with OneLake Data Access Roles:
+Fabric item-level sharing and OneLake Data Access Roles address distinct layers:
 
-- **OneLake Data Access Roles** (Storage Layer): Both `microsoft/fabric` (`fabric_onelake_data_access_security`) and `jambazid/fabricext` (`fabricext_lakehouse_data_access_role`) manage OneLake Data Access Roles via the OneLake Data Access Security API (`/v1/.../items/{id}/dataAccessRoles`). These roles govern fine-grained access to Parquet tables, folders, rows (RLS), and columns (CLS) in OneLake storage.
-- **Lakehouse Item-Level Sharing** (Workspace Layer): Fabric item-level sharing (`ReadAll` workspace share grants at the Fabric item level) does not currently have a public REST API for Lakehouses, as discussed in [microsoft/terraform-provider-fabric#425](https://github.com/microsoft/terraform-provider-fabric/issues/425). Neither provider manages Lakehouse item-level sharing until Microsoft makes that API available.
+- **Item-Level Sharing** (Workspace Item Layer): Governs whether a principal can connect to, read metadata from, or execute queries against a Warehouse, SQL Database, or Lakehouse item. Managed via `fabricext_{warehouse,sql_database,lakehouse}_permission`.
+- **OneLake Data Access Roles** (Storage Layer): Governs fine-grained access to Parquet tables, folders, rows (RLS), and columns (CLS) in OneLake storage for Lakehouse items. Managed via `fabricext_lakehouse_data_access_role`.
 
 ---
 
 ## Authentication and Dual-Provider Coexistence
 
-Practitioners frequently run `microsoft/fabric` (to provision workspaces and items) and `jambazid/fabricext` (to manage item permissions) side by side in the same root module.
+Practitioners frequently run `microsoft/fabric` (to provision workspaces and items) and `jambazid/fabricext` (to manage item permissions and OneLake roles) side by side in the same root module.
 
 ### Credential and Environment Parity
 
@@ -83,6 +87,7 @@ Practitioners frequently run `microsoft/fabric` (to provision workspaces and ite
 | Attribute | `microsoft/fabric` Env Vars | `jambazid/fabricext` Env Vars | Notes |
 | :--- | :--- | :--- | :--- |
 | `endpoint` | `FABRIC_ENDPOINT` | `FABRIC_ENDPOINT` | Defaults to `https://api.fabric.microsoft.com` (normalized to `/v1` automatically). |
+| `powerbi_endpoint` | *(Not supported)* | `FABRIC_POWERBI_ENDPOINT` | Power BI cluster discovery endpoint. Defaults to `https://app.powerbi.com`. |
 | `tenant_id` | `FABRIC_TENANT_ID` | `AZURE_TENANT_ID`, `ARM_TENANT_ID`, `FABRIC_TENANT_ID` | Entra ID tenant UUID. |
 | `client_id` | `FABRIC_CLIENT_ID` | `AZURE_CLIENT_ID`, `ARM_CLIENT_ID`, `FABRIC_CLIENT_ID` | Service Principal / Managed Identity client ID. |
 | `client_secret` | `FABRIC_CLIENT_SECRET` | `AZURE_CLIENT_SECRET`, `ARM_CLIENT_SECRET`, `FABRIC_CLIENT_SECRET` | Marked `Sensitive: true` and redacted via `Credentials.String()` / `GoString()`. |
@@ -90,12 +95,13 @@ Practitioners frequently run `microsoft/fabric` (to provision workspaces and ite
 | `use_msi` | `FABRIC_USE_MSI` | `AZURE_USE_MSI`, `ARM_USE_MSI`, `FABRIC_USE_MSI` | Uses `azidentity.NewManagedIdentityCredential`. |
 | `use_cli` | `FABRIC_USE_CLI` | `AZURE_USE_CLI`, `ARM_USE_CLI`, `FABRIC_USE_CLI` | Uses `azidentity.NewAzureCLICredential`. |
 | `access_token` | *(Not supported)* | `FABRIC_ACCESS_TOKEN` | Static bearer token override; enables zero-network `TF_ACC=1` testing. |
+| `powerbi_access_token`| *(Not supported)* | `FABRIC_POWERBI_ACCESS_TOKEN` | Static Power BI bearer token override; falls back to `access_token`. |
 | `timeout` / `request_timeout` | `FABRIC_TIMEOUT` | `FABRIC_REQUEST_TIMEOUT` | HTTP timeout: `microsoft/fabric` uses `timeout` (default `"10m"`); `fabricext` uses `request_timeout` (default `"60s"`). |
 | `skip_credentials_validation` | *(Not supported)* | `FABRIC_SKIP_CREDENTIALS_VALIDATION` | Skips eager token validation in `Configure()` when set to `true`. |
 
 ### Dual-Provider HCL Pattern
 
-Because active `jambazid/fabricext` resources accept human-readable item names (such as `lakehouse_name`) and resolve them via a paginated, type-isolated `(workspaceID, itemType, displayName)` cache, referencing `display_name` from a `microsoft/fabric` resource automatically establishes the Terraform dependency graph edge:
+Because active `jambazid/fabricext` resources accept human-readable item names (such as `lakehouse_name`) and resolve them via a paginated, type-isolated cache, referencing `display_name` from a `microsoft/fabric` resource automatically establishes the Terraform dependency graph edge:
 
 {{ tffile "examples/provider/dual_provider.tf" }}
 
@@ -124,27 +130,23 @@ Because active `jambazid/fabricext` resources accept human-readable item names (
 
 ┌──────────────────────────────────────────────────────────────────────────────────┐
 │ jambazid/terraform-provider-fabricext (Community Extension)                      │
-│   Unit & Acceptance ───► fabricmock ──► kin-openapi (openapi3filter)             │
-│   (TF_ACC=1 Hermetic)   (In-Memory)     ├── Request & Response Schema Validation │
-│                                         └── Vendored specs/openapi/*.json        │
+│   Unit & Acceptance ───► fabricmock (specs/fabric/) + pbimock (specs/powerbi/)   │
+│   (TF_ACC=1 Hermetic)   ├── kin-openapi (openapi3filter) runtime validation      │
+│                         └── Dual Swagger 2.0 & OpenAPI 3.0.3 contract adherence │
 └──────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-~> **Note:** An interactive graphical flowchart is rendered natively in the [GitHub Comparison Guide](https://github.com/jambazid/terraform-provider-fabricext/blob/main/guides/official_provider_comparison.md#testing-and-verification-comparison).
-
 - **Why `kin-openapi` Contract Validation Matters**:
   - Go struct fakes (`fabcore/fake`) only test that the provider passes Go structs matching the current SDK version; they do not validate URL routing, query parameters, ETag headers (`ETag` / `If-Match`), or JSON wire serialization against the OpenAPI specification.
-  - `internal/testutil/fabricmock/server.go` converts the vendored Swagger 2.0 specs (`specs/openapi/`) into OpenAPI v3 via `kin-openapi/openapi2conv` and validates every incoming HTTP request and outgoing HTTP response across `fabricmock`-backed unit tests and acceptance tests (`mise run test:acc` with `TF_ACC=1`).
+  - `internal/testutil/fabricmock/server.go` converts the vendored Swagger 2.0 specs (`specs/fabric/`) into OpenAPI v3 via `kin-openapi/openapi2conv`, while `internal/testutil/pbimock/server.go` validates against OpenAPI 3.0.3 (`specs/powerbi/metadata/openapi.json`). Every incoming HTTP request and outgoing HTTP response is verified during acceptance tests (`mise run test:acc` with `TF_ACC=1`).
 
 ---
 
 ## State Migration Playbook
 
-For Lakehouse OneLake Data Access Roles, when `microsoft/fabric` promotes its preview `fabric_onelake_data_access_security` resource to GA, practitioners can migrate state upstream with **zero permission revocation or downtime** using Terraform 1.7+ `removed` and `import` blocks. For Warehouse and SQL Database configurations, state is cleanly detached using `removed` blocks because item sharing is administered via the Fabric Portal UI and database T-SQL rather than REST.
+For Lakehouse OneLake Data Access Roles, when `microsoft/fabric` promotes its preview `fabric_onelake_data_access_security` resource to GA, practitioners can migrate state upstream with **zero permission revocation or downtime** using Terraform 1.7+ `removed` and `import` blocks.
 
 ~> **Important:** **Terraform Version Prerequisite**: Declarative `removed` blocks with `lifecycle { destroy = false }` require Terraform `>= 1.7.0`. For deployments running Terraform 1.6.x, practitioners should use the imperative CLI command `terraform state rm <resource_address>` prior to applying the target `import` block.
-
-~> **Important:** **Retrieving Resolved Item UUIDs Before Migration**: Every `jambazid/fabricext` permission resource stores the resolved Fabric item UUID in state (`lakehouse_id`, `warehouse_id`, or `sql_database_id`). Before replacing a `fabricext_*` resource block, inspect state with `terraform state show` (or reference `data.fabricext_item`) to obtain the item UUID for your `import` block.
 
 ### Lakehouse Role Migration
 
@@ -175,39 +177,19 @@ import {
 }
 ```
 
-### Warehouse State Detachment Playbook
+### Declarative Item Permission Management
 
-`fabricext_warehouse_permission` was removed in `v0.5.0` because Microsoft Fabric does not offer a public REST API for Warehouse item sharing. Existing configurations can detach legacy state using Terraform 1.7+ `removed` blocks:
-
-```hcl
-# Detach from Terraform state without attempting to revoke in Fabric
-removed {
-  from = fabricext_warehouse_permission.analysts
-
-  lifecycle {
-    destroy = false
-  }
-}
-```
-
-Item connectivity must be granted via the Fabric Portal UI Share quick action, while granular data access is governed via in-database T-SQL permissions (`GRANT SELECT`, `DENY`, and Row-Level Security policies).
-
-### SQL Database State Detachment Playbook
-
-`fabricext_sql_database_permission` was removed in `v0.5.0` because Microsoft Fabric does not offer a public REST API for SQL Database item sharing. Existing configurations can detach legacy state using Terraform 1.7+ `removed` blocks:
+For Warehouses, SQL Databases, and Lakehouses, direct item-level sharing permissions are declaratively managed using `fabricext_*_permission` resources:
 
 ```hcl
-# Detach from Terraform state without attempting to revoke in Fabric
-removed {
-  from = fabricext_sql_database_permission.orders_tds_readers
-
-  lifecycle {
-    destroy = false
-  }
+resource "fabricext_warehouse_permission" "analysts" {
+  workspace_id   = var.workspace_id
+  warehouse_name = "sales_analytics_wh"
+  principal_id   = var.analysts_group_id
+  principal_type = "Group"
+  permissions    = ["Read", "ReadData"]
 }
 ```
-
-Item connectivity must be granted via the Fabric Portal UI Share quick action, while table and schema access is governed via in-database T-SQL permissions or Microsoft Purview policies.
 
 ---
 
@@ -220,6 +202,4 @@ Item connectivity must be granted via the Fabric Portal UI Share quick action, w
 | **[Security Controls & Interactions](use_case_controls_and_interactions.md)** | Precedence rules and override behaviors across tiers. |
 | **[Warehouse Schema Isolation](use_case_warehouse_schema_isolation.md)** | Least-privilege `read` connectivity, Entra ID naming, and SQL RBAC. |
 | **[Lakehouse OneLake Security](use_case_lakehouse_onelake_security.md)** | Data Access Roles, path filters, storage RLS/CLS, and shortcuts. |
-| **[Declarative Matrix Composition](matrix_composition.md)** | Scaling OneLake roles across Lakehouses using HCL `for_each` and module. |
-
-
+| **[Declarative Matrix Composition](matrix_composition.md)** | Scaling OneLake roles and item permissions across items using module. |

@@ -11,7 +11,7 @@ In enterprise data platforms, multi-tenant databases frequently host datasets ac
 
 This guide demonstrates how to achieve strict schema isolation in Microsoft Fabric Warehouses: granting an identity access to a single schema (e.g. `finance`) while completely hiding and denying access to all other schemas.
 
-!> **Important:** **Item Sharing via Portal UI**: Declarative item sharing via REST (`fabricext_warehouse_permission`) was removed in provider v0.5.0 because Microsoft Fabric does not offer a public item-sharing REST endpoint for Warehouses. Item-level sharing must be configured using the Fabric web portal interface, and fine-grained data access should be implemented using in-database T-SQL permissions (`GRANT`/`REVOKE`/`DENY`). Refer to the [Access Control Playbook](./access_control_playbook.md) for full scenario walkthroughs.
+~> **Note:** **Declarative Item Sharing**: Item-level sharing for Warehouses can be declaratively managed in Terraform using `fabricext_warehouse_permission` and verified via `fabricext_item_share_gate`. Fine-grained data access inside the warehouse is implemented using in-database T-SQL permissions (`GRANT`/`REVOKE`/`DENY`). Refer to the [Access Control Playbook](./access_control_playbook.md) for full scenario walkthroughs.
 
 ---
 
@@ -73,19 +73,28 @@ A frequent practitioner question is how Microsoft Entra ID identities map betwee
 
 ### In Terraform Providers
 
-~> **Important:** Declarative management via `fabricext_warehouse_permission` was removed in v0.5.0. Existing Terraform state can be safely detached using Terraform 1.7+ `removed` blocks:
+Item-level connectivity is declaratively provisioned in Terraform using `fabricext_warehouse_permission`:
 
 ```hcl
-removed {
-  from = fabricext_warehouse_permission.finance_access
+resource "fabricext_warehouse_permission" "finance_access" {
+  workspace_id   = var.workspace_id
+  warehouse_id   = var.warehouse_id
+  principal_id   = var.finance_analysts_group_id
+  principal_type = "Group"
+  permissions    = ["Read"]
+}
 
-  lifecycle {
-    destroy = false
-  }
+# Optional verification gate ensuring Fabric Admin API sees the effective grant:
+resource "fabricext_item_share_gate" "finance_access" {
+  workspace_id         = var.workspace_id
+  item_id              = var.warehouse_id
+  principal_id         = var.finance_analysts_group_id
+  principal_type       = "Group"
+  expected_permissions = ["Read"]
+
+  depends_on = [fabricext_warehouse_permission.finance_access]
 }
 ```
-
-Item connectivity should be granted via the Fabric web portal using the Microsoft Entra Object ID (UUID) or display name.
 
 ### In T-SQL Engine
 
@@ -113,14 +122,14 @@ GRANT SELECT ON SCHEMA::finance TO [external_user#EXT#@tenant.onmicrosoft.com];
 
 | Plane | Tool | Identity Identifier | Rationale |
 | :--- | :--- | :--- | :--- |
-| **Item Gate** | Fabric Web Portal (REST unsupported) | Microsoft Entra **Display Name / UPN** | Interactive share dialog in Fabric Portal grants item connectivity (`CONNECT`). |
+| **Item Gate** | `fabricext_warehouse_permission` or Portal | Microsoft Entra **Object ID (UUID)** (IaC) / **UPN** (Portal) | Declarative `fabricext_warehouse_permission` or portal share grants item connectivity (`CONNECT`). |
 | **SQL Engine** | T-SQL / Schema Operator | Microsoft Entra **Display Name / UPN** | Human-readable in DBA query plans, SSMS Object Explorer, and audit logs. |
 
 ---
 
 ## Declarative RBAC Automation
 
-While item connectivity is established via the Fabric web portal share dialog, managing internal database schemas, tables, roles, and `GRANT SELECT` statements across dozens of Warehouses is typically automated using a declarative database schema management tool or migration framework (such as [Atlas](https://atlasgo.io/), Flyway, Liquibase, or the Terraform `mssql` provider).
+While item connectivity is established declaratively via `fabricext_warehouse_permission` (or the Fabric web portal), managing internal database schemas, tables, roles, and `GRANT SELECT` statements across dozens of Warehouses is typically automated using a declarative database schema management tool or migration framework (such as [Atlas](https://atlasgo.io/), Flyway, Liquibase, or the Terraform `mssql` provider).
 
 ### End-to-End Governance Model
 

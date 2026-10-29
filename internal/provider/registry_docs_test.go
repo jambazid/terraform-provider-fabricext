@@ -19,6 +19,10 @@ func TestRegistryDocs_ExperimentalBannerPresent(t *testing.T) {
 		"../../README.md",
 		"../../templates/resources/lakehouse_data_access_role.md.tmpl",
 		"../../templates/resources/lakehouse_onelake_security.md.tmpl",
+		"../../templates/resources/warehouse_permission.md.tmpl",
+		"../../templates/resources/sql_database_permission.md.tmpl",
+		"../../templates/resources/lakehouse_permission.md.tmpl",
+		"../../templates/resources/item_share_gate.md.tmpl",
 	}
 
 	for _, file := range requiredFiles {
@@ -34,27 +38,20 @@ func TestRegistryDocs_ExperimentalBannerPresent(t *testing.T) {
 	}
 }
 
-// TestRegistryDocs_DeprecationNoticePresent verifies that warehouse and sql database templates
-// were removed from templates/resources/ and their removal is documented.
-func TestRegistryDocs_DeprecationNoticePresent(t *testing.T) {
-	removedFiles := []string{
+// TestRegistryDocs_ActivePermissionResourcesPresent verifies that warehouse, sql database,
+// lakehouse permission, and item share gate templates are present in templates/resources/.
+func TestRegistryDocs_ActivePermissionResourcesPresent(t *testing.T) {
+	requiredFiles := []string{
 		"../../templates/resources/warehouse_permission.md.tmpl",
 		"../../templates/resources/sql_database_permission.md.tmpl",
+		"../../templates/resources/lakehouse_permission.md.tmpl",
+		"../../templates/resources/item_share_gate.md.tmpl",
 	}
 
-	for _, file := range removedFiles {
-		if _, err := os.Stat(file); !os.IsNotExist(err) {
-			t.Errorf("deprecated file %s should be removed from templates/resources/", file)
+	for _, file := range requiredFiles {
+		if _, err := os.Stat(file); err != nil {
+			t.Errorf("active resource template %s missing from templates/resources/: %v", file, err)
 		}
-	}
-
-	// Verify removal is documented in ROADMAP.md
-	roadmapContent, err := os.ReadFile("../../ROADMAP.md")
-	if err != nil {
-		t.Fatalf("failed to read ROADMAP.md: %v", err)
-	}
-	if !strings.Contains(string(roadmapContent), "v0.5.0") {
-		t.Errorf("ROADMAP.md missing removal target version v0.5.0")
 	}
 }
 
@@ -261,9 +258,10 @@ func TestRegistryDocs_GuidesReorganizationAndPhrasing(t *testing.T) {
 			t.Errorf("guide %s still has 'Use Cases:' prefix in page_title", entry.Name())
 		}
 
-		// 3. Verify zero legacy fabricext_lakehouse_permission references
-		if strings.Contains(str, "fabricext_lakehouse_permission") {
-			t.Errorf("guide %s still contains legacy 'fabricext_lakehouse_permission'", entry.Name())
+		// 3. Verify legacy fabricext_lakehouse_permission is not declared as a role resource (with role_name)
+		legacyRoleRegex := regexp.MustCompile(`(?s)resource\s+"fabricext_lakehouse_permission"[^{]*\{[^}]*role_name`)
+		if legacyRoleRegex.MatchString(str) {
+			t.Errorf("guide %s declares fabricext_lakehouse_permission with legacy OneLake role_name attribute", entry.Name())
 		}
 	}
 
