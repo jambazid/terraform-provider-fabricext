@@ -4,6 +4,8 @@ updates:
   - package-ecosystem: gomod
     directory: /
     target-branch: main
+    labels:
+      - "skip-changelog"
     assignees:
       - jambazid
     reviewers:
@@ -14,14 +16,21 @@ updates:
       prefix: build(deps)
     cooldown:
       default-days: 7
+    exclude-paths:
+      - ".mise/locks/**"
     groups:
       terraform-plugin:
         patterns:
           - "github.com/hashicorp/terraform-plugin-*"
+      gomod:
+        patterns:
+          - "*"
 
   - package-ecosystem: github-actions
     directory: /
     target-branch: main
+    labels:
+      - "skip-changelog"
     assignees:
       - jambazid
     reviewers:
@@ -32,6 +41,8 @@ updates:
       prefix: ci(deps)
     cooldown:
       default-days: 7
+    exclude-paths:
+      - ".mise/locks/**"
     groups:
       github-actions:
         patterns:
@@ -40,6 +51,8 @@ updates:
   - package-ecosystem: terraform
     directory: /modules/permissions
     target-branch: main
+    labels:
+      - "skip-changelog"
     assignees:
       - jambazid
     reviewers:
@@ -50,3 +63,9 @@ updates:
       prefix: build(deps)
     cooldown:
       default-days: 7
+    exclude-paths:
+      - ".mise/locks/**"
+    groups:
+      terraform:
+        patterns:
+          - "*"
