@@ -14,10 +14,15 @@ updates:
       prefix: build(deps)
     cooldown:
       default-days: 7
+    exclude-paths:
+      - ".mise/locks/**"
     groups:
       terraform-plugin:
         patterns:
           - "github.com/hashicorp/terraform-plugin-*"
+      gomod:
+        patterns:
+          - "*"
 
   - package-ecosystem: github-actions
     directory: /
@@ -32,6 +37,8 @@ updates:
       prefix: ci(deps)
     cooldown:
       default-days: 7
+    exclude-paths:
+      - ".mise/locks/**"
     groups:
       github-actions:
         patterns:
@@ -50,3 +57,9 @@ updates:
       prefix: build(deps)
     cooldown:
       default-days: 7
+    exclude-paths:
+      - ".mise/locks/**"
+    groups:
+      terraform:
+        patterns:
+          - "*"
