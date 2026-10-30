@@ -167,7 +167,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ArtifactAccessResponse"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ArtifactAccessEntity"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ArtifactAccessResponse"
+                    }
+                  ]
                 }
               }
             }
@@ -179,7 +186,14 @@
             "description": "Forbidden"
           },
           "404": {
-            "description": "Item Not Found"
+            "description": "Item Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
         }
       }
@@ -239,6 +253,46 @@
             "items": {
               "$ref": "#/components/schemas/ArtifactGrantEntry"
             }
+          }
+        },
+        "required": [
+          "dashboards",
+          "reports",
+          "workbooks",
+          "models",
+          "datamarts",
+          "artifacts"
+        ],
+        "additionalProperties": false
+      },
+      "NotifyAccessRequest": {
+        "type": "object",
+        "properties": {
+          "dashboards": {
+            "type": "array",
+            "items": { "type": "object" }
+          },
+          "reports": {
+            "type": "array",
+            "items": { "type": "object" }
+          },
+          "workbooks": {
+            "type": "array",
+            "items": { "type": "object" }
+          },
+          "models": {
+            "type": "array",
+            "items": { "type": "object" }
+          },
+          "datamarts": {
+            "type": "array",
+            "items": { "type": "object" }
+          },
+          "artifacts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ArtifactGrantEntry"
+            }
           },
           "emailNotificationMessage": {
             "type": "string",
@@ -254,14 +308,6 @@
           "artifacts"
         ],
         "additionalProperties": false
-      },
-      "NotifyAccessRequest": {
-        "allOf": [
-          { "$ref": "#/components/schemas/AccessRequest" }
-        ],
-        "required": [
-          "emailNotificationMessage"
-        ]
       },
       "ArtifactGrantEntry": {
         "type": "object",
@@ -285,20 +331,24 @@
           },
           "userId": {
             "type": "integer",
+            "nullable": true,
             "description": "Internal Power BI user identifier"
           },
           "groupId": {
             "type": "integer",
+            "nullable": true,
             "description": "Internal Power BI group identifier"
           },
           "userObjectId": {
             "type": "string",
             "format": "uuid",
+            "nullable": true,
             "description": "Entra User or Service Principal Object ID"
           },
           "groupObjectId": {
             "type": "string",
             "format": "uuid",
+            "nullable": true,
             "description": "Entra Security Group Object ID"
           },
           "isServicePrincipal": {
@@ -337,6 +387,12 @@
           "displayName": {
             "type": "string"
           },
+          "permissions": {
+            "type": "integer"
+          },
+          "artifactPermissions": {
+            "type": "integer"
+          },
           "detail": {
             "type": "array",
             "items": {
@@ -366,6 +422,10 @@
             "type": "string",
             "format": "uuid"
           },
+          "objectId": {
+            "type": "string",
+            "format": "uuid"
+          },
           "userObjectId": {
             "type": "string",
             "format": "uuid"
@@ -387,9 +447,22 @@
             "type": "integer"
           },
           "accessSource": {
-            "type": "integer",
             "nullable": true,
-            "description": "Null for direct item grants; non-null integer for workspace-inherited roles"
+            "description": "Null for direct item grants; object or integer for workspace-inherited roles",
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "folderRole": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": true
+              },
+              {
+                "type": "integer"
+              }
+            ]
           }
         },
         "additionalProperties": false

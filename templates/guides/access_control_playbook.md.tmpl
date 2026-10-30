@@ -227,7 +227,16 @@ Find your target scenario based on the engine, the identity type, and the desire
 - **Workspace Role**: `Viewer` or `None` on Workspace B.
 - **Terraform Configuration**:
   ```hcl
-  # In Workspace B (Target Lakehouse):
+  # 1. Grant item Read and ReadAll sharing on source Lakehouse
+  resource "fabricext_lakehouse_permission" "source_readers" {
+    workspace_id   = var.source_workspace_id
+    lakehouse_id   = var.source_lakehouse_id
+    principal_id   = var.consumer_group_id
+    principal_type = "Group"
+    permissions    = ["Read", "ReadAll"]
+  }
+
+  # 2. In Workspace B (Target Lakehouse):
   # Grant virtualized member access derived from item ReadAll sharing
   resource "fabricext_lakehouse_data_access_role" "cross_workspace_readers" {
     workspace_id = var.target_workspace_id
@@ -244,6 +253,10 @@ Find your target scenario based on the engine, the identity type, and the desire
       source_path = "${var.source_workspace_id}/${var.source_lakehouse_id}"
       item_access = ["ReadAll"]
     }
+
+    depends_on = [
+      fabricext_lakehouse_permission.source_readers,
+    ]
   }
   ```
 - **Portal & T-SQL Steps**: Create the OneLake-to-OneLake shortcut in Lakehouse A pointing to `Tables/shared_dimension` in Lakehouse B.
@@ -305,7 +318,7 @@ Find your target scenario based on the engine, the identity type, and the desire
 ## P7: SQL Database Application Backend
 
 - **Goal**: Allow an application backend service principal to read and write tables in a Microsoft Fabric SQL Database.
-- **Provider Support**: Fully supported via `fabricext_sql_database_permission` (declarative `Read` and `ReadWrite` item sharing) + T-SQL user/role grants.
+- **Provider Support**: Fully supported via `fabricext_sql_database_permission` (declarative `Read` and `Write` item sharing) + T-SQL user/role grants.
 - **Prerequisites**: Fabric SQL Database; Microsoft Entra Service Principal.
 - **Workspace Role**: None (`None`).
 - **Terraform Configuration**:
@@ -315,7 +328,7 @@ Find your target scenario based on the engine, the identity type, and the desire
     database_id    = var.database_id
     principal_id   = var.app_backend_spn_id
     principal_type = "ServicePrincipal"
-    permissions    = ["Read", "ReadWrite"]
+    permissions    = ["Read", "Write"]
   }
 
   resource "fabricext_item_share_gate" "app_backend_gate" {
@@ -323,7 +336,7 @@ Find your target scenario based on the engine, the identity type, and the desire
     item_id              = var.database_id
     principal_id         = var.app_backend_spn_id
     principal_type       = "ServicePrincipal"
-    expected_permissions = ["Read", "ReadWrite"]
+    expected_permissions = ["Read", "Write"]
 
     depends_on = [fabricext_sql_database_permission.app_backend_share]
   }
@@ -389,7 +402,16 @@ Find your target scenario based on the engine, the identity type, and the desire
 - **Workspace Role**: `Contributor` or `Viewer` + `Build` permission on semantic models.
 - **Terraform Configuration**:
   ```hcl
-  # In production workspaces, assign Viewer role and define explicit OneLake security roles
+  # 1. Grant item Read permission to discover and connect to the production Lakehouse
+  resource "fabricext_lakehouse_permission" "bi_readers" {
+    workspace_id   = var.workspace_id
+    lakehouse_id   = var.lakehouse_id
+    principal_id   = var.bi_developers_group_id
+    principal_type = "Group"
+    permissions    = ["Read"]
+  }
+
+  # 2. In production workspaces, assign Viewer role and define explicit OneLake security roles
   resource "fabricext_lakehouse_data_access_role" "bi_readers" {
     workspace_id = var.workspace_id
     lakehouse_id = var.lakehouse_id
@@ -405,6 +427,10 @@ Find your target scenario based on the engine, the identity type, and the desire
       object_id   = var.bi_developers_group_id
       object_type = "Group"
     }
+
+    depends_on = [
+      fabricext_lakehouse_permission.bi_readers,
+    ]
   }
   ```
 - **Portal & T-SQL Steps**: None.

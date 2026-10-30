@@ -186,7 +186,7 @@ run = "changie new"
 
 [tasks."changelog:batch"]
 description = "Batch unreleased changelog fragments into a release entry and update CHANGELOG.md"
-run = "changie batch auto && changie merge"
+run = "changie batch auto && changie merge && mise run docs"
 
 [tasks."changelog:merge"]
 description = "Merge changelog version entries into CHANGELOG.md"

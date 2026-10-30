@@ -12,9 +12,9 @@
 
 | Resource / Data Source | Microsoft Fabric Item Type | Capabilities | Status |
 | :--- | :--- | :--- | :--- |
-| `fabricext_warehouse_permission` | `Warehouse` | Declaratively manages direct item-level sharing permissions (`Read`, `ReadWrite`, `Reshare`, `Explore`) with in-place drift reconciliation. | Active |
-| `fabricext_sql_database_permission` | `SQLDatabase` | Declaratively manages direct item-level sharing permissions (`Read`, `ReadWrite`, `Reshare`, `Explore`) with in-place drift reconciliation. | Active |
-| `fabricext_lakehouse_permission` | `Lakehouse` | Declaratively manages direct item-level sharing permissions (`Read`, `ReadWrite`, `Reshare`, `Explore`) with in-place drift reconciliation. | Active |
+| `fabricext_warehouse_permission` | `Warehouse` | Declaratively manages direct item-level sharing permissions (`Read`, `ReadData`, `ReadAll`, `Reshare`) with in-place drift reconciliation. | Active |
+| `fabricext_sql_database_permission` | `SQLDatabase` | Declaratively manages direct item-level sharing permissions (`Read`, `Write`, `ReadData`, `ReadAll`, `Reshare`, `Execute`) with in-place drift reconciliation. | Active |
+| `fabricext_lakehouse_permission` | `Lakehouse` | Declaratively manages direct item-level sharing permissions (`Read`, `ReadData`, `ReadAll`, `Reshare`, `Execute`) with in-place drift reconciliation. | Active |
 | `fabricext_item_share_gate` | `Warehouse`, `Lakehouse`, `SQLDatabase` | Waiter resource verifying effective direct and inherited item permissions via the official Fabric Admin REST API. | Active |
 | `fabricext_lakehouse_data_access_role` | `Lakehouse` | Manages OneLake Data Access Roles (`/dataAccessRoles`) with per-Lakehouse mutex locking and `If-Match` ETag Read-Modify-Write concurrency control. | Active |
 | `fabricext_lakehouse_onelake_security` | `Lakehouse` | Validates OneLake security enablement and manages the `DefaultReader` role lifecycle. | Active |

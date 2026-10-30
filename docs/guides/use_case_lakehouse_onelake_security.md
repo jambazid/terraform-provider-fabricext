@@ -234,5 +234,5 @@ Under parallel Terraform execution (`for_each`), concurrent requests mutating ro
 | **[Access Control Playbook](./access_control_playbook.md)** | Start Here routing table and 11 verified scenario execution cards. |
 | **[Enterprise Access Control Overview](./use_case_overview.md)** | Master comparison matrix and 6-tier perimeter overview. |
 | **[Security Controls & Interactions](./use_case_controls_and_interactions.md)** | Precedence rules and override behaviors across tiers. |
-| **[Warehouse Schema Isolation](./use_case_warehouse_schema_isolation.md)** | Isolating schemas using `role_type = "read"` and T-SQL RBAC. |
+| **[Warehouse Schema Isolation](./use_case_warehouse_schema_isolation.md)** | Isolating schemas using `permissions = ["Read"]` and T-SQL RBAC. |
 | **[Power BI Identity Flow](./use_case_powerbi_identity_propagation.md)** | End-to-end token flow to semantic models and query fallback. |

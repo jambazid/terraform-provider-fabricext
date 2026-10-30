@@ -32,11 +32,15 @@ Object Attributes:
   - `permissions` - (Optional, map of objects) Map of Microsoft Entra Object ID (UUID) to permission specification:
     - `type` - (Optional, string) Principal type: `User`, `Group`, `ServicePrincipal`, or `ManagedIdentity`. Default: `Group`.
     - `permissions` - (Optional, set of string) Exact item permissions: must include `"Read"`; allowed: `"Read"`, `"ReadData"`, `"ReadAll"`, `"Reshare"`. Default: `["Read"]`.
+    - `notify` - (Optional, bool) Per-grant override for sending email notifications. Default: inherits `var.notify`.
+    - `message` - (Optional, string) Per-grant custom email notification message. Only valid when effective `notify` is true.
 - `sql_databases` - (Optional, map of objects) Map of SQL Database identifier (display name or UUID) to SQL database configuration:
   - `verify_item_shares` - (Optional, bool) Per-item override for Admin API share verification. Default: inherits matrix-level setting.
   - `permissions` - (Optional, map of objects) Map of Microsoft Entra Object ID (UUID) to permission specification:
     - `type` - (Optional, string) Principal type: `User`, `Group`, `ServicePrincipal`, or `ManagedIdentity`. Default: `Group`.
-    - `permissions` - (Optional, set of string) Exact item permissions: must include `"Read"`; allowed: `"Read"`, `"ReadData"`, `"Execute"`, `"Reshare"`. Default: `["Read"]`.
+    - `permissions` - (Optional, set of string) Exact item permissions: must include `"Read"`; allowed: `"Read"`, `"Write"`, `"ReadData"`, `"ReadAll"`, `"Execute"`, `"Reshare"`. Default: `["Read"]`.
+    - `notify` - (Optional, bool) Per-grant override for sending email notifications. Default: inherits `var.notify`.
+    - `message` - (Optional, string) Per-grant custom email notification message. Only valid when effective `notify` is true.
 - `manage_lakehouse_security` - (Optional, bool) Default OneLake Data Access Security enablement verification for Lakehouses in the matrix. Default: `true`.
 - `remove_lakehouse_default_reader_role` - (Optional, bool) Default setting for purging `DefaultReader` roles created upon enabling OneLake security. Default: `true`.
 - `lakehouses` - (Optional, map of objects) Map of Lakehouse identifier (display name or UUID) to unified Lakehouse configuration:
@@ -45,7 +49,9 @@ Object Attributes:
   - `remove_default_reader_role` - (Optional, bool) Per-Lakehouse override for default reader purging. Default: `null` (inherits matrix default).
   - `permissions` - (Optional, map of objects) Map of Microsoft Entra Object ID (UUID) to direct item-level share permissions:
     - `type` - (Optional, string) Principal type: `User`, `Group`, `ServicePrincipal`, or `ManagedIdentity`. Default: `Group`.
-    - `permissions` - (Optional, set of string) Exact item permissions: must include `"Read"`; allowed: `"Read"`, `"ReadData"`, `"ReadAll"`, `"Reshare"`. Default: `["Read"]`.
+    - `permissions` - (Optional, set of string) Exact item permissions: must include `"Read"`; allowed: `"Read"`, `"ReadData"`, `"ReadAll"`, `"Reshare"`, `"Execute"`. Default: `["Read"]`.
+    - `notify` - (Optional, bool) Per-grant override for sending email notifications. Default: inherits `var.notify`.
+    - `message` - (Optional, string) Per-grant custom email notification message. Only valid when effective `notify` is true.
   - `data_access_roles` - (Optional, map of objects) Map of OneLake Data Access Role names to role definitions:
     - Simple Mode Attributes (mutually exclusive with Advanced Mode):
       - `paths` - (Optional, set of string) Storage paths within the Lakehouse (e.g. `["/Tables/customers"]`).
@@ -189,13 +195,13 @@ EOT
             can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", p_id)) &&
             contains(["User", "Group", "ServicePrincipal", "ManagedIdentity"], coalesce(p.type, "Group")) &&
             contains(coalesce(p.permissions, ["Read"]), "Read") &&
-            alltrue([for perm in coalesce(p.permissions, ["Read"]) : contains(["Read", "ReadData", "Execute", "Reshare"], perm)]) &&
+            alltrue([for perm in coalesce(p.permissions, ["Read"]) : contains(["Read", "Write", "ReadData", "ReadAll", "Execute", "Reshare"], perm)]) &&
             (p.message == null || coalesce(p.notify, var.notify) == true)
           )
         ])
       ]
     ]))
-    error_message = "SQL Database permissions must be keyed by unique Microsoft Entra UUIDs, use a valid principal type, include 'Read', contain only allowed permissions (Read, ReadData, Execute, Reshare), and require notify=true when message is set."
+    error_message = "SQL Database permissions must be keyed by unique Microsoft Entra UUIDs, use a valid principal type, include 'Read', contain only allowed permissions (Read, Write, ReadData, ReadAll, Execute, Reshare), and require notify=true when message is set."
   }
 
   validation {
@@ -207,10 +213,11 @@ EOT
             can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", p_id)) &&
             contains(["User", "Group", "ServicePrincipal", "ManagedIdentity"], coalesce(p.type, "Group")) &&
             contains(coalesce(p.permissions, ["Read"]), "Read") &&
-            alltrue([for perm in coalesce(p.permissions, ["Read"]) : contains(["Read", "ReadData", "ReadAll", "Reshare"], perm)]) &&
+            alltrue([for perm in coalesce(p.permissions, ["Read"]) : contains(["Read", "ReadData", "ReadAll", "Reshare", "Execute"], perm)]) &&
             (p.message == null || coalesce(p.notify, var.notify) == true)
           )
         ]),
+        length(distinct([for r in keys(coalesce(lh.data_access_roles, {})) : lower(r)])) == length(keys(coalesce(lh.data_access_roles, {}))),
         alltrue([
           for role_name, spec in coalesce(lh.data_access_roles, {}) : (
             spec != null &&
@@ -245,6 +252,6 @@ EOT
         ])
       ]
     ]))
-    error_message = "Lakehouse configuration must have unique permission principal UUIDs with valid permissions including 'Read', and data_access_roles must declare valid simple or advanced mode definitions."
+    error_message = "Lakehouse configuration must have unique permission principal UUIDs, case-insensitive unique data access role names, valid permissions including 'Read', and valid simple or advanced mode definitions."
   }
 }

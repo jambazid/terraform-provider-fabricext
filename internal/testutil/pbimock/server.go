@@ -25,13 +25,16 @@ import (
 
 // Server represents a stateful in-memory mock Power BI metadata server.
 type Server struct {
-	URL        string
-	Server     *httptest.Server
-	mu         sync.RWMutex
-	router     routers.Router
-	doc        *openapi3.T
-	entries    map[string][]map[string]any // itemId -> entries
-	OnMutation func(action string, itemId string, principalId string, permissions []string)
+	URL          string
+	Server       *httptest.Server
+	mu           sync.RWMutex
+	router       routers.Router
+	doc          *openapi3.T
+	entries      map[string][]map[string]any // itemId -> entries
+	deletedItems map[string]bool             // itemId -> deleted (returns 404)
+	nextUserID   int
+	nextGroupID  int
+	OnMutation   func(action string, itemId string, principalId string, permissions []string)
 }
 
 // NewServer creates a new stateful mock Power BI metadata server.
@@ -62,9 +65,12 @@ func NewServer() (*Server, error) {
 	}
 
 	s := &Server{
-		router:  router,
-		doc:     doc,
-		entries: make(map[string][]map[string]any),
+		router:       router,
+		doc:          doc,
+		entries:      make(map[string][]map[string]any),
+		deletedItems: make(map[string]bool),
+		nextUserID:   1001,
+		nextGroupID:  2001,
 	}
 
 	mux := http.NewServeMux()
@@ -91,6 +97,17 @@ func (s *Server) SeedDirectAccess(itemID string, entries ...map[string]any) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.entries[itemID] = append(s.entries[itemID], entries...)
+}
+
+// DeleteArtifact marks an artifact as deleted, causing GET /metadata/access/artifacts/{itemId} to return 404.
+func (s *Server) DeleteArtifact(itemID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.deletedItems == nil {
+		s.deletedItems = make(map[string]bool)
+	}
+	s.deletedItems[itemID] = true
+	delete(s.entries, itemID)
 }
 
 func (s *Server) wrapValidation(next http.Handler) http.Handler {
@@ -172,7 +189,7 @@ func (s *Server) handleDefinitions(w http.ResponseWriter, _ *http.Request) {
 		"SQLDbNative": map[string]any{
 			"type": "SQLDbNative",
 			"permissions": map[string]int{
-				"Read": 1, "Write": 2, "Execute": 64, "Reshare": 8, "ReadData": 2, "ReadAll": 4,
+				"Read": 1, "ReadData": 2, "ReadAll": 4, "Execute": 64, "Reshare": 8,
 			},
 		},
 	}
@@ -252,16 +269,20 @@ func (s *Server) handleAccess(w http.ResponseWriter, r *http.Request) {
 			}
 			if !found {
 				newEntry := map[string]any{
-					"userId":              1001,
 					"permissions":         int(p),
 					"artifactPermissions": int(ap),
 					"accessSource":        nil,
+					"objectId":            principalID,
 				}
 				if uOID, ok := a["userObjectId"].(string); ok && uOID != "" {
 					newEntry["userObjectId"] = uOID
+					newEntry["userId"] = s.nextUserID
+					s.nextUserID++
 				}
 				if gOID, ok := a["groupObjectId"].(string); ok && gOID != "" {
 					newEntry["groupObjectId"] = gOID
+					newEntry["groupId"] = s.nextGroupID
+					s.nextGroupID++
 				}
 				if isSP, ok := a["isServicePrincipal"].(bool); ok {
 					newEntry["isServicePrincipal"] = isSP
@@ -272,6 +293,9 @@ func (s *Server) handleAccess(w http.ResponseWriter, r *http.Request) {
 				var perms []string
 				if int(p)&1 != 0 {
 					perms = append(perms, "Read")
+				}
+				if int(p)&2 != 0 {
+					perms = append(perms, "Write")
 				}
 				if int(ap)&2 != 0 {
 					perms = append(perms, "ReadData")
@@ -314,19 +338,29 @@ func (s *Server) handleArtifactAccess(w http.ResponseWriter, r *http.Request) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	if s.deletedItems != nil && s.deletedItems[itemID] {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error": map[string]string{
+				"code":    "ItemNotFound",
+				"message": fmt.Sprintf("Item %s not found", itemID),
+			},
+		})
+		return
+	}
+
 	entries := s.entries[itemID]
 	if entries == nil {
 		entries = []map[string]any{}
 	}
 
 	resp := map[string]any{
-		"artifactAccessEntities": []map[string]any{
-			{
-				"objectId":    itemID,
-				"displayName": "MockItem",
-				"detail":      entries,
-			},
-		},
+		"objectId":            itemID,
+		"displayName":         "MockItem",
+		"permissions":         1,
+		"artifactPermissions": 7,
+		"detail":              entries,
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -334,6 +368,17 @@ func (s *Server) handleArtifactAccess(w http.ResponseWriter, r *http.Request) {
 }
 
 func matchPrincipal(a, b map[string]any) bool {
+	if aObj, ok := a["objectId"].(string); ok && aObj != "" {
+		if bObj, ok := b["objectId"].(string); ok && bObj == aObj {
+			return true
+		}
+		if bU, ok := b["userObjectId"].(string); ok && bU == aObj {
+			return true
+		}
+		if bG, ok := b["groupObjectId"].(string); ok && bG == aObj {
+			return true
+		}
+	}
 	if aU, ok := a["userObjectId"].(string); ok && aU != "" {
 		if bU, ok := b["userObjectId"].(string); ok && bU == aU {
 			return true
@@ -346,6 +391,17 @@ func matchPrincipal(a, b map[string]any) bool {
 	}
 	if aUID, ok := a["userId"].(int); ok && aUID != 0 {
 		if bUID, ok := b["userId"].(float64); ok && int(bUID) == aUID {
+			return true
+		}
+		if bUID, ok := b["userId"].(int); ok && bUID == aUID {
+			return true
+		}
+	}
+	if aGID, ok := a["groupId"].(int); ok && aGID != 0 {
+		if bGID, ok := b["groupId"].(float64); ok && int(bGID) == aGID {
+			return true
+		}
+		if bGID, ok := b["groupId"].(int); ok && bGID == aGID {
 			return true
 		}
 	}
