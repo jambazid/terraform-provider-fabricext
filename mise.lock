@@ -688,7 +688,7 @@ uv = { path = ".mise/locks/pipx-commitizen/4.18.1", digest = "sha256:9e52c4e147f
 version = "0.37.0"
 backend = "pipx:headroom-ai"
 specifiers = ["latest"]
-uv = { path = ".mise/locks/pipx-headroom-ai/0.37.0~3212cc93", digest = "sha256:2e375de1c640143b0b8253e0dcf699fa18b7ebfc17a688eac1bb3eb43d10e403" }
+uv = { path = ".mise/locks/pipx-headroom-ai/0.37.0~3212cc93", digest = "sha256:e1b1d922feaffcda7c5bcc63668b477b123ac320fa6811e397143458756378b4" }
 
 [tools."pipx:headroom-ai".options]
 extras = "proxy,mcp"
