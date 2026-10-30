@@ -1,5 +1,0 @@
-kind: changed
-body: >-
-  Uplift Dependabot configuration: exclude `.mise/locks/**` tool lockfiles from dependency scans,
-  group Go module and Terraform updates, and automatically attach the `skip-changelog` label.
-time: 2026-10-29T23:10:00.000000000+00:00
