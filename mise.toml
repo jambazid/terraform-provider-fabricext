@@ -17,10 +17,11 @@ golangci-lint = "latest"
 goreleaser = "latest"
 node = "latest"
 pipx = "latest"
+python = "3.14"
 prek = { version = "latest", postinstall = "prek install && prek install --hook-type commit-msg" }
 rumdl = "latest"
 terraform = "latest"
-trivy = "latest"
+trivy = "0.74.0"
 uv = "latest"
 zizmor = "latest"
 
