@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## v0.7.0 - October 30, 2026
+
+### 💥 Breaking
+
+* Unify `modules/permissions` matrix structure: compose item-level permissions and OneLake Data Access Roles under a unified `$.lakehouses` key, key principal permissions by Entra ID UUID maps across all workloads, and add `verify_item_shares` Admin API gate lever.
+
+### ✨ Added
+
+* Restore declarative item-level permission resources `fabricext_warehouse_permission`, `fabricext_sql_database_permission`, and `fabricext_lakehouse_permission` backed by Power BI metadata access endpoints with in-place drift reconciliation, `notify` flag and `message` routing. Add Power BI credentials support, dual-scope Entra token resolution, and in-memory mock server `pbimock`.
+
+### 💫 Changed
+
+* Uplift Dependabot configuration: exclude `.mise/locks/**` tool lockfiles from dependency scans, group Go module and Terraform updates, and automatically attach the `skip-changelog` label.
+
+### 🪲 Fixed
+
+* Harmonize Power BI item sharing wire protocol and OpenAPI contract with upstream runtime behavior: support root artifact access entities, Entra object ID resolution, bidirectional bitmask mappings, and prevent bitwise OR retention during permission updates with notifications.
+
+### 🚨 Security
+
+* Uplift toolchain dependencies to eliminate 17 open Dependabot security alerts, enforce Python 3.14 across tooling environments, and pin Trivy 0.74.0 for stable provenance verification.
+
 ## 0.6.0 - October 15, 2026
 
 ### ✨ Added

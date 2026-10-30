@@ -1,6 +1,0 @@
-kind: fixed
-body: >-
-  Harmonize Power BI item sharing wire protocol and OpenAPI contract with upstream runtime
-  behavior: support root artifact access entities, Entra object ID resolution, bidirectional
-  bitmask mappings, and prevent bitwise OR retention during permission updates with notifications.
-time: 2026-10-29T23:45:00.000000000+00:00
