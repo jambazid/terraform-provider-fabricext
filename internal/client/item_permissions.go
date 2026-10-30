@@ -53,6 +53,8 @@ type notifyAccessRequestBody struct {
 	EmailNotificationMessage string               `json:"emailNotificationMessage"`
 }
 
+var clusterURIRegex = regexp.MustCompile(`(?i)ClusterUri=[^=;\s]+=(https?://[^;,\s"]+)`)
+
 type artifactGrantEntry struct {
 	ID                  int    `json:"id"`
 	ArtifactObjectID    string `json:"artifactObjectId"`
@@ -62,30 +64,38 @@ type artifactGrantEntry struct {
 	GroupID             *int   `json:"groupId,omitempty"`
 	UserObjectID        string `json:"userObjectId,omitempty"`
 	GroupObjectID       string `json:"groupObjectId,omitempty"`
-	IsServicePrincipal  bool   `json:"isServicePrincipal,omitempty"`
+	IsServicePrincipal  bool   `json:"isServicePrincipal"`
 }
 
-type artifactAccessResponse struct {
+type rawArtifactAccessResponse struct {
+	ObjectID               string              `json:"objectId"`
+	DisplayName            string              `json:"displayName"`
+	Permissions            int64               `json:"permissions"`
+	ArtifactPermissions    int64               `json:"artifactPermissions"`
+	Detail                 []accessDetailEntry `json:"detail"`
 	ArtifactAccessEntities []struct {
-		ObjectID    string              `json:"objectId"`
-		DisplayName string              `json:"displayName"`
-		Detail      []accessDetailEntry `json:"detail"`
+		ObjectID            string              `json:"objectId"`
+		DisplayName         string              `json:"displayName"`
+		Permissions         int64               `json:"permissions"`
+		ArtifactPermissions int64               `json:"artifactPermissions"`
+		Detail              []accessDetailEntry `json:"detail"`
 	} `json:"artifactAccessEntities"`
 }
 
 type accessDetailEntry struct {
-	User                string `json:"user"`
-	UserType            string `json:"userType"`
-	UserID              int    `json:"userId"`
-	GroupID             int    `json:"groupId"`
-	AADAppID            string `json:"aadAppId"`
-	UserObjectID        string `json:"userObjectId"`
-	GroupObjectID       string `json:"groupObjectId"`
-	GroupType           string `json:"groupType"`
-	IsServicePrincipal  bool   `json:"isServicePrincipal"`
-	Permissions         int64  `json:"permissions"`
-	ArtifactPermissions int64  `json:"artifactPermissions"`
-	AccessSource        *int   `json:"accessSource"` // null for direct item grants
+	User                string          `json:"user"`
+	UserType            string          `json:"userType"`
+	UserID              int             `json:"userId"`
+	GroupID             int             `json:"groupId"`
+	AADAppID            string          `json:"aadAppId"`
+	ObjectID            string          `json:"objectId"`
+	UserObjectID        string          `json:"userObjectId"`
+	GroupObjectID       string          `json:"groupObjectId"`
+	GroupType           string          `json:"groupType"`
+	IsServicePrincipal  bool            `json:"isServicePrincipal"`
+	Permissions         int64           `json:"permissions"`
+	ArtifactPermissions int64           `json:"artifactPermissions"`
+	AccessSource        json.RawMessage `json:"accessSource"` // null for direct item grants, object for inherited
 }
 
 func (c *FabricClient) getItemAccessLock(workspaceID, itemID string) *sync.Mutex {
@@ -238,6 +248,9 @@ func (c *FabricClient) DiscoverClusterURI(ctx context.Context) (string, error) {
 }
 
 func extractClusterURIFromCookie(cookieHeader string) string {
+	if matches := clusterURIRegex.FindStringSubmatch(cookieHeader); len(matches) > 1 {
+		return matches[1]
+	}
 	for _, part := range strings.Split(cookieHeader, ";") {
 		part = strings.TrimSpace(part)
 		if strings.HasPrefix(strings.ToLower(part), "clusteruri=") {
@@ -331,7 +344,7 @@ func validateClusterURI(raw string, allowedCustomHost string) error {
 		".powerbi.com",
 	}
 	for _, suffix := range allowedSuffixes {
-		if strings.HasSuffix(host, suffix) {
+		if host == strings.TrimPrefix(suffix, ".") || strings.HasSuffix(host, suffix) {
 			return nil
 		}
 	}
@@ -555,43 +568,66 @@ func (c *FabricClient) GetItemDirectPermissions(ctx context.Context, workspaceID
 		return nil, fmt.Errorf("powerbi API error (HTTP %d): %s", resp.StatusCode, scrubAndCapBody(body))
 	}
 
-	var accessResp artifactAccessResponse
-	if err := json.Unmarshal(body, &accessResp); err != nil {
+	var rawResp rawArtifactAccessResponse
+	if err := json.Unmarshal(body, &rawResp); err != nil {
 		return nil, fmt.Errorf("unmarshaling artifact access response: %w", err)
 	}
 
-	for _, entity := range accessResp.ArtifactAccessEntities {
-		for _, detail := range entity.Detail {
-			if detail.AccessSource != nil {
-				continue // Skip inherited workspace-level assignments
-			}
-			matched := strings.EqualFold(detail.UserObjectID, principalID) ||
-				strings.EqualFold(detail.GroupObjectID, principalID) ||
-				strings.EqualFold(detail.AADAppID, principalID)
+	details := rawResp.Detail
+	if len(details) == 0 && len(rawResp.ArtifactAccessEntities) > 0 {
+		details = rawResp.ArtifactAccessEntities[0].Detail
+	}
 
-			if matched {
-				decoded, err := DecodePermissions(itemType, detail.Permissions, detail.ArtifactPermissions)
-				if err != nil {
-					return nil, err
-				}
+	var matchedDirect *ItemDirectShare
+	for _, detail := range details {
+		if len(detail.AccessSource) > 0 && string(detail.AccessSource) != "null" {
+			continue // Skip inherited workspace-level assignments
+		}
+		matched := strings.EqualFold(detail.ObjectID, principalID) ||
+			strings.EqualFold(detail.UserObjectID, principalID) ||
+			strings.EqualFold(detail.GroupObjectID, principalID) ||
+			strings.EqualFold(detail.AADAppID, principalID)
+
+		if matched {
+			if matchedDirect == nil {
 				pType := "User"
-				if detail.GroupObjectID != "" {
+				if detail.GroupObjectID != "" || detail.GroupID != 0 {
 					pType = "Group"
 				} else if detail.IsServicePrincipal || detail.AADAppID != "" {
 					pType = "ServicePrincipal"
 				}
-				return &ItemDirectShare{
+				matchedDirect = &ItemDirectShare{
 					PrincipalID:            principalID,
 					PrincipalType:          pType,
-					Permissions:            decoded,
 					RawPermissions:         detail.Permissions,
 					RawArtifactPermissions: detail.ArtifactPermissions,
 					InternalUserID:         detail.UserID,
 					InternalGroupID:        detail.GroupID,
 					IsServicePrincipal:     detail.IsServicePrincipal,
-				}, nil
+				}
+			} else {
+				matchedDirect.RawPermissions |= detail.Permissions
+				matchedDirect.RawArtifactPermissions |= detail.ArtifactPermissions
+				if detail.UserID != 0 {
+					matchedDirect.InternalUserID = detail.UserID
+				}
+				if detail.GroupID != 0 {
+					matchedDirect.InternalGroupID = detail.GroupID
+				}
+				if detail.IsServicePrincipal {
+					matchedDirect.IsServicePrincipal = true
+				}
 			}
 		}
+	}
+
+	if matchedDirect != nil {
+		decoded, err := DecodePermissions(itemType, matchedDirect.RawPermissions, matchedDirect.RawArtifactPermissions)
+		if err != nil {
+			return nil, err
+		}
+		matchedDirect.Permissions = decoded
+		return matchedDirect, nil
 	}
 
 	return nil, nil // No direct share found
@@ -618,50 +654,107 @@ func (c *FabricClient) UpsertItemDirectPermissions(ctx context.Context, workspac
 		return fmt.Errorf("checking existing item permissions: %w", err)
 	}
 
-	method := http.MethodPost
-	if existing != nil && !share.Notify {
-		method = http.MethodPut
-		if existing.InternalUserID != 0 {
-			share.InternalUserID = existing.InternalUserID
+	isSP := share.IsServicePrincipal || strings.EqualFold(share.PrincipalType, "ServicePrincipal") || strings.EqualFold(share.PrincipalType, "ManagedIdentity")
+	isGroup := strings.EqualFold(share.PrincipalType, "Group")
+
+	// If updating an existing grant with notify=true and permissions changed, first execute PUT /metadata/access
+	// to ensure exact bitmask assignment without additive bit accumulation on revocation/downgrade.
+	if existing != nil && share.Notify && (existing.RawPermissions != coreBitmask || existing.RawArtifactPermissions != artifactBitmask) {
+		putEntry := artifactGrantEntry{
+			ID:                  1,
+			ArtifactObjectID:    itemID,
+			Permissions:         coreBitmask,
+			ArtifactPermissions: artifactBitmask,
+			IsServicePrincipal:  isSP,
 		}
-		if existing.InternalGroupID != 0 {
-			share.InternalGroupID = existing.InternalGroupID
+		if isGroup {
+			if existing.InternalGroupID != 0 {
+				putEntry.GroupID = &existing.InternalGroupID
+			} else {
+				putEntry.GroupObjectID = share.PrincipalID
+			}
+		} else {
+			if existing.InternalUserID != 0 {
+				putEntry.UserID = &existing.InternalUserID
+			} else {
+				putEntry.UserObjectID = share.PrincipalID
+			}
 		}
-	} else if existing != nil && share.Notify {
-		method = http.MethodPost
-		if existing.InternalUserID != 0 {
-			share.InternalUserID = existing.InternalUserID
+		putBody := accessRequestBody{
+			Dashboards: []any{},
+			Reports:    []any{},
+			Workbooks:  []any{},
+			Models:     []any{},
+			Datamarts:  []any{},
+			Artifacts:  []artifactGrantEntry{putEntry},
 		}
-		if existing.InternalGroupID != 0 {
-			share.InternalGroupID = existing.InternalGroupID
+		putBytes, err := json.Marshal(putBody)
+		if err != nil {
+			return fmt.Errorf("marshaling put access update: %w", err)
+		}
+		putURL := fmt.Sprintf("%s/metadata/access", cluster)
+		putReq, err := http.NewRequestWithContext(ctx, http.MethodPut, putURL, bytes.NewReader(putBytes))
+		if err != nil {
+			return fmt.Errorf("building put access update: %w", err)
+		}
+		putReq.GetBody = func() (io.ReadCloser, error) {
+			return io.NopCloser(bytes.NewReader(putBytes)), nil
+		}
+		tok, err := c.getPowerBIToken(ctx)
+		if err != nil {
+			return fmt.Errorf("acquiring power bi token: %w", err)
+		}
+		c.setPowerBIHeaders(putReq, tok, true)
+		putResp, err := c.doPowerBIRequest(ctx, putReq)
+		if err != nil {
+			return fmt.Errorf("executing put access update: %w", err)
+		}
+		_ = putResp.Body.Close()
+		if putResp.StatusCode < 200 || putResp.StatusCode >= 300 {
+			return fmt.Errorf("powerbi API put access update failed (HTTP %d)", putResp.StatusCode)
 		}
 	}
 
+	method := http.MethodPost
 	entry := artifactGrantEntry{
 		ID:                  1,
 		ArtifactObjectID:    itemID,
 		Permissions:         coreBitmask,
 		ArtifactPermissions: artifactBitmask,
+		IsServicePrincipal:  isSP,
 	}
 
-	isSP := share.IsServicePrincipal || strings.EqualFold(share.PrincipalType, "ServicePrincipal") || strings.EqualFold(share.PrincipalType, "ManagedIdentity")
-	isGroup := strings.EqualFold(share.PrincipalType, "Group")
-
-	// Strict XOR: Send ONLY internal ID or ONLY Entra Object ID, never both.
-	if isGroup {
-		if share.InternalGroupID != 0 {
-			entry.GroupID = &share.InternalGroupID
-		} else {
+	switch {
+	case share.Notify:
+		// POST /metadata/access/notify requires Entra User/Group Object ID and userId/groupId=null
+		if isGroup {
 			entry.GroupObjectID = share.PrincipalID
-		}
-	} else {
-		if share.InternalUserID != 0 {
-			entry.UserID = &share.InternalUserID
 		} else {
 			entry.UserObjectID = share.PrincipalID
 		}
-		if isSP {
-			entry.IsServicePrincipal = true
+	case existing != nil:
+		// Silent update: PUT /metadata/access with internal ID
+		method = http.MethodPut
+		if isGroup {
+			if existing.InternalGroupID != 0 {
+				entry.GroupID = &existing.InternalGroupID
+			} else {
+				entry.GroupObjectID = share.PrincipalID
+			}
+		} else {
+			if existing.InternalUserID != 0 {
+				entry.UserID = &existing.InternalUserID
+			} else {
+				entry.UserObjectID = share.PrincipalID
+			}
+		}
+	default:
+		// Silent create: POST /metadata/access with Entra Object ID
+		method = http.MethodPost
+		if isGroup {
+			entry.GroupObjectID = share.PrincipalID
+		} else {
+			entry.UserObjectID = share.PrincipalID
 		}
 	}
 
@@ -739,8 +832,14 @@ func (c *FabricClient) UpsertItemDirectPermissions(ctx context.Context, workspac
 		if checkErr == nil && check != nil {
 			lastCore = check.RawPermissions
 			lastArtifact = check.RawArtifactPermissions
-			if check.RawPermissions == coreBitmask && check.RawArtifactPermissions == artifactBitmask {
-				return nil
+			if share.Notify {
+				if (check.RawPermissions&coreBitmask == coreBitmask) && (check.RawArtifactPermissions&artifactBitmask == artifactBitmask) {
+					return nil
+				}
+			} else {
+				if check.RawPermissions == coreBitmask && check.RawArtifactPermissions == artifactBitmask {
+					return nil
+				}
 			}
 		}
 
@@ -803,7 +902,7 @@ func (c *FabricClient) RevokeItemDirectPermissions(ctx context.Context, workspac
 		} else {
 			entry.UserObjectID = principalID
 		}
-		if existing.IsServicePrincipal {
+		if existing.IsServicePrincipal || strings.EqualFold(existing.PrincipalType, "ServicePrincipal") || strings.EqualFold(existing.PrincipalType, "ManagedIdentity") {
 			entry.IsServicePrincipal = true
 		}
 	}

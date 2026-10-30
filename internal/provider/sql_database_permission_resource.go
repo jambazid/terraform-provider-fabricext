@@ -128,11 +128,11 @@ func (r *SQLDatabasePermissionResource) Schema(_ context.Context, _ resource.Sch
 			"permissions": schema.SetAttribute{
 				Required:            true,
 				ElementType:         types.StringType,
-				MarkdownDescription: "Set of item permissions granted to the principal. Valid permissions for SQL Database are `Read`, `ReadData`, `ReadAll`, `Reshare`, and `Execute`.",
+				MarkdownDescription: "Set of item permissions granted to the principal. Valid permissions for SQL Database are `Read`, `Write`, `ReadData`, `ReadAll`, `Reshare`, and `Execute`.",
 				Validators: []validator.Set{
 					setvalidator.SizeAtLeast(1),
 					setvalidator.ValueStringsAre(
-						stringvalidator.OneOf("Read", "ReadData", "ReadAll", "Reshare", "Execute"),
+						stringvalidator.OneOf("Read", "Write", "ReadData", "ReadAll", "Reshare", "Execute"),
 					),
 				},
 			},

@@ -15,7 +15,7 @@ locals {
           principal_type     = coalesce(p.type, "Group")
           permissions        = coalesce(p.permissions, toset(["Read"]))
           notify             = coalesce(p.notify, var.notify)
-          message            = p.message != null ? p.message : var.message
+          message            = coalesce(p.notify, var.notify) ? (p.message != null ? p.message : var.message) : null
           verify_item_shares = coalesce(wh.verify_item_shares, var.fabric_permissions_matrix.verify_item_shares, true)
         }
       ]
@@ -33,7 +33,7 @@ locals {
           principal_type     = coalesce(p.type, "Group")
           permissions        = coalesce(p.permissions, toset(["Read"]))
           notify             = coalesce(p.notify, var.notify)
-          message            = p.message != null ? p.message : var.message
+          message            = coalesce(p.notify, var.notify) ? (p.message != null ? p.message : var.message) : null
           verify_item_shares = coalesce(db.verify_item_shares, var.fabric_permissions_matrix.verify_item_shares, true)
         }
       ]
@@ -51,7 +51,7 @@ locals {
           principal_type     = coalesce(p.type, "Group")
           permissions        = coalesce(p.permissions, toset(["Read"]))
           notify             = coalesce(p.notify, var.notify)
-          message            = p.message != null ? p.message : var.message
+          message            = coalesce(p.notify, var.notify) ? (p.message != null ? p.message : var.message) : null
           verify_item_shares = coalesce(lh.verify_item_shares, var.fabric_permissions_matrix.verify_item_shares, true)
         }
       ]
@@ -210,16 +210,9 @@ resource "fabricext_lakehouse_data_access_role" "this" {
   kind           = each.value.kind
 
   # Simple mode attributes
-  paths          = each.value.paths
-  actions        = each.value.actions
-  principal_ids  = each.value.principal_ids
-  principal_type = each.value.principal_type
-
-  depends_on = [
-    fabricext_lakehouse_onelake_security.this,
-    fabricext_lakehouse_permission.this,
-    fabricext_item_share_gate.lakehouse,
-  ]
+  paths         = each.value.paths
+  actions       = each.value.actions
+  principal_ids = each.value.principal_ids
 
   # Advanced mode blocks
   dynamic "decision_rule" {
@@ -265,4 +258,10 @@ resource "fabricext_lakehouse_data_access_role" "this" {
       item_access = coalesce(fabric_item_member.value.item_access, toset(["ReadAll"]))
     }
   }
+
+  depends_on = [
+    fabricext_lakehouse_onelake_security.this,
+    fabricext_lakehouse_permission.this,
+    fabricext_item_share_gate.lakehouse,
+  ]
 }

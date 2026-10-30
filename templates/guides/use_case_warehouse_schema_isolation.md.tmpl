@@ -96,6 +96,8 @@ resource "fabricext_item_share_gate" "finance_access" {
 }
 ```
 
+~> **Important:** **Service Principal Object ID vs Client ID**: When granting item permissions to a Service Principal (`azuread_service_principal`), always supply the Enterprise Application Directory **Object ID** (`azuread_service_principal.*.object_id`) to `principal_id`, **never** the Application / Client ID (`azuread_service_principal.*.client_id`). Microsoft Fabric metadata services index permissions strictly by directory object UUID.
+
 ### In T-SQL Engine
 
 In Microsoft Fabric Data Warehouse, users are created implicitly upon granting permissions. Running `CREATE USER ... FROM EXTERNAL PROVIDER` in a Warehouse is unsupported and returns an error:
@@ -129,16 +131,17 @@ GRANT SELECT ON SCHEMA::finance TO [external_user#EXT#@tenant.onmicrosoft.com];
 
 ## Declarative RBAC Automation
 
-While item connectivity is established declaratively via `fabricext_warehouse_permission` (or the Fabric web portal), managing internal database schemas, tables, roles, and `GRANT SELECT` statements across dozens of Warehouses is typically automated using a declarative database schema management tool or migration framework (such as [Atlas](https://atlasgo.io/), Flyway, Liquibase, or the Terraform `mssql` provider).
+While item connectivity is established declaratively via `fabricext_warehouse_permission` (or the Fabric web portal), managing internal database schemas, tables, roles, and `GRANT SELECT` statements across dozens of Warehouses is typically automated using a declarative database schema management tool or migration framework (such as [Atlas](https://atlasgo.io/), Flyway, Liquibase, or sqlcmd).
 
 ### End-to-End Governance Model
 
 ```text
 +-------------------------------------------------------------------------------+
-| 1. Infrastructure Orchestration (Terraform & Fabric Portal)                   |
+| 1. Infrastructure Orchestration (Terraform & fabricext)                       |
 | - azuread_group: Creates Entra ID Security Group                              |
 | - microsoft/fabric: Provisions Workspace and Warehouse items                  |
-| - Fabric Portal: Shares Warehouse item with 'Read' connectivity (CONNECT)     |
+| - fabricext_warehouse_permission: Declarative 'Read' share (CONNECT)          |
+| - fabricext_item_share_gate: Verifies effective ACLs via Fabric Admin API    |
 +-------------------------------------------------------------------------------+
                                       │
                                       ▼ TDS Connection Endpoint (Port 1433)
@@ -153,7 +156,7 @@ While item connectivity is established declaratively via `fabricext_warehouse_pe
 
 ### Architecture Blueprint
 
-~> **Important:** **TDS Authentication & Privileges**: Fabric Warehouse TDS endpoints (port 1433) **only support Microsoft Entra ID authentication**; standard SQL username/password logins are unsupported. The CI/CD identity running the schema operator must authenticate via Entra ID (CLI session, service principal, or workload identity) and hold administrative privileges (`db_owner` / workspace Contributor or Admin) to create users, schemas, and grant permissions. Fabric Warehouse operates as a Massively Parallel Processing (MPP) distributed query engine with a specific T-SQL subset.
+~> **Important:** **TDS Authentication & Engine Invariants**: Fabric Warehouse TDS endpoints (port 1433) **only support Microsoft Entra ID authentication**; standard SQL username/password logins are unsupported. The CI/CD identity running the schema operator must authenticate via Entra ID (CLI session, service principal, or workload identity) and hold administrative privileges (`db_owner` / workspace Contributor or Admin). Furthermore, Fabric Warehouse operates as a distributed Massively Parallel Processing (MPP) query engine: schema-as-code operators must execute in autocommit mode without issuing `USE [database];` statements (database switching over TDS is unsupported) or wrapping DDL in unsupported multi-statement transactions. Standard Terraform `mssql` providers that issue `USE` or multi-statement transactions will fail against Fabric Warehouse endpoints.
 
 ```hcl
 # --- 1. Identity & Workspace Provisioning ---
@@ -171,9 +174,24 @@ resource "fabric_warehouse" "corporate_dw" {
   display_name = "corporate_dw"
 }
 
-# --- 2. Item-Level Gate via Fabric Web Portal ---
-# In the Fabric web portal, share the warehouse with SEC-Fabric-Finance-Analysts
-# granting 'Read' connectivity (CONNECT) without administrative workspace rights.
+# --- 2. Declarative Item-Level Gate via fabricext ---
+resource "fabricext_warehouse_permission" "finance_share" {
+  workspace_id   = fabric_workspace.analytics.id
+  warehouse_id   = fabric_warehouse.corporate_dw.id
+  principal_id   = azuread_group.finance_analysts.object_id
+  principal_type = "Group"
+  permissions    = ["Read"]
+}
+
+resource "fabricext_item_share_gate" "finance_gate" {
+  workspace_id         = fabric_workspace.analytics.id
+  item_id              = fabric_warehouse.corporate_dw.id
+  principal_id         = azuread_group.finance_analysts.object_id
+  principal_type       = "Group"
+  expected_permissions = ["Read"]
+
+  depends_on = [fabricext_warehouse_permission.finance_share]
+}
 
 # --- 3. Declarative SQL RBAC via Schema Operator (Conceptual Example) ---
 # Note: Generic conceptual pseudocode representing a database
@@ -185,7 +203,7 @@ resource "atlas_schema" "warehouse_rbac" {
   src = file("${path.module}/schemas/warehouse_security.hcl")
 
   depends_on = [
-    fabric_warehouse.corporate_dw
+    fabricext_item_share_gate.finance_gate
   ]
 }
 ```

@@ -22,7 +22,7 @@ terraform {
   required_providers {
     fabricext = {
       source  = "jambazid/fabricext"
-      version = "~> 0.6.0"
+      version = "~> 0.7.0"
     }
   }
 }

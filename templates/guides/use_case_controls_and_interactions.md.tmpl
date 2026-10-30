@@ -20,8 +20,8 @@ Security controls in Microsoft Fabric span identity, capacity, workspace, item, 
 | **Tier 1: Identity** | Entra ID Groups & Principals | Azure Entra ID / Graph | Authenticates users (User Principal Name / UPN), security groups (display name), and service principals; establishes group memberships. |
 | **Tier 2: Tenant & Capacity** | Tenant Switch Overrides & Domains | Fabric Admin Portal | Controls external sharing toggles, OneLake access API switches, and capacity assignment boundaries. |
 | **Tier 3: Workspace Boundary** | Workspace Roles | Fabric Workspace API / `microsoft/fabric` | Roles: `Admin`, `Member`, `Contributor`, `Viewer`. Determines administrative and collaboration scope. |
-| **Tier 4: Item Perimeter** | Item Shares & Roles | `fabricext` | Declarative item permissions (`fabricext_{warehouse,sql_database,lakehouse}_permission`) with verification gates (`fabricext_item_share_gate`) and Lakehouse OneLake Data Access Roles (`fabricext_lakehouse_data_access_role`). Controls item discovery and gateway access. |
-| **Tier 5: Data Engine RBAC** | T-SQL RBAC & OneLake Storage Roles | SQL TDS Engine / OneLake Storage Engine | T-SQL `GRANT`/`DENY` on Schemas/Tables/Views, SQL Row-Level Security (RLS), Column-Level Security (CLS), OneLake path filters, and row/column constraints over Tabular Data Stream (TDS, port 1433). Enforces Role-Based Access Control (RBAC). |
+| **Tier 4: Item Sharing & Gates** | Control-Plane Shares & Verification | `fabricext` | Declarative item permissions (`fabricext_{warehouse,sql_database,lakehouse}_permission`) governing item discovery, OneLake shortcut routing, and TDS `CONNECT`. Independent cross-plane verification via `fabricext_item_share_gate`. |
+| **Tier 5: Data-Plane Governance** | OneLake Security & T-SQL RBAC | OneLake Storage Engine / SQL TDS Engine | OneLake Data Access Roles (`fabricext_lakehouse_data_access_role` + `fabricext_lakehouse_onelake_security`) managing Delta path filters and storage RLS/CLS; T-SQL `GRANT`/`DENY` on Schemas/Tables/Views, SQL RLS, and CLS over TDS (port 1433). |
 | **Tier 6: Consumption & BI** | Semantic Models & Power BI Apps | Power BI Analysis Services | Direct Lake mode, DirectQuery fallback over TDS, Entra Single Sign-On (SSO) token delegation, and dataset-level RLS/Object-Level Security (OLS). |
 
 ---
@@ -83,6 +83,6 @@ Microsoft Fabric enforces distinct principal type rules depending on the target 
 | :--- | :--- |
 | **[Access Control Playbook](./access_control_playbook.md)** | Start Here routing table and 11 verified scenario execution cards. |
 | **[Enterprise Access Control Overview](./use_case_overview.md)** | Master comparison matrix and 6-tier perimeter overview. |
-| **[Warehouse Schema Isolation](./use_case_warehouse_schema_isolation.md)** | Isolating schemas using `role_type = "read"` and T-SQL RBAC. |
+| **[Warehouse Schema Isolation](./use_case_warehouse_schema_isolation.md)** | Isolating schemas using `permissions = ["Read"]` and T-SQL RBAC. |
 | **[Lakehouse OneLake Security](./use_case_lakehouse_onelake_security.md)** | Granular path filters and storage-level RLS/CLS. |
 | **[Power BI Identity Flow](./use_case_powerbi_identity_propagation.md)** | End-to-end token flow to semantic models and query fallback. |

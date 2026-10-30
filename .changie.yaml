@@ -92,13 +92,13 @@ replacements:
     replace: ' version = "~> {{.VersionNoPrefix}}"'
   - path: ./modules/permissions/README.md
     find: '(\?ref=)[^"]*'
-    replace: '${1}{{.Version}}'
+    replace: '${1}v{{.VersionNoPrefix}}'
   - path: ./templates/index.md.tmpl
     find: '(\?ref=)[^"]*'
-    replace: '${1}{{.Version}}'
+    replace: '${1}v{{.VersionNoPrefix}}'
   - path: ./templates/guides/matrix_composition.md.tmpl
     find: '(\?ref=)[^"]*'
-    replace: '${1}{{.Version}}'
+    replace: '${1}v{{.VersionNoPrefix}}'
   - path: ./guides/official_provider_comparison.md
     find: '(?s)(fabricext\s*=\s*\{[^}]*version\s*=\s*")[^"]*(")'
     replace: '${1}~> {{.VersionNoPrefix}}${2}'

@@ -38,23 +38,25 @@ Security in Microsoft Fabric is governed by six decoupled, cascading evaluation 
                                      │
                                      ▼
 +--------------------------------------------------------------------------+
-| Tier 4: Item Perimeter (Declarative Item Sharing & OneLake Roles)        |
-| - Warehouse: Item Share via fabricext_warehouse_permission (Read/TDS)    |
+| Tier 4: Control-Plane Item Sharing & Verification Gates                  |
+| - Warehouse: Item Share via fabricext_warehouse_permission (Read / TDS)  |
 | - SQL Database: Item Share via fabricext_sql_database_permission        |
-| - Lakehouse: Item Share & OneLake Data Access Roles via fabricext        |
-| - Verification: Tenant Admin REST API gate via fabricext_item_share_gate |
+| - Lakehouse: Item Share via fabricext_lakehouse_permission               |
+| - Cross-Plane Gate: Admin API verification via fabricext_item_share_gate |
 +--------------------------------------------------------------------------+
                                      │
                                      ▼
 +--------------------------------------------------------------------------+
-| Tier 5: Engine & Storage RBAC (Role-Based Access Control)                |
-| ├─ Warehouse / SQL DB: T-SQL Permissions Engine                          |
-| │  - GRANT / DENY on Schema, Table, View over TDS (port 1433)            |
-| │  - T-SQL Row-Level Security (RLS) & Column-Level Security (CLS)        |
-| └─ Lakehouse: OneLake Storage Security Engine (Centralized Policy)       |
-|    - Table path filters (/Tables/{tableName})                            |
-|    - OneLake storage RLS row constraints & CLS column constraints        |
-|    - Distributed enforcement by authorized compute engines at query time |
+| Tier 5: Data-Plane Governance & In-Engine RBAC                           |
+| ├─ OneLake Storage Security Engine (Centralized Lakehouse Governance)    |
+| │  - Path filters (/Tables/{tableName}, /Files/{folder})                 |
+| │  - OneLake storage RLS row constraints & CLS column constraints        |
+| │  - Managed declaratively via fabricext_lakehouse_data_access_role      |
+| │  - Automated DefaultReader purging via fabricext_lakehouse_onelake_sec |
+| │  - Distributed enforcement by compute engines (Spark, Analysis Services|
+| └─ Warehouse / SQL DB: T-SQL Permissions Engine                          |
+|    - GRANT / DENY on Schema, Table, View over TDS (port 1433)            |
+|    - T-SQL Row-Level Security (RLS) & Column-Level Security (CLS)        |
 +--------------------------------------------------------------------------+
                                      │
                                      ▼
@@ -79,10 +81,10 @@ The following matrix maps enterprise access control requirements to their Micros
 | :--- | :--- | :--- | :--- |
 | **Broad Workspace Access**<br/>User needs to read or collaborate on all items across a workspace. | Assign **Viewer** (read-only) or **Contributor** (read/write) workspace role. | **Tier 3 (Workspace)**<br/>Workspace role assignment via Fabric Portal or `microsoft/fabric`. | **Out of Scope**<br/>Handled by official `fabric_workspace_role_assignment`. |
 | **Warehouse Schema Isolation**<br/>User needs access to schema `finance` only; all other schemas (`hr`, `sales`) must be denied. | Grant item **`Read`** share (connectivity only) + grant T-SQL schema permissions. | **Tier 4 (Item Share) + Tier 5 (SQL Engine)**<br/>Item share grants Tabular Data Stream (TDS, port 1433) `CONNECT`; default-deny SQL engine restricts data access. | **Direct**<br/>`fabricext_warehouse_permission` (declarative `Read` share) + `fabricext_item_share_gate` verification. |
-| **SQL Database Broad Access**<br/>User needs read access across all tables in a Fabric SQL Database. | Grant item-level **`ReadData`** share on the SQL database item. | **Tier 4 (Item Share)**<br/>Item permission grants connectivity and broad data access across all tables in the operational Online Transaction Processing (OLTP) database. | **Direct**<br/>`fabricext_sql_database_permission` (`permissions = ["Read", "ReadWrite"]`) + `fabricext_item_share_gate`. |
-| **SQL Database Spark Analytics**<br/>Spark notebooks require read access to OneLake mirrored database data. | Grant item-level **`ReadAll`** share on the SQL database item. | **Tier 4 (Item Share) + Tier 5 (Storage)**<br/>Grants Spark access to near-real-time mirrored Parquet data and event subscriptions. | **Direct**<br/>`fabricext_sql_database_permission` (`permissions = ["ReadAll"]`) + `fabricext_item_share_gate`. |
-| **Object-Level Security (OLS)**<br/>User can access specific tables or views within a schema, but sensitive tables are hidden. | Item **`Read`** share via Fabric Portal + T-SQL `GRANT SELECT ON table/view`. | **Tier 5 (SQL Engine)**<br/>SQL metadata hiding ensures unpermitted tables are invisible in `sys.tables`. | **Portal UI + T-SQL**<br/>Item share granted via portal; T-SQL permissions managed in-engine. |
-| **SQL Row/Column Security (RLS/CLS)**<br/>Warehouse user should only see regional rows or cannot see credit card columns. | Item **`Read`** share via Fabric Portal + T-SQL Security Policies (predicate function) & `DENY SELECT ON table(col)`. | **Tier 5 (SQL Engine)**<br/>T-SQL execution engine filters rows/columns at query runtime. | **Portal UI + T-SQL**<br/>Item share granted via portal; T-SQL permissions managed in-engine. |
+| **SQL Database Broad Access**<br/>User needs read access across all tables in a Fabric SQL Database. | Grant item-level **`ReadData`** share on the SQL database item. | **Tier 4 (Item Share)**<br/>Item permission grants connectivity and broad data access across all tables in the operational Online Transaction Processing (OLTP) database. | **Direct**<br/>`fabricext_sql_database_permission` (`permissions = ["Read", "ReadData"]`) + `fabricext_item_share_gate`. |
+| **SQL Database Spark Analytics**<br/>Spark notebooks require read access to OneLake mirrored database data. | Grant item-level **`ReadAll`** share on the SQL database item. | **Tier 4 (Item Share) + Tier 5 (Storage)**<br/>Grants Spark access to near-real-time mirrored Parquet data and event subscriptions. | **Direct**<br/>`fabricext_sql_database_permission` (`permissions = ["Read", "ReadAll"]`) + `fabricext_item_share_gate`. |
+| **Object-Level Security (OLS)**<br/>User can access specific tables or views within a schema, but sensitive tables are hidden. | Item **`Read`** share + T-SQL `GRANT SELECT ON table/view`. | **Tier 5 (SQL Engine)**<br/>SQL metadata hiding ensures unpermitted tables are invisible in `sys.tables`. | **Direct + T-SQL**<br/>`fabricext_warehouse_permission` (`permissions = ["Read"]`) + in-engine T-SQL grants. |
+| **SQL Row/Column Security (RLS/CLS)**<br/>Warehouse user should only see regional rows or cannot see credit card columns. | Item **`Read`** share + T-SQL Security Policies (predicate function) & `DENY SELECT ON table(col)`. | **Tier 5 (SQL Engine)**<br/>T-SQL execution engine filters rows/columns at query runtime. | **Direct + T-SQL**<br/>`fabricext_warehouse_permission` (`permissions = ["Read"]`) + in-engine T-SQL grants. |
 | **Lakehouse Path & Folder Access**<br/>Lakehouse user needs access to specific Delta tables without SQL engine. | Configure OneLake Data Access Role with path attribute scopes (`paths = ["/Tables/sales"]`). | **Tier 4 & 5 (OneLake Storage)**<br/>OneLake security evaluates path filters against storage operations (`actions = ["Read"]`). | **Direct**<br/>`fabricext_lakehouse_data_access_role` (simple mode with `paths` and `actions = ["Read"]`). |
 | **Lakehouse Storage RLS & CLS**<br/>Lakehouse user needs row-filtering or column-masking on Delta tables. | Configure OneLake Data Access Role with `row_constraint` and `column_constraint`. | **Tier 5 (OneLake Engine)**<br/>Centralized policy enforced at query time by authorized engines (Spark, Analysis Services). | **Direct**<br/>`fabricext_lakehouse_data_access_role` (advanced mode with `decision_rule`). |
 | **Cross-Workspace Data Sharing**<br/>Derive OneLake role membership from users who have item permissions on another Fabric item. | Configure Lakehouse role containing `fabric_item_member` referencing the source workspace and item path. | **Tier 4 & 5 (OneLake Security)**<br/>OneLake dynamically inherits role membership from the source item permissions. | **Direct**<br/>`fabricext_lakehouse_data_access_role` (`fabric_item_member` blocks). |

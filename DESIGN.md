@@ -2,7 +2,7 @@
 
 > **Provider Notice:** `terraform-provider-fabricext` (`registry.terraform.io/jambazid/fabricext`) is a purpose-built Terraform Plugin Framework (Protocol v6) provider for declaratively managing Microsoft Fabric Lakehouse OneLake Data Access Roles, security lifecycles, and advanced governance extensions (`fabricext_*`). For standard workspace and item provisioning, see Microsoft's official [`microsoft/fabric` Terraform provider](https://github.com/microsoft/terraform-provider-fabric).
 >
-> **Pre-Alpha Stability Notice:** This provider is currently in **pre-alpha** (`v0.x`) and is **not stable**. Resource schemas, API contracts, and state representations may change without backwards compatibility prior to `v1.0.0`. Consumers must pin provider versions (`~> 0.6.0`) in `required_providers`.
+> **Pre-Alpha Stability Notice:** This provider is currently in **pre-alpha** (`v0.x`) and is **not stable**. Resource schemas, API contracts, and state representations may change without backwards compatibility prior to `v1.0.0`. Consumers must pin provider versions (`~> 0.7.0`) in `required_providers`.
 
 ---
 
@@ -12,18 +12,23 @@
 
 Microsoft's official [`microsoft/fabric` Terraform provider](https://registry.terraform.io/providers/microsoft/fabric/latest) supports provisioning Microsoft Fabric workspaces, capacities, workspace role assignments, and core items (`fabric_warehouse`, `fabric_lakehouse`, `fabric_sql_database`). However, it currently lacks declarative resources for **item-level sharing and granular data-access permissions**:
 
-1. **Fabric Data Warehouses (`Warehouse`)**: Item-level sharing endpoints do not exist in the public Fabric REST API; sharing is managed via the Fabric portal UI, and granular permissions must be implemented via T-SQL (`GRANT`/`DENY`/`REVOKE`).
-2. **Fabric SQL Databases (`SQLDatabase`)**: Item-level sharing endpoints do not exist in the public Fabric REST API; sharing is managed via portal Quick Actions, and granular permissions must be implemented via SQL roles or Purview policies.
-3. **Fabric Lakehouses (`Lakehouse`)**: Managing OneLake Data Access Roles (`/dataAccessRoles`) that scope folder/table path permissions (`/Tables/...`, `/Files/...`) to specific Microsoft Entra ID security groups, users, or service principals.
+1. **Item-Level Sharing (`Warehouse`, `SQLDatabase`, `Lakehouse`)**: Item-level sharing endpoints do not exist in the public Fabric REST API; sharing is managed via the Fabric portal UI or undocumented Power BI metadata APIs (`/metadata/access`).
+2. **OneLake Data Access Roles (`Lakehouse`)**: Managing OneLake Data Access Roles (`/dataAccessRoles`) that scope folder/table path permissions (`/Tables/...`, `/Files/...`) to specific Microsoft Entra ID security groups, users, or service principals.
+3. **Cross-Plane Verification**: Verifying that permissions provisioned via item-level sharing are actively reflected across Fabric Admin REST API audit endpoints.
 
 ### 1.2 Architectural Solution
 
 `terraform-provider-fabricext` addresses this with a native Go Terraform Plugin Framework (Protocol v6) provider (`fabricext`):
 
+- **`fabricext_warehouse_permission`**: Declaratively manages direct item-level sharing permissions (`Read`, `ReadData`, `ReadAll`, `Reshare`) for Fabric Warehouses via Power BI metadata access endpoints with in-place drift reconciliation.
+- **`fabricext_sql_database_permission`**: Declaratively manages direct item-level sharing permissions (`Read`, `Write`, `ReadData`, `ReadAll`, `Reshare`, `Execute`) for Fabric SQL Databases via Power BI metadata access endpoints with in-place drift reconciliation.
+- **`fabricext_lakehouse_permission`**: Declaratively manages direct item-level sharing permissions (`Read`, `ReadData`, `ReadAll`, `Reshare`, `Execute`) for Fabric Lakehouses via Power BI metadata access endpoints with in-place drift reconciliation.
+- **`fabricext_item_share_gate`**: Waiter resource verifying effective direct and inherited item permissions via the official Fabric Admin REST API (`GET /v1/admin/workspaces/{workspaceId}/items/{itemId}/users`).
 - **`fabricext_lakehouse_data_access_role`**: Declarative lifecycle (`Create`, `Read`, `Update`, `Delete`, `ImportState`) for Lakehouse OneLake Data Access Roles using a per-item mutex and optimistic concurrency (`ETag` / `If-Match`) Read-Modify-Write (RMW) loop.
 - **`fabricext_lakehouse_onelake_security`**: Declarative lifecycle (`Create`, `Read`, `Update`, `Delete`, `ImportState`) verifying OneLake security enablement, purging permissive `DefaultReader` roles, and observing state drift.
 - **`fabricext_item` (Data Source)**: Singular item lookup resolving `(workspace_id, display_name, type)` to its canonical Fabric item `id`.
-- **`modules/permissions` (In-Repo HCL Submodule)**: Declarative matrix wrapper managing Lakehouse OneLake Data Access Roles and security lifecycles across workspaces.
+- **`data.fabricext_item_access_details` (Data Source)**: Inspects effective direct and inherited item permissions for a workspace item via the official Fabric Admin REST API.
+- **`modules/permissions` (In-Repo HCL Submodule)**: Declarative matrix wrapper managing Lakehouse, Warehouse, and SQL Database item permissions and OneLake Data Access Roles across workspaces.
 
 ---
 
@@ -39,7 +44,7 @@ Microsoft's official [`microsoft/fabric` Terraform provider](https://registry.te
 | **REQ-006** | Vendor official `microsoft/fabric-rest-api-specs` OpenAPI definitions in `specs/fabric/` and native Power BI metadata contract in `specs/powerbi/metadata/`, enforcing runtime schema validation in mock tests via `kin-openapi` | `specs/fabric/`, `specs/powerbi/metadata/`, `internal/testutil/fabricmock/`, `internal/testutil/pbimock/` | `mise run specs:check`, `mise run test` |
 | **REQ-007** | Implement StepSecurity-hardened GitHub Actions CI/CD (`jambazid/gha-actions` style) with automatic Conventional Commits release (`svu` + `goreleaser`) and 7-day Dependabot cooldown | `.github/workflows/ci.yaml`, `.github/dependabot.yaml`, `.goreleaser.yaml`, `terraform-registry-manifest.json` | `mise run scan`, `goreleaser check` |
 | **REQ-008** | Document contributor extensibility, roadmap/deprecation policy, and security posture | [`CONTRIBUTING.md`](CONTRIBUTING.md), [`ROADMAP.md`](ROADMAP.md), [`SECURITY.md`](SECURITY.md) | `mise run lint` |
-| **REQ-DOCS-008** | Purge active item-sharing implications for Warehouse and SQL Database across documentation, guides, module, and examples | `templates/**`, `docs/**`, `guides/`, `examples/`, `modules/permissions/` | `go test -run TestRegistryDocs_NoActiveItemSharingClaims`, `mise run docs:check` |
+| **REQ-DOCS-008** | Purge nonexistent Fabric v1 REST sharing claims and fake overlays, documenting Power BI metadata access endpoints for item sharing | `templates/**`, `docs/**`, `guides/`, `examples/`, `modules/permissions/` | `go test -run TestRegistryDocs_NoActiveItemSharingClaims`, `mise run docs:check` |
 | **REQ-DOCS-009** | Document honest technical comparison narrative against official provider, detailing OneLake zero-trust purging, ETag concurrency, and contract testing | `templates/guides/official_provider_comparison.md.tmpl`, `guides/official_provider_comparison.md` | `go test -run TestRegistryDocs_HonestComparisonNarrative`, `mise run docs:check` |
 | **REQ-DOCS-010** | Reorganize access control guides under subcategory Guides, remove Use Cases title prefixes, apply open-ended connectivity phrasing, include Atlas, and purge legacy role names | `templates/guides/`, `docs/guides/`, `guides/` | `go test -run TestRegistryDocs_GuidesReorganizationAndPhrasing`, `mise run docs:check` |
 
@@ -383,7 +388,7 @@ Key module capabilities:
 1. Support direct item UUIDs as map keys (in addition to item display names) across `lakehouses`.
 2. Support advanced Lakehouse OneLake Data Access Roles: repeatable `decision_rules` with Row-Level Security (`row_constraints`), Column-Level Security (`column_constraints`), heterogeneous `entra_members`, and `fabric_item_members` alongside the standard simple flat role configuration.
 3. Enforce strict dependency ordering across the security enablement boundary: `fabricext_lakehouse_data_access_role.this` declares an explicit `depends_on = [fabricext_lakehouse_onelake_security.this]` so that OneLake security verification and `DefaultReader` purging complete before role mutations across all Lakehouses.
-4. Legacy inputs `warehouses` and `sql_databases` are preserved for backward syntax compatibility but produce empty outputs as underlying item sharing is unsupported via REST.
+4. Inputs `warehouses` and `sql_databases` actively declare `fabricext_warehouse_permission` and `fabricext_sql_database_permission` resources, unifying item sharing and OneLake Data Access Roles across all supported engines under a single module.
 
 ---
 
@@ -467,7 +472,7 @@ flowchart LR
 `terraform-provider-fabricext` is an advanced security companion provider rather than a competitor to the official [`microsoft/fabric`](https://registry.terraform.io/providers/microsoft/fabric/latest) provider:
 
 1. **Breadth vs Specialization**: `microsoft/fabric` manages core platform resources (workspaces, capacities, items, and workspace roles). `fabricext` focuses specifically on Lakehouse OneLake Data Access Roles and security lifecycles.
-2. **Item Sharing Parity**: Neither provider manages Warehouse or SQL Database item sharing via REST because Microsoft Fabric does not offer public REST endpoints for them. Fine-grained security for these engines must be configured via Fabric Portal Share + in-database T-SQL permissions.
+2. **Item Sharing Parity**: The official provider does not manage Warehouse or SQL Database item sharing via REST because Microsoft Fabric does not offer public Fabric v1 REST endpoints for them. `fabricext` bridges this capability by declaratively managing item sharing across Warehouses, SQL Databases, and Lakehouses via internal Power BI metadata access endpoints with in-place drift reconciliation.
 3. **Automated Zero-Trust Lifecycle**: `fabricext_lakehouse_onelake_security` automates verification and zero-trust deletion of the auto-generated `DefaultReader` role, preventing open read access from defeating custom RLS/CLS rules.
 4. **ETag Concurrency Control**: `fabricext` provides per-Lakehouse in-memory mutex locking and RFC 9110 compliant `If-Match` ETag Read-Modify-Write retry on HTTP 412, preventing race conditions under parallel Terraform operations.
 5. **Multi-Page Pagination Safety**: Follows `continuationToken` up to 100 pages with cycle detection and cross-page ETag consistency checks.
@@ -494,7 +499,7 @@ Cross-referencing all 57 item and service domains in [`microsoft/fabric-rest-api
 
 ### 13.1 Administrative Surface & Problem
 
-Item sharing for Microsoft Fabric Warehouses and SQL Databases does not offer a public write REST API. Permissions must be granted out-of-band in the Fabric portal or via administrative scripts. To prevent downstream operations (such as SQL schema migrations via Atlas, Flyway, or Liquibase, or data pipeline runs) from failing due to propagation latency or missing shares, the provider exposes a read-only projection data source and a verification waiter resource backed by the official Fabric Admin API (`GET /v1/admin/workspaces/{workspaceId}/items/{itemId}/users`, C54).
+While public Fabric v1 REST APIs do not offer write endpoints for item sharing, `fabricext` manages item permissions via internal Power BI metadata endpoints (`fabricext_*_permission`). To additionally verify cross-plane propagation across administrative boundaries or validate out-of-band portal grants before executing downstream operations (such as SQL schema migrations via Atlas, Flyway, or Liquibase, or data pipeline runs), the provider exposes a read-only projection data source and a verification waiter resource backed by the official Fabric Admin API (`GET /v1/admin/workspaces/{workspaceId}/items/{itemId}/users`, C54).
 
 ### 13.2 Security & Rate Limiting
 
@@ -519,7 +524,7 @@ Item sharing for Microsoft Fabric Warehouses and SQL Databases does not offer a 
 
 `resource.fabricext_item_share_gate` provides declarative gating without granting or revoking remote permissions:
 
-1. **Create**: Polls the Admin API with exponential backoff until the named principal holds the expected permissions (subset match by default, or exact match). If the timeout expires without satisfaction, fails with an actionable diagnostic instructing the operator to complete the share in the Fabric portal.
+1. **Create**: Polls the Admin API with exponential backoff until the named principal holds the expected permissions (subset match by default, or exact match). If the timeout expires without satisfaction, fails with an actionable diagnostic instructing the operator to verify or complete the item share.
 2. **Read**: Re-evaluates effective permissions. If the target item returns HTTP 404, or the principal is missing, or permissions no longer satisfy the match condition, calls `resp.State.RemoveResource(ctx)` and returns cleanly without error diagnostics. This ensures `terraform destroy` executes cleanly as a zero-op, while `terraform plan` detects drift and plans recreation.
 3. **Update**: In-place updates are permitted only for `expected_permissions` and `match_type`, triggering a re-poll. Changes to `workspace_id`, `item_id`, `principal_id`, `principal_type`, or `type` require resource replacement.
 4. **Delete**: Pure local state removal with zero network requests.
