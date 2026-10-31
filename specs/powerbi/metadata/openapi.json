@@ -221,10 +221,126 @@
           }
         }
       }
+    },
+    "/v1.0/myorg/groups": {
+      "get": {
+        "summary": "Get workspaces (groups) accessible to the caller",
+        "operationId": "getGroups",
+        "parameters": [
+          {
+            "name": "$top",
+            "in": "query",
+            "required": false,
+            "description": "The maximum number of items to return",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Groups returned successfully",
+            "headers": {
+              "home-cluster-uri": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Regional Power BI backend cluster URL"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "headers": {
+              "home-cluster-uri": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-PowerBI-Error-Info": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "RequestId": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "headers": {
+              "home-cluster-uri": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-PowerBI-Error-Info": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "RequestId": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "GroupsResponse": {
+        "type": "object",
+        "properties": {
+          "@odata.context": {
+            "type": "string"
+          },
+          "@odata.count": {
+            "type": "integer"
+          },
+          "value": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Group"
+            }
+          }
+        },
+        "required": ["value"],
+        "additionalProperties": true
+      },
+      "Group": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "isReadOnly": {
+            "type": "boolean"
+          },
+          "isOnDedicatedCapacity": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": ["id", "name"],
+        "additionalProperties": true
+      },
       "AccessRequest": {
         "type": "object",
         "properties": {

@@ -217,3 +217,108 @@ func TestPBIMockServer_EdgeCasesAndMutations(t *testing.T) {
 		t.Errorf("expected 400 on bad JSON, got %d", respBadJSON.StatusCode)
 	}
 }
+
+func TestServer_OpenAPIContractValidation(t *testing.T) {
+	s, err := NewServer()
+	if err != nil {
+		t.Fatalf("failed to create pbimock server: %v", err)
+	}
+	defer s.Close()
+
+	// 1. Validate GET /v1.0/myorg/groups?$top=1 against OpenAPI spec
+	reqGroups, err := http.NewRequest(http.MethodGet, s.URL+"/v1.0/myorg/groups?$top=1", nil)
+	if err != nil {
+		t.Fatalf("failed creating groups request: %v", err)
+	}
+	respGroups, err := http.DefaultClient.Do(reqGroups)
+	if err != nil {
+		t.Fatalf("failed GET /v1.0/myorg/groups: %v", err)
+	}
+	defer func() { _ = respGroups.Body.Close() }()
+	if respGroups.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 for groups, got %d", respGroups.StatusCode)
+	}
+	if hcu := respGroups.Header.Get("home-cluster-uri"); hcu != s.URL {
+		t.Errorf("expected home-cluster-uri %q, got %q", s.URL, hcu)
+	}
+
+	var groupsData map[string]any
+	if err := json.NewDecoder(respGroups.Body).Decode(&groupsData); err != nil {
+		t.Fatalf("failed decoding groups JSON: %v", err)
+	}
+	if groups, ok := groupsData["value"].([]any); !ok || len(groups) == 0 {
+		t.Errorf("expected non-empty groups value, got: %+v", groupsData)
+	}
+
+	// 2. Validate GET /metadata/access/artifacts/{itemId} returns root integer id
+	reqItem, _ := http.NewRequest(http.MethodGet, s.URL+"/metadata/access/artifacts/f83c9197-4c61-4355-b319-7d0c7f948313", nil)
+	respItem, err := http.DefaultClient.Do(reqItem)
+	if err != nil {
+		t.Fatalf("failed GET artifact access: %v", err)
+	}
+	defer func() { _ = respItem.Body.Close() }()
+	if respItem.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 for artifact access, got %d", respItem.StatusCode)
+	}
+	var itemData map[string]any
+	if err := json.NewDecoder(respItem.Body).Decode(&itemData); err != nil {
+		t.Fatalf("failed decoding artifact access: %v", err)
+	}
+	if idVal, ok := itemData["id"].(float64); !ok || int(idVal) != 1 {
+		t.Errorf("expected root id=1, got %v", itemData["id"])
+	}
+
+	// 3. Validate simulated 401 Unauthorized with headers on groups and artifact access
+	s.SetAccessAuthError(http.StatusUnauthorized, "PowerBINotAuthorizedException")
+	respItem401, err := http.DefaultClient.Do(reqItem)
+	if err != nil {
+		t.Fatalf("failed GET artifact access 401: %v", err)
+	}
+	_ = respItem401.Body.Close()
+	if respItem401.StatusCode != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", respItem401.StatusCode)
+	}
+	if respItem401.Header.Get("X-PowerBI-Error-Info") != "PowerBINotAuthorizedException" {
+		t.Errorf("expected X-PowerBI-Error-Info header on 401, got %q", respItem401.Header.Get("X-PowerBI-Error-Info"))
+	}
+	if respItem401.Header.Get("RequestId") == "" {
+		t.Errorf("expected RequestId header on 401")
+	}
+
+	reqGroups401, _ := http.NewRequest(http.MethodGet, s.URL+"/v1.0/myorg/groups", nil)
+	respGroups401, err := http.DefaultClient.Do(reqGroups401)
+	if err != nil {
+		t.Fatalf("failed GET groups 401: %v", err)
+	}
+	_ = respGroups401.Body.Close()
+	if respGroups401.StatusCode != http.StatusUnauthorized {
+		t.Errorf("expected 401 for groups, got %d", respGroups401.StatusCode)
+	}
+
+	// 4. Validate simulated 403 Forbidden on groups
+	s.SetAccessAuthError(http.StatusForbidden, "PowerBIForbiddenException")
+	respGroups403, err := http.DefaultClient.Do(reqGroups401)
+	if err != nil {
+		t.Fatalf("failed GET groups 403: %v", err)
+	}
+	_ = respGroups403.Body.Close()
+	if respGroups403.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 for groups, got %d", respGroups403.StatusCode)
+	}
+
+	// 5. Validate SetPortalForbidden and PortalRequestCount
+	s.SetAccessAuthError(0, "")
+	initialCount := s.PortalRequestCount()
+	s.SetPortalForbidden(true)
+	respPortal, err := http.Get(s.URL + "/")
+	if err != nil {
+		t.Fatalf("failed GET /: %v", err)
+	}
+	_ = respPortal.Body.Close()
+	if respPortal.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 from portal when forbidden, got %d", respPortal.StatusCode)
+	}
+	if s.PortalRequestCount() != initialCount+1 {
+		t.Errorf("expected portal request count %d, got %d", initialCount+1, s.PortalRequestCount())
+	}
+}

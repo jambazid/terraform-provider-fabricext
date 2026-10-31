@@ -263,3 +263,101 @@ resource "fabricext_warehouse_permission" "test" {
 		},
 	})
 }
+
+func TestAccWarehousePermissionResource_SPNClusterDiscoveryCleanCRUD(t *testing.T) {
+	t.Parallel()
+
+	fabricSrv := fabricmock.NewServer(t)
+	pbiSrv, err := pbimock.NewServer()
+	if err != nil {
+		t.Fatalf("starting pbimock: %v", err)
+	}
+	defer pbiSrv.Close()
+
+	// Simulate portal being forbidden (returns HTTP 403 on GET /)
+	pbiSrv.SetPortalForbidden(true)
+
+	wsID := "11111111-1111-1111-1111-111111111111"
+	whID := "22222222-2222-2222-2222-222222222222"
+	principalID := "33333333-3333-3333-3333-333333333333"
+
+	fabricSrv.UpsertItem(fabricmock.Item{
+		ID:          whID,
+		WorkspaceID: wsID,
+		DisplayName: "finance_warehouse",
+		Type:        "Warehouse",
+	})
+
+	spnToken := createSyntheticAccJWT(`{"idtyp":"app","appid":"app-spn-acc","oid":"spn-oid-acc","tid":"tenant-acc","roles":["Tenant.ReadWrite.All"]}`)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccProviderConfigWithTokens(fabricSrv, pbiSrv, spnToken, spnToken) + fmt.Sprintf(`
+resource "fabricext_warehouse_permission" "test" {
+  workspace_id   = %q
+  warehouse_id   = %q
+  principal_id   = %q
+  principal_type = "User"
+  permissions    = ["Read", "ReadData"]
+}
+`, wsID, whID, principalID),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("fabricext_warehouse_permission.test", "id", fmt.Sprintf("%s/%s/User/%s", wsID, whID, principalID)),
+					resource.TestCheckResourceAttr("fabricext_warehouse_permission.test", "warehouse_id", whID),
+					resource.TestCheckResourceAttr("fabricext_warehouse_permission.test", "permissions.#", "2"),
+					func(_ *terraform.State) error {
+						if pbiSrv.PortalRequestCount() != 0 {
+							return fmt.Errorf("expected 0 portal requests for app-only SPN token, got %d", pbiSrv.PortalRequestCount())
+						}
+						return nil
+					},
+				),
+			},
+		},
+	})
+}
+
+func TestAccWarehousePermissionResource_SPN401ErrorDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	fabricSrv := fabricmock.NewServer(t)
+	pbiSrv, err := pbimock.NewServer()
+	if err != nil {
+		t.Fatalf("starting pbimock: %v", err)
+	}
+	defer pbiSrv.Close()
+
+	wsID := "11111111-1111-1111-1111-111111111111"
+	whID := "22222222-2222-2222-2222-222222222222"
+	principalID := "33333333-3333-3333-3333-333333333333"
+
+	fabricSrv.UpsertItem(fabricmock.Item{
+		ID:          whID,
+		WorkspaceID: wsID,
+		DisplayName: "finance_warehouse",
+		Type:        "Warehouse",
+	})
+
+	pbiSrv.SetAccessAuthError(401, "PowerBINotAuthorizedException")
+	spnToken := createSyntheticAccJWT(`{"idtyp":"app","appid":"app-spn-acc","oid":"spn-oid-acc","tid":"tenant-acc","roles":["Tenant.ReadWrite.All"]}`)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccProviderConfigWithTokens(fabricSrv, pbiSrv, spnToken, spnToken) + fmt.Sprintf(`
+resource "fabricext_warehouse_permission" "test" {
+  workspace_id   = %q
+  warehouse_id   = %q
+  principal_id   = %q
+  principal_type = "User"
+  permissions    = ["Read", "ReadData"]
+}
+`, wsID, whID, principalID),
+				ExpectError: regexp.MustCompile(`(?s)fault_class=ServicePrincipalTenantRoleConflict.*x_powerbi_error=PowerBINotAuthorizedException.*caller_posture=\[.*appid=app-spn-acc.*roles=\[Tenant\.ReadWrite\.All\].*\]`),
+			},
+		},
+	})
+}

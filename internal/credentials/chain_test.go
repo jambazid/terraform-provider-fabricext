@@ -1365,3 +1365,136 @@ func TestChain_PowerBIScopeMismatchHint(t *testing.T) {
 		t.Fatalf("expected scope hint in error message, got: %s", chainErr.Error())
 	}
 }
+
+func TestResolvePowerBIAPIBaseURL(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		env      string
+		expected string
+	}{
+		{"public", "https://api.powerbi.com"},
+		{"PUBLIC", "https://api.powerbi.com"},
+		{"", "https://api.powerbi.com"},
+		{"usgovernment", "https://api.powerbigov.us"},
+		{"USGOVERNMENT", "https://api.powerbigov.us"},
+		{"china", "https://api.powerbi.cn"},
+		{"CHINA", "https://api.powerbi.cn"},
+	}
+
+	for _, tt := range tests {
+		got := ResolvePowerBIAPIBaseURL(tt.env)
+		if got != tt.expected {
+			t.Errorf("ResolvePowerBIAPIBaseURL(%q) = %q, expected %q", tt.env, got, tt.expected)
+		}
+	}
+}
+
+func TestInspectTokenPosture_ClassificationAndRedaction(t *testing.T) {
+	t.Parallel()
+
+	buildJWT := func(payload map[string]any) string {
+		header := `{"alg":"none","typ":"JWT"}`
+		headerB64 := base64.RawURLEncoding.EncodeToString([]byte(header))
+		payloadBytes, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatalf("marshaling payload: %v", err)
+		}
+		payloadB64 := base64.RawURLEncoding.EncodeToString(payloadBytes)
+		return headerB64 + "." + payloadB64 + ".sig"
+	}
+
+	t.Run("AppOnlySPNWithTenantRoles", func(t *testing.T) {
+		t.Parallel()
+		rawToken := buildJWT(map[string]any{
+			"idtyp": "app",
+			"tid":   "72f988bf-86f1-41af-91ab-2d7cd011db47",
+			"appid": "11111111-2222-3333-4444-555555555555",
+			"oid":   "66666666-7777-8888-9999-000000000000",
+			"aud":   "https://analysis.windows.net/powerbi/api",
+			"roles": []string{"Tenant.ReadWrite.All", "Item.Read.All"},
+		})
+
+		posture := InspectTokenPosture(rawToken, "oidc")
+		if posture.TokenType != "app-only" {
+			t.Errorf("expected token_type=app-only, got %s", posture.TokenType)
+		}
+		if posture.TenantID != "72f988bf-86f1-41af-91ab-2d7cd011db47" {
+			t.Errorf("unexpected tenant id: %s", posture.TenantID)
+		}
+		if posture.AppID != "11111111-2222-3333-4444-555555555555" {
+			t.Errorf("unexpected app id: %s", posture.AppID)
+		}
+		if posture.ObjectID != "66666666-7777-8888-9999-000000000000" {
+			t.Errorf("unexpected object id: %s", posture.ObjectID)
+		}
+		if !posture.HasTenantRoles {
+			t.Errorf("expected HasTenantRoles=true")
+		}
+		if posture.ScpPresent {
+			t.Errorf("expected ScpPresent=false")
+		}
+
+		formatted := posture.Format()
+		if !strings.Contains(formatted, "token_type=app-only") ||
+			!strings.Contains(formatted, "tid=72f988bf-86f1-41af-91ab-2d7cd011db47") ||
+			!strings.Contains(formatted, "appid=11111111-2222-3333-4444-555555555555") ||
+			!strings.Contains(formatted, "roles=[Item.Read.All, Tenant.ReadWrite.All]") {
+			t.Errorf("unexpected formatted posture: %s", formatted)
+		}
+		if strings.Contains(formatted, rawToken) {
+			t.Errorf("raw token must never appear in formatted posture: %s", formatted)
+		}
+	})
+
+	t.Run("DelegatedUserTokenWithUPNRedaction", func(t *testing.T) {
+		t.Parallel()
+		rawToken := buildJWT(map[string]any{
+			"idtyp":       "user",
+			"tid":         "72f988bf-86f1-41af-91ab-2d7cd011db47",
+			"oid":         "user-oid-123",
+			"scp":         "user_impersonation",
+			"upn":         "practitioner@contoso.com",
+			"unique_name": "practitioner@contoso.com",
+			"email":       "practitioner@contoso.com",
+			"aud":         []any{"https://analysis.windows.net/powerbi/api"},
+		})
+
+		posture := InspectTokenPosture(rawToken, "cli")
+		if posture.TokenType != "delegated-user" {
+			t.Errorf("expected token_type=delegated-user, got %s", posture.TokenType)
+		}
+		if !posture.ScpPresent {
+			t.Errorf("expected ScpPresent=true")
+		}
+		if posture.HasTenantRoles {
+			t.Errorf("expected HasTenantRoles=false")
+		}
+
+		formatted := posture.Format()
+		if strings.Contains(formatted, "practitioner@contoso.com") {
+			t.Errorf("human UPN/email must be redacted, found in: %s", formatted)
+		}
+		if !strings.Contains(formatted, "token_type=delegated-user") {
+			t.Errorf("expected token_type=delegated-user in formatted: %s", formatted)
+		}
+	})
+
+	t.Run("OpaqueTokenFallback", func(t *testing.T) {
+		t.Parallel()
+		p1 := InspectTokenPosture("opaque-sample-token", "oidc")
+		if p1.TokenType != "app-only" {
+			t.Errorf("expected oidc fallback to app-only, got %s", p1.TokenType)
+		}
+
+		p2 := InspectTokenPosture("opaque-sample-token", "cli")
+		if p2.TokenType != "delegated-user" {
+			t.Errorf("expected cli fallback to delegated-user, got %s", p2.TokenType)
+		}
+
+		p3 := InspectTokenPosture("opaque-sample-token", "custom")
+		if p3.TokenType != "opaque" {
+			t.Errorf("expected custom fallback to opaque, got %s", p3.TokenType)
+		}
+	})
+}

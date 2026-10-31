@@ -65,11 +65,30 @@ func NewChain(cfg Config, opts ...Option) *Chain
 func (c *Chain) Resolve(ctx context.Context) (Credentials, error)
 func (c *Chain) ResolveForScope(ctx context.Context, scope string) (Credentials, error)
 func (c *Chain) GetToken(ctx context.Context, opts policy.TokenRequestOptions) (azcore.AccessToken, error)
+
+func ResolvePowerBIPortalURL(env string) string
+func ResolvePowerBIAPIBaseURL(env string) string
+
+type TokenPosture struct {
+    AuthSource     string
+    TokenType      string
+    TenantID       string
+    AppID          string
+    ObjectID       string
+    Audience       string
+    Roles          []string
+    HasTenantRoles bool
+    ScpPresent     bool
+}
+
+func InspectTokenPosture(rawToken, authSource string) TokenPosture
+func (p TokenPosture) Format() string
 ```
 
 `[@test] ../internal/credentials/chain_test.go::TestStaticProvider_Resolution`
 `[@test] ../internal/credentials/chain_test.go::TestStaticProvider_PowerBIScope`
 `[@test] ../internal/credentials/chain_test.go::TestChain_ScopeIsolationAndPowerBIScope`
+`[@test] ../internal/credentials/chain_test.go::TestInspectTokenPosture_ClassificationAndRedaction`
 
 ## Deterministic Precedence & Fallthrough Rules
 
@@ -95,7 +114,7 @@ func (c *Chain) GetToken(ctx context.Context, opts policy.TokenRequestOptions) (
 - Resolves credentials from file paths (`client_id_file_path`, `client_secret_file_path`, `tenant_id_file_path`, `oidc_token_file_path`, `client_certificate_file_path`) and corresponding environment variables
   `[@test] ../internal/credentials/chain_test.go::TestFilePathCredentials_Resolution`
   `[@test] ../internal/credentials/chain_test.go::TestConfig_FilePathEnvFallbacks`
-- Propagates `environment` to Azure SDK Cloud configuration and sets Fabric audience scopes for `public`, `usgovernment`, and `china`
+- Propagates `environment` to Azure SDK Cloud configuration and sets Fabric and Power BI audience scopes, portal URLs, and REST API base URLs (`https://api.powerbi.com`, `https://api.powerbigov.us`, `https://api.powerbi.cn`) for `public`, `usgovernment`, and `china`
   `[@test] ../internal/credentials/chain_test.go::TestEnvironmentAndScopeResolution`
 - Passes `auxiliary_tenant_ids` (and `FABRIC_AUXILIARY_TENANT_IDS`, `AZURE_AUXILIARY_TENANT_IDS`, `ARM_AUXILIARY_TENANT_IDS`) to `AdditionallyAllowedTenants` on underlying Azure SDK credentials
   `[@test] ../internal/credentials/chain_test.go::TestAuxiliaryTenantsPropagation`
@@ -113,3 +132,5 @@ func (c *Chain) GetToken(ctx context.Context, opts policy.TokenRequestOptions) (
   `[@test] ../internal/credentials/chain_test.go::TestStaticProvider_PowerBIScope`
 - `Credentials.String()` and `Credentials.GoString()` redact `AccessToken` as `"[REDACTED]"` so raw bearer tokens never leak via `%s`, `%v`, `%+v`, or `%#v` formatting
   `[@test] ../internal/credentials/chain_test.go::TestCredentialsRedaction`
+- `InspectTokenPosture` classifies Entra tokens in memory into `app-only` (Service Principal OIDC/Secret/Cert or Managed Identity), `delegated-user` (Azure CLI / interactive user), or `opaque`, extracting non-secret directory identifiers (`tid`, `appid`/`azp`, `oid`, `aud`, sorted `roles`, `scp_present`) matching official `fabric`/`azurerm`/`azuread`/`azapi` redaction boundaries while never retaining raw JWT strings, cryptographic signatures, or human `upn`/`email` claims
+  `[@test] ../internal/credentials/chain_test.go::TestInspectTokenPosture_ClassificationAndRedaction`

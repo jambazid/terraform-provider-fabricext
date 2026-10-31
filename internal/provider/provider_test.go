@@ -5,6 +5,7 @@ package provider
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -27,6 +28,12 @@ var testAccProtoV6ProviderFactories = map[string]func() (tfprotov6.ProviderServe
 	"fabricext": providerserver.NewProtocol6WithError(New("test")()),
 }
 
+func createSyntheticAccJWT(claimsJSON string) string {
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`))
+	claims := base64.RawURLEncoding.EncodeToString([]byte(claimsJSON))
+	return header + "." + claims + ".sig"
+}
+
 func testAccProviderConfig(srv *fabricmock.Server) string {
 	return fmt.Sprintf(`
 provider "fabricext" {
@@ -47,6 +54,18 @@ provider "fabricext" {
   tenant_id            = "77777777-7777-7777-7777-777777777777"
 }
 `, fabricSrv.URL(), pbiSrv.URL)
+}
+
+func testAccProviderConfigWithTokens(fabricSrv *fabricmock.Server, pbiSrv *pbimock.Server, fabricTok, pbiTok string) string {
+	return fmt.Sprintf(`
+provider "fabricext" {
+  endpoint             = %q
+  powerbi_endpoint     = %q
+  access_token         = %q
+  powerbi_access_token = %q
+  tenant_id            = "77777777-7777-7777-7777-777777777777"
+}
+`, fabricSrv.URL(), pbiSrv.URL, fabricTok, pbiTok)
 }
 
 func TestProvider_MetadataAndSchema(t *testing.T) {

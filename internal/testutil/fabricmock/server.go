@@ -149,6 +149,8 @@ type Server struct {
 	listItemsCalls           map[string]int                                 // workspaceID/itemType -> count
 	itemAccessDetails        map[string]*fabadmin.ItemAccessDetailsResponse // workspaceID/itemID -> response
 	adminForbidden           map[string]bool                                // workspaceID/itemID -> bool
+	adminUnauthorized        map[string]string                              // workspaceID/itemID -> errorInfo
+	homeClusterURI           string                                         // mock regional cluster URI
 	itemsPageSize            int                                            // optional pagination page size
 	dataAccessRolesPageSize  int                                            // optional Lakehouse dataAccessRoles pagination page size
 	throttle                 *throttleRule                                  // optional fault injection for 429 / 5xx
@@ -171,6 +173,7 @@ func NewServer(t testing.TB) *Server {
 		listItemsCalls:           make(map[string]int),
 		itemAccessDetails:        make(map[string]*fabadmin.ItemAccessDetailsResponse),
 		adminForbidden:           make(map[string]bool),
+		adminUnauthorized:        make(map[string]string),
 	}
 
 	s.httpServer = httptest.NewServer(http.HandlerFunc(s.serveHTTP))
@@ -255,6 +258,20 @@ func (s *Server) SetAdminForbidden(workspaceID, itemID string, forbidden bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.adminForbidden[workspaceID+"/"+itemID] = forbidden
+}
+
+// SetAdminUnauthorizedErrorInfo configures mock server to return HTTP 401 Unauthorized with X-PowerBI-Error-Info.
+func (s *Server) SetAdminUnauthorizedErrorInfo(workspaceID, itemID, errorInfo string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.adminUnauthorized[workspaceID+"/"+itemID] = errorInfo
+}
+
+// SetHomeClusterURI sets the mock home-cluster-uri returned in headers.
+func (s *Server) SetHomeClusterURI(uri string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.homeClusterURI = uri
 }
 
 // SetItemsPageSize configures the page size for GET /v1/workspaces/{workspaceId}/items.
@@ -452,6 +469,16 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.mu.Lock()
+	homeCluster := s.homeClusterURI
+	s.mu.Unlock()
+
+	if homeCluster != "" && rec.statusCode >= 200 && rec.statusCode < 300 {
+		if rec.header.Get("home-cluster-uri") == "" {
+			rec.header.Set("home-cluster-uri", homeCluster)
+		}
+	}
+
 	for k, vals := range rec.header {
 		for _, v := range vals {
 			w.Header().Add(k, v)
@@ -472,11 +499,16 @@ func writeContractError(w http.ResponseWriter, status int, msg string) {
 
 func writeFabricError(w http.ResponseWriter, status int, code, message string, retriable bool) {
 	w.Header().Set("Content-Type", "application/json")
+	reqID := w.Header().Get("RequestId")
+	if reqID == "" {
+		reqID = "00000000-0000-0000-0000-000000000000"
+		w.Header().Set("RequestId", reqID)
+	}
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"errorCode":   code,
 		"message":     message,
-		"requestId":   "00000000-0000-0000-0000-000000000000",
+		"requestId":   reqID,
 		"isRetriable": retriable,
 	})
 }
@@ -506,6 +538,10 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request, pathParams map
 	switch {
 	case r.Method == http.MethodGet && strings.Contains(path, "/items/") && strings.HasSuffix(path, "/users"):
 		s.handleListItemAccessDetails(w, r, workspaceID, pathParams["itemId"])
+	case r.Method == http.MethodGet && (path == "/v1/workspaces" || path == "/v1/workspaces/"):
+		s.handleListWorkspaces(w, r)
+	case r.Method == http.MethodGet && pathParams["workspaceId"] != "" && (path == "/v1/workspaces/"+pathParams["workspaceId"] || path == "/v1/workspaces/"+pathParams["workspaceId"]+"/"):
+		s.handleGetWorkspace(w, r, pathParams["workspaceId"])
 	case r.Method == http.MethodGet && strings.HasSuffix(path, "/items"):
 		s.handleListItems(w, r, workspaceID)
 	case r.Method == http.MethodGet && pathParams["itemId"] != "" && !strings.HasSuffix(path, "/dataAccessRoles"):
@@ -519,11 +555,57 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request, pathParams map
 	}
 }
 
+func (s *Server) handleListWorkspaces(w http.ResponseWriter, _ *http.Request) {
+	s.mu.Lock()
+	homeCluster := s.homeClusterURI
+	s.mu.Unlock()
+
+	if homeCluster != "" {
+		w.Header().Set("home-cluster-uri", homeCluster)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	resp := map[string]any{
+		"value": []map[string]any{
+			{
+				"id":          "00000000-0000-0000-0000-000000000001",
+				"displayName": "Mock Workspace",
+				"description": "Mock Workspace Description",
+			},
+		},
+	}
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func (s *Server) handleGetWorkspace(w http.ResponseWriter, _ *http.Request, workspaceID string) {
+	s.mu.Lock()
+	homeCluster := s.homeClusterURI
+	s.mu.Unlock()
+
+	if homeCluster != "" {
+		w.Header().Set("home-cluster-uri", homeCluster)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	resp := map[string]any{
+		"id":          workspaceID,
+		"displayName": "Mock Workspace",
+		"description": "Mock Workspace Description",
+	}
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
 func (s *Server) handleListItemAccessDetails(w http.ResponseWriter, _ *http.Request, workspaceID, itemID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	key := workspaceID + "/" + itemID
+	if errInfo, ok := s.adminUnauthorized[key]; ok {
+		w.Header().Set("X-PowerBI-Error-Info", errInfo)
+		w.Header().Set("RequestId", "11111111-2222-3333-4444-555555555555")
+		writeFabricError(w, http.StatusUnauthorized, "PowerBINotAuthorizedException", "Caller token failed authorization check", false)
+		return
+	}
 	if s.adminForbidden[key] {
 		writeFabricError(w, http.StatusForbidden, "AdminApiAccessDenied", "Caller is not authorized to access Fabric Admin APIs", false)
 		return
