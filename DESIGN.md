@@ -108,36 +108,46 @@ Microsoft Entra ID token audience scopes are dynamically resolved based on the c
 
 `credentials.NewChain(cfg)` replaces all pre-existing authentication wiring with a unified, ordered evaluation chain matching `microsoft/terraform-provider-fabric`:
 
-1. **`StaticTokenProvider` (`Source: "static_access_token"`)**:
-   - Uses explicit `access_token` from provider configuration or `FABRIC_ACCESS_TOKEN`.
-   - Primary mechanism for hermetic unit/acceptance testing (`TF_ACC=1` against `fabricmock`) and pre-minted CI tokens.
+1. **`StaticTokenProvider` (`Source: "static_access_token"` / `"static_powerbi_access_token"`)**:
+   - Uses explicit `access_token` from provider configuration or `FABRIC_ACCESS_TOKEN` for Fabric API operations.
+   - Uses explicit `powerbi_access_token` or `FABRIC_POWERBI_ACCESS_TOKEN` for Power BI metadata operations.
+   - **Strict Scope Isolation**: Fabric static tokens are strictly isolated to `FabricScope` and are never used as fallbacks for `PowerBIScope` (which would cause `app.powerbi.com/` discovery to fail or short-circuit dynamic credentials). When Power BI token acquisition fails while only `access_token` is set, `ChainError` emits an explicit diagnostic hint advising setting `powerbi_access_token` or `FABRIC_POWERBI_ACCESS_TOKEN`.
+   - Primary mechanism for hermetic unit/acceptance testing (`TF_ACC=1` against `fabricmock` and `pbimock`) and pre-minted CI tokens.
 2. **`ClientCertificateProvider` (`Source: "service_principal_client_certificate"`)**:
-   - Uses `software.sslmate.com/src/go-pkcs12` to parse base64-encoded PKCS#12 certificate bundles (`client_certificate`) or files (`client_certificate_file_path`) with optional password (`client_certificate_password`).
+   - Uses `software.sslmate.com/src/go-pkcs12` to parse base64-encoded PKCS#12 certificate bundles (`client_certificate`) or files (`client_certificate_path`, `client_certificate_file_path`, `FABRIC_CLIENT_CERTIFICATE_FILE_PATH`, `AZURE_CLIENT_CERTIFICATE_FILE_PATH`, `ARM_CLIENT_CERTIFICATE_FILE_PATH`, `ARM_CLIENT_CERTIFICATE_PATH`) with optional password (`client_certificate_password`).
+   - Supports both raw binary PKCS#12 files and base64-encoded PKCS#12 text files.
    - Instantiates `azidentity.NewClientCertificateCredential(tenantID, clientID, certs, key, &options)`.
 3. **`ClientSecretProvider` (`Source: "service_principal_client_secret"`)**:
    - Uses `azidentity.NewClientSecretCredential(tenantID, clientID, clientSecret, &options)`.
-   - Supports direct strings or file paths (`tenant_id_file_path`, `client_id_file_path`, `client_secret_file_path`).
+   - Supports direct strings or file paths (`tenant_id_file_path`, `client_id_file_path`, `client_secret_file_path`, `FABRIC_*_FILE_PATH`, `AZURE_*_FILE_PATH`, `ARM_*_FILE_PATH`).
    - **OIDC 3-Tuple Fallthrough Law**: In GitHub Actions OIDC (`azure/login`), `AZURE_TENANT_ID` and `AZURE_CLIENT_ID` are exported *without* `AZURE_CLIENT_SECRET`. If only 1 or 2 of the 3 values are set via environment variables, `ClientSecretProvider` records a skipped diagnostic and cleanly falls through to OIDC and CLI providers.
 4. **`AzureDevOpsOIDCProvider` (`Source: "azure_devops_workload_identity_federation"`)**:
-   - Uses `azidentity.NewAzurePipelinesCredential` when `azure_devops_service_connection_id` (or `FABRIC_AZURE_DEVOPS_SERVICE_CONNECTION_ID`) and OIDC request tokens (`SYSTEM_ACCESSTOKEN` / `oidc_request_token`) are supplied.
+   - Uses `azidentity.NewAzurePipelinesCredential` when `azure_devops_service_connection_id` (or `FABRIC_AZURE_DEVOPS_SERVICE_CONNECTION_ID`, `ARM_ADO_PIPELINE_SERVICE_CONNECTION_ID`, `ARM_OIDC_AZURE_SERVICE_CONNECTION_ID`) and OIDC request tokens (`SYSTEM_ACCESSTOKEN`, `oidc_request_token`, `ACTIONS_ID_TOKEN_REQUEST_TOKEN`, `ARM_OIDC_REQUEST_TOKEN`) are supplied.
+   - Honors explicit `use_oidc = false` / `*_USE_OIDC=false` opt-outs.
 5. **`WorkloadIdentityProvider` (`Source: "workload_identity_oidc"`)**:
-   - Supports direct `oidc_token`, `oidc_token_file_path`, or assertion callback via `azidentity.NewClientAssertionCredential`, and automatic Kubernetes/Actions federation via `azidentity.NewWorkloadIdentityCredential` when `AZURE_FEDERATED_TOKEN_FILE` is present.
+   - Native GitHub Actions OIDC assertion exchange: auto-reads `ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN` alongside `FABRIC_OIDC_REQUEST_*` and `ARM_OIDC_REQUEST_*`, exchanging the bearer request token for an `api://AzureADTokenExchange` assertion JWT.
+   - Generic & K8s OIDC: supports direct `oidc_token` (`FABRIC_OIDC_TOKEN`, `AZURE_OIDC_TOKEN`, `ARM_OIDC_TOKEN`), `oidc_token_file_path` (`FABRIC_OIDC_TOKEN_FILE_PATH`, `AZURE_OIDC_TOKEN_FILE_PATH`, `ARM_OIDC_TOKEN_FILE_PATH`), or `AZURE_FEDERATED_TOKEN_FILE` via `azidentity.NewClientAssertionCredential` or `azidentity.NewWorkloadIdentityCredential`.
+   - **Bounded OIDC Exchange**: Uses a bounded 30s HTTP client honoring configured transport/proxy settings with 4 KiB token-scrubbed error responses.
+   - **Fail-Fast Explicit Mode**: When `use_oidc = true` is explicitly configured in HCL or `*_USE_OIDC=true` but assertion inputs or tenant/client IDs are missing, halts fallback and emits an actionable diagnostic advising `permissions: id-token: write`.
 6. **`ManagedIdentityProvider` (`Source: "managed_identity"`)**:
    - Uses `azidentity.NewManagedIdentityCredential` when `use_msi = true` or `FABRIC_USE_MSI` / `ARM_USE_MSI` is present.
+   - Honors explicit `use_msi = false` / `*_USE_MSI=false` opt-out before auto-detecting `IDENTITY_ENDPOINT` / `MSI_ENDPOINT`.
    - Distinguishes **System-Assigned** (`clientID == ""`) from **User-Assigned** (`&azidentity.ManagedIdentityCredentialOptions{ID: azidentity.ClientID(clientID)}`).
 7. **`AzureDeveloperCLIProvider` (`Source: "azure_developer_cli"`)**:
-   - Uses `azidentity.NewAzureDeveloperCLICredential` when `use_dev_cli = true` or `FABRIC_USE_DEV_CLI=true`.
+   - Uses `azidentity.NewAzureDeveloperCLICredential` when `use_dev_cli = true` or `FABRIC_USE_DEV_CLI=true`, `AZURE_USE_DEV_CLI=true`, `ARM_USE_DEV_CLI=true`.
 8. **`AzureCLIProvider` (`Source: "azure_cli"`)**:
-   - Uses `azidentity.NewAzureCLICredential` (enabled by default via `use_cli = true` or `FABRIC_USE_CLI`).
+   - Uses `azidentity.NewAzureCLICredential` (enabled by default via `use_cli = true` or `FABRIC_USE_CLI`, `ARM_USE_CLI`).
    - **Zero Subprocess / Shell Execution**: Operates exclusively via the official Microsoft Azure SDK for Go (`github.com/Azure/azure-sdk-for-go/sdk/azidentity`). No raw `os/exec` subprocesses, shell invocations, or temporary token files are spawned anywhere in the codebase.
+9. **Modal Mutual Exclusion**:
+   - In `ValidateConfig`, setting more than one of `use_oidc`, `use_msi`, `use_dev_cli`, or `use_cli` explicitly to `true` is rejected with an actionable diagnostic error matching upstream provider semantics.
 
 ### 4.3 Multi-Tenant Acquisition (`auxiliary_tenant_ids`)
 
-When `auxiliary_tenant_ids` (or `FABRIC_AUXILIARY_TENANT_IDS`) is specified, the chain propagates the slice to `AdditionallyAllowedTenants` across all underlying `azidentity` credential options, supporting multi-tenant Microsoft Fabric architectures.
+When `auxiliary_tenant_ids` (or `FABRIC_AUXILIARY_TENANT_IDS`, `AZURE_AUXILIARY_TENANT_IDS`, `ARM_AUXILIARY_TENANT_IDS`) is specified, the chain propagates the slice to `AdditionallyAllowedTenants` across all underlying `azidentity` credential options, supporting multi-tenant Microsoft Fabric architectures.
 
 ### 4.4 Token Caching Invariants
 
-- **Thread-Safe Caching & Proactive Refresh**: `Chain` caches the resolved `azcore.AccessToken` in memory (`sync.RWMutex`) and refreshes it automatically when `time.Until(token.ExpiresOn) < 2*time.Minute`.
+- **Thread-Safe Caching & Proactive Refresh**: `Chain` caches the resolved `azcore.AccessToken` in memory (`sync.RWMutex`) per audience scope (`FabricScope` vs `PowerBIScope`) and refreshes it automatically when `time.Until(token.ExpiresOn) < 2*time.Minute`.
 - **Secret Redaction**: `Credentials` and `Config` implement `fmt.Stringer` and `fmt.GoStringer` masking raw bearer tokens, client secrets, certificate bytes, and passwords as `"[REDACTED]"`.
 - **Exhausted Chain Diagnostics**: When all sources fail, `Chain.GetToken(ctx)` returns a `*ChainError` wrapping `ErrNoCredentials` listing every attempted source and its diagnostic failure reason.
 
@@ -255,14 +265,31 @@ sequenceDiagram
 | Attribute | Type | Required | Environment Variable Fallback | Description |
 | :--- | :--- | :--- | :--- | :--- |
 | `endpoint` | `String` | Optional | `FABRIC_ENDPOINT` | Base URL for the Microsoft Fabric REST API. Defaults to `"https://api.fabric.microsoft.com"`. |
-| `access_token` | `String` (`Sensitive`) | Optional | `FABRIC_ACCESS_TOKEN` | Static Microsoft Entra ID bearer token for the Fabric API. |
+| `access_token` | `String` (`Sensitive`) | Optional | `FABRIC_ACCESS_TOKEN` | Static Microsoft Entra ID bearer token for the Fabric API (`FabricScope`). |
+| `powerbi_endpoint` | `String` | Optional | `FABRIC_POWERBI_ENDPOINT` | Regional Power BI cluster endpoint (e.g. `"https://wabi-west-europe-redirect.analysis.windows.net"`), bypassing bootstrap portal discovery. |
+| `powerbi_access_token` | `String` (`Sensitive`) | Optional | `FABRIC_POWERBI_ACCESS_TOKEN` | Static Microsoft Entra ID bearer token for the Power BI metadata API (`PowerBIScope`). |
 | `tenant_id` | `String` | Optional | `AZURE_TENANT_ID`, `ARM_TENANT_ID`, `FABRIC_TENANT_ID` | Microsoft Entra ID tenant UUID. |
+| `tenant_id_file_path` | `String` | Optional | `FABRIC_TENANT_ID_FILE_PATH`, `AZURE_TENANT_ID_FILE_PATH`, `ARM_TENANT_ID_FILE_PATH` | Path to file containing Microsoft Entra ID tenant UUID. |
 | `client_id` | `String` | Optional | `AZURE_CLIENT_ID`, `ARM_CLIENT_ID`, `FABRIC_CLIENT_ID` | Service Principal or Managed Identity client UUID. |
+| `client_id_file_path` | `String` | Optional | `FABRIC_CLIENT_ID_FILE_PATH`, `AZURE_CLIENT_ID_FILE_PATH`, `ARM_CLIENT_ID_FILE_PATH` | Path to file containing Service Principal or Managed Identity client UUID. |
 | `client_secret` | `String` (`Sensitive`) | Optional | `AZURE_CLIENT_SECRET`, `ARM_CLIENT_SECRET`, `FABRIC_CLIENT_SECRET` | Service Principal client secret. |
+| `client_secret_file_path` | `String` | Optional | `FABRIC_CLIENT_SECRET_FILE_PATH`, `AZURE_CLIENT_SECRET_FILE_PATH`, `ARM_CLIENT_SECRET_FILE_PATH` | Path to file containing Service Principal client secret. |
+| `client_certificate` | `String` (`Sensitive`) | Optional | `FABRIC_CLIENT_CERTIFICATE`, `ARM_CLIENT_CERTIFICATE` | Base64-encoded PKCS#12 certificate bundle. |
+| `client_certificate_path` | `String` | Optional | `FABRIC_CLIENT_CERTIFICATE_PATH`, `ARM_CLIENT_CERTIFICATE_PATH` | Path to PKCS#12 certificate file (raw binary or base64 text). |
+| `client_certificate_file_path` | `String` | Optional | `FABRIC_CLIENT_CERTIFICATE_FILE_PATH`, `AZURE_CLIENT_CERTIFICATE_FILE_PATH`, `ARM_CLIENT_CERTIFICATE_FILE_PATH` | Alias for `client_certificate_path`. |
+| `client_certificate_password` | `String` (`Sensitive`) | Optional | `FABRIC_CLIENT_CERTIFICATE_PASSWORD`, `ARM_CLIENT_CERTIFICATE_PASSWORD` | Password for PKCS#12 certificate bundle. |
 | `use_oidc` | `Bool` | Optional | `AZURE_USE_OIDC`, `ARM_USE_OIDC`, `FABRIC_USE_OIDC` | Enable Workload Identity (OIDC) federated token authentication. |
+| `oidc_token` | `String` (`Sensitive`) | Optional | `FABRIC_OIDC_TOKEN`, `AZURE_OIDC_TOKEN`, `ARM_OIDC_TOKEN` | Direct OIDC JWT assertion token. |
+| `oidc_token_file_path` | `String` | Optional | `FABRIC_OIDC_TOKEN_FILE_PATH`, `AZURE_OIDC_TOKEN_FILE_PATH`, `ARM_OIDC_TOKEN_FILE_PATH`, `AZURE_FEDERATED_TOKEN_FILE` | Path to file containing OIDC assertion token. |
+| `oidc_request_url` | `String` | Optional | `FABRIC_OIDC_REQUEST_URL`, `ACTIONS_ID_TOKEN_REQUEST_URL`, `ARM_OIDC_REQUEST_URL` | OIDC request URL (GitHub Actions / Azure Pipelines). |
+| `oidc_request_token` | `String` (`Sensitive`) | Optional | `FABRIC_OIDC_REQUEST_TOKEN`, `ACTIONS_ID_TOKEN_REQUEST_TOKEN`, `SYSTEM_ACCESSTOKEN`, `ARM_OIDC_REQUEST_TOKEN` | OIDC request bearer token. |
+| `azure_devops_service_connection_id` | `String` | Optional | `FABRIC_AZURE_DEVOPS_SERVICE_CONNECTION_ID`, `ARM_ADO_PIPELINE_SERVICE_CONNECTION_ID`, `ARM_OIDC_AZURE_SERVICE_CONNECTION_ID` | Azure DevOps service connection ID. |
 | `use_msi` | `Bool` | Optional | `AZURE_USE_MSI`, `ARM_USE_MSI`, `FABRIC_USE_MSI` | Enable Azure Managed Identity authentication. |
+| `use_dev_cli` | `Bool` | Optional | `FABRIC_USE_DEV_CLI`, `AZURE_USE_DEV_CLI`, `ARM_USE_DEV_CLI` | Enable Azure Developer CLI (`azd`) authentication. |
 | `use_cli` | `Bool` | Optional | `AZURE_USE_CLI`, `ARM_USE_CLI`, `FABRIC_USE_CLI` | Enable Azure CLI credential fallback. |
-| `request_timeout` | `String` | Optional | `FABRIC_REQUEST_TIMEOUT` | Per-request HTTP timeout (Go duration string, e.g. `"60s"`). Defaults to `"60s"`. |
+| `auxiliary_tenant_ids` | `Set[String]` | Optional | `FABRIC_AUXILIARY_TENANT_IDS`, `AZURE_AUXILIARY_TENANT_IDS`, `ARM_AUXILIARY_TENANT_IDS` | List of auxiliary Entra ID tenant UUIDs. |
+| `environment` | `String` | Optional | `FABRIC_ENVIRONMENT`, `AZURE_ENVIRONMENT`, `ARM_ENVIRONMENT` | Cloud environment (`public`, `usgovernment`, `china`, case-insensitive). Defaults to `public`. |
+| `request_timeout` | `String` | Optional | `FABRIC_REQUEST_TIMEOUT`, `FABRIC_TIMEOUT` | Per-request HTTP timeout (Go duration string, e.g. `"60s"`). Defaults to `"60s"`. |
 | `skip_credentials_validation` | `Bool` | Optional | `FABRIC_SKIP_CREDENTIALS_VALIDATION` | Skip eager token acquisition during `Configure()`. Defaults to `false`. |
 
 See the embedded Terraform Registry guide [`docs/guides/official_provider_comparison.md`](docs/guides/official_provider_comparison.md) (generated from [`templates/guides/official_provider_comparison.md.tmpl`](templates/guides/official_provider_comparison.md.tmpl) via `mise run docs`) for the full comparative analysis with Microsoft's official [`microsoft/terraform-provider-fabric`](https://github.com/microsoft/terraform-provider-fabric) and the Terraform 1.7+ state migration playbooks for Lakehouses, Warehouses, and SQL Databases.
@@ -579,41 +606,53 @@ stateDiagram-v2
 
 ### 15.1 Wire Protocol & Bitmasks
 
-Item-level permissions across Fabric Warehouses, Lakehouses, and SQL Databases are managed via undocumented Power BI `/metadata/access` endpoints using bijective bitmask encoding:
+Item-level permissions across Fabric Warehouses, Lakehouses, and SQL Databases are managed via undocumented Power BI `/metadata/access` endpoints using bijective bitmask encoding verified against `tmp/item-sharing/grant.py` and `tmp/item-sharing/grant.md`:
 
-1. **Core Permissions Bitmask**: `None = 0`, `Read = 1`, `Write = 2`, `ReShare = 4`, `Explore = 8`, `CopyOnWrite = 16`, `WriteCheckRelaxForReadOnlyGroup = 32`, `Execute = 64`, `Subscribe = 128`.
-2. **Workload Artifact Permissions Bitmask**:
-   - `Read = 1`, `ReadData = 2`, `ReadAll = 4`, `Reshare = 8`, `Monitor = 16`, `SubscribeOneLakeEvents = 32`, `Audit = 64`, `Restore = 128`.
+1. **Core Permissions Bitmask (`permissions`)**: `None = 0`, `Read = 1`, `Write = 2`, `ReShare = 4`, `Explore = 8`, `CopyOnWrite = 16`, `WriteCheckRelaxForReadOnlyGroup = 32`, `Execute = 64`, `Subscribe = 128`, `Admin = 256`.
+   - `Execute = 64` belongs strictly in the core `permissions` bitmask (used for SQL Database TDS connections and Lakehouses).
+2. **Workload Artifact Permissions Bitmask (`artifactPermissions`)**:
+   - Anchored low bits: `Read = 1`, `ReadData = 2`, `ReadAll = 4`, `Reshare = 8`.
+   - Upper bits: `Monitor? = 16`, `SubscribeOneLakeEvents? = 32`, `Audit? = 64` (Warehouse), `Restore? = 128`.
    - Resolved dynamically via `GET {cluster}/metadata/artifacts/definitions` with cached fallback.
 3. **Bijective Mapping**:
-   - `fabricext_warehouse_permission`: `Datawarehouse` definitions (`Read`, `ReadData`, `ReadAll`, `Reshare`, `Audit`, `Monitor`, `Restore`).
-   - `fabricext_lakehouse_permission`: `Lakehouse` definitions (`Read`, `ReadData`, `ReadAll`, `Execute`, `Reshare`).
-   - `fabricext_sql_database_permission`: `SQLDbNative` definitions (`Read`, `Write`, `Execute`, `Reshare`, `ReadData`, `ReadAll`).
+   - `fabricext_warehouse_permission`: `Datawarehouse` definitions (`Read`, `ReadData`, `ReadAll`, `Reshare`, `Audit`, `Monitor`, `Restore`). Must include `Read`.
+   - `fabricext_lakehouse_permission`: `Lakehouse` definitions (`Read`, `ReadData`, `ReadAll`, `Reshare`). `Execute` is mapped into core `permissions = 64`. Must include `Read`.
+   - `fabricext_sql_database_permission`: `SQLDbNative` definitions (`Read`, `Write`, `Reshare`, `ReadData`, `ReadAll`). `Execute` is mapped into core `permissions = 64`. Must include `Read`.
 
 ### 15.2 Cluster Discovery & SSRF
 
-1. **Bootstrap Discovery**: Cloned HTTP client with `CheckRedirect: http.ErrUseLastResponse` requests `GET https://app.powerbi.com/` (or sovereign cloud equivalent) with Power BI bearer token, following up to 5 manual hops and parsing raw `Set-Cookie: ClusterUri=...` headers.
-2. **AST URL Allowlist**: Validates cluster URI using `url.Parse`, requiring HTTPS, empty query/fragment/path, and verified domain suffix (`.analysis.windows.net`, `.analysis.usgovcloudapi.net`, `.analysis.chinacloudapi.cn`) or configured `powerbi_endpoint`.
+1. **Direct Cluster Fast-Path**: When `powerbi_endpoint` (or `FABRIC_POWERBI_ENDPOINT`) is configured with a regional cluster URL (e.g. `https://wabi-west-europe-redirect.analysis.windows.net`), the client validates the host against the SSRF allowlist and returns it immediately, bypassing bootstrap portal discovery completely.
+2. **Upfront Token Resolution**: Before initiating portal discovery, `DiscoverClusterURI` resolves the `PowerBIScope` Entra ID token via `getPowerBIToken(ctx)`. If token acquisition fails, it aborts immediately with structured diagnostic hints (including OIDC permissions and static dual-token advice), preventing anonymous requests that return HTTP 200 without cookies.
+3. **`httpx2`-Aligned Portal Bootstrap**:
+   - Resolves the portal bootstrap URL via `ResolvePowerBIPortalURL(environment)` and ensures a trailing slash (`https://app.powerbi.com/`).
+   - Uses a `cookieCollectorTransport` executing a bounded 15s request following up to 10 redirects.
+   - In accordance with RFC 9110 and `httpx2`, `Authorization: Bearer <tok>` is preserved on same-origin redirects and stripped only if the origin changes (`url.origin != request.url.origin`).
+   - Validates all redirect target URLs against the SSRF allowlist (`validateRedirectURL`).
+4. **Comma-Joined & URL-Encoded Cookie Extraction**:
+   - Collects `Set-Cookie` headers across every hop and comma-joins them with `", "` matching `grant.py:108`.
+   - Matches both raw `ClusterUri=...` and URL-encoded `ClusterUri=[^=;\s,]+=(https?(?:://|%3A%2F%2F)[^;,\s"]+)` patterns.
+   - Unescapes URL-encoded values (`url.QueryUnescape`), strips trailing slashes, validates the resulting hostname via `validateClusterURI`, and caches the cluster URL under `clusterURIMu`.
+   - On discovery failure, logs the HTTP status code, final host, redacted cookie names observed, and guidance to pin `FABRIC_POWERBI_ENDPOINT`.
 
-### 15.3 Principal XOR Rule
+### 15.3 Principal XOR & Payload Fidelity
 
-Every mutation payload to `/metadata/access` sets either internal Power BI IDs (`userId`/`groupId` on existing shares) XOR Entra Object IDs (`userObjectId` for Users and Service Principals/Managed Identities, XOR `groupObjectId` for Groups), never both.
+1. **Principal XOR Rule**: Every mutation payload to `/metadata/access` sets either internal Power BI IDs (`userId`/`groupId` on existing shares) XOR Entra Object IDs (`userObjectId` for Users and Service Principals/Managed Identities, XOR `groupObjectId` for Groups), never both.
+2. **Explicit `null` JSON Serialization**: In accordance with `grant.py:228-238`, unused principal fields (`userId`, `groupId`, `userObjectId`, `groupObjectId`) are serialized as explicit JSON `null` values rather than being omitted via `omitempty`.
+3. **Root Integer Artifact ID**: `GET /metadata/access/artifacts/{itemId}` captures the root integer `id` (`InternalArtifactID`, fallback `1`), which is passed in `artifacts[0].id` when issuing subsequent `PUT /metadata/access` calls.
 
-### 15.4 Unified Module Architecture
+### 15.4 Read-Back Verification & Validation
 
-`modules/permissions` unifies all item-level permissions and Lakehouse OneLake roles under a single matrix schema:
+1. **Bitwise Superset Check on `POST`**: When creating a direct grant via `POST /metadata/access` (or `notify`), read-back verification polls for up to 10s and asserts `(stored & sent) == sent` matching `grant.py:191-200` (`validate_stored_grant`). Because Power BI frequently OR-merges permissions or retains default higher-level bits (e.g. bit `32`), a superset assertion prevents false `SilentPermissionDropError` failures.
+2. **Managed-Bit Mask Check on `PUT`**: When updating existing grants via `PUT /metadata/access`, read-back verifies `(stored & managedMask) == (sent & managedMask)`, ensuring configured bits match while ignoring unmanaged system flags.
+3. **Standalone `"Read"` Validation**: Standalone resources (`fabricext_warehouse_permission`, `fabricext_sql_database_permission`, `fabricext_lakehouse_permission`) enforce that `"Read"` is included in `permissions` during `ValidateConfig`, preventing perpetual plan drift.
 
-- Single `$.lakehouses` key composing both `permissions` (item shares) and `data_access_roles` (OneLake security).
-- Principal-UUID-keyed maps (`map(object(...))`) across `warehouses`, `sql_databases`, and `lakehouses` guaranteeing duplicate immunity.
-- Smart gating on `fabricext_lakehouse_onelake_security` via `optional(bool)` defaulting to `null`.
-
-### 15.5 Share Gate Sanity Lever
+### 15.5 Share Gate Sanity Lever & Backoff
 
 Every `fabricext_*_permission` inside `modules/permissions` chains directly to a post-grant `fabricext_item_share_gate` Admin API verification resource:
 
-- `verify_item_shares = optional(bool, true)` at matrix root and per-item.
-- Chained with explicit `depends_on = [fabricext_*_permission.this]`.
-- Downstream OneLake roles and module outputs depend on the gate, throwing a hard apply failure if cross-plane effective ACL verification fails.
+- `verify_item_shares = optional(bool, true)` at matrix root and per-item maintains 100% backward compatibility for `v0.7.1`.
+- Initial polling backoff in `pollForItemShare` is reduced from `60s` to `5s` (jitter floor `2s`, max `300s`), eliminating the 60-second penalty on initial replication misses.
+- Downstream OneLake roles and module outputs depend on the gate, throwing an apply failure if cross-plane effective ACL verification fails.
 
 ### 15.6 Notification Routing & Messages
 

@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/setvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
@@ -128,7 +129,7 @@ func (r *SQLDatabasePermissionResource) Schema(_ context.Context, _ resource.Sch
 			"permissions": schema.SetAttribute{
 				Required:            true,
 				ElementType:         types.StringType,
-				MarkdownDescription: "Set of item permissions granted to the principal. Valid permissions for SQL Database are `Read`, `Write`, `ReadData`, `ReadAll`, `Reshare`, and `Execute`.",
+				MarkdownDescription: "Set of item permissions granted to the principal. Must include `Read`. Valid permissions for SQL Database are `Read`, `Write`, `ReadData`, `ReadAll`, `Reshare`, and `Execute`.",
 				Validators: []validator.Set{
 					setvalidator.SizeAtLeast(1),
 					setvalidator.ValueStringsAre(
@@ -153,12 +154,33 @@ func (r *SQLDatabasePermissionResource) Schema(_ context.Context, _ resource.Sch
 	}
 }
 
-// ValidateConfig enforces that message requires notify = true.
+// ValidateConfig enforces that message requires notify = true and permissions contains Read.
 func (r *SQLDatabasePermissionResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
 	var config SQLDatabasePermissionResourceModel
 	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
 	if resp.Diagnostics.HasError() {
 		return
+	}
+
+	if !config.Permissions.IsNull() && !config.Permissions.IsUnknown() {
+		var perms []string
+		resp.Diagnostics.Append(config.Permissions.ElementsAs(ctx, &perms, false)...)
+		if !resp.Diagnostics.HasError() {
+			hasRead := false
+			for _, p := range perms {
+				if strings.EqualFold(p, "Read") {
+					hasRead = true
+					break
+				}
+			}
+			if !hasRead {
+				resp.Diagnostics.AddAttributeError(
+					path.Root("permissions"),
+					"Invalid Permissions Configuration",
+					"The 'permissions' set must contain 'Read'. Microsoft Fabric requires 'Read' permissions as the foundation for any item-level access grant.",
+				)
+			}
+		}
 	}
 
 	if !config.Message.IsNull() && !config.Message.IsUnknown() && config.Message.ValueString() != "" {

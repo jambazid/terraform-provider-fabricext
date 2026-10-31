@@ -24,13 +24,13 @@ Find your target scenario based on the engine, the identity type, and the desire
 | **P1** | Warehouse | Analyst | Single schema read | `fabricext_warehouse_permission` (Read) + T-SQL `GRANT SELECT ON SCHEMA` | [Jump to P1](#p1-warehouse-schema-isolation) |
 | **P2** | Warehouse | Sensitive table | Single table read | `fabricext_warehouse_permission` (Read) + T-SQL `GRANT SELECT ON table` | [Jump to P2](#p2-warehouse-table-isolation) |
 | **P3** | Lakehouse | Analyst (Spark / Direct Lake) | Table subset + RLS/CLS | `fabricext_lakehouse_permission` + `fabricext_lakehouse_data_access_role` | [Jump to P3](#p3-lakehouse-onelake-security) |
-| **P4** | Lakehouse / Warehouse | Business user | Power BI report only | Fixed-identity Direct Lake semantic model | [Jump to P4](#p4-power-bi-report-only-consumers) |
+| **P4** | Lakehouse / Warehouse | Business user | Power BI report only | Fixed-identity Direct Lake semantic model | [Jump to P4](#p4-power-bi-reports) |
 | **P5** | Lakehouse | Cross-workspace team | Lakehouse shortcut | `fabricext_lakehouse_permission` (`Read`) + OneLake role | [Jump to P5](#p5-cross-workspace-shortcuts) |
 | **P6** | Warehouse | Ingestion pipeline (SPN) | Staging schema write | `fabricext_warehouse_permission` (Read) + T-SQL `INSERT`/`UPDATE` | [Jump to P6](#p6-warehouse-pipeline-ingestion) |
 | **P7** | SQL Database | Application backend | Database read/write | `fabricext_sql_database_permission` + T-SQL database roles | [Jump to P7](#p7-sql-database-application-backend) |
 | **P8** | Workspace | Platform engineer | Admin / deployment | Workspace `Admin` or `Member` via `microsoft/fabric` | [Jump to P8](#p8-workspace-platform-engineering) |
-| **P9** | Workspace | BI developer | Semantic model build | Workspace `Contributor` or `Viewer` + semantic model `Build` | [Jump to P9](#p9-bi-developer-semantic-model-authoring) |
-| **P10** | Tenant / Workspace | External partner | B2B guest read | Entra B2B Guest + `fabricext_lakehouse_permission` / OneLake role | [Jump to P10](#p10-external-partner-b2b-guest-access) |
+| **P9** | Workspace | BI developer | Semantic model build | Workspace `Contributor` or `Viewer` + semantic model `Build` | [Jump to P9](#p9-semantic-model-authoring) |
+| **P10** | Tenant / Workspace | External partner | B2B guest read | Entra B2B Guest + `fabricext_lakehouse_permission` / OneLake role | [Jump to P10](#p10-external-b2b-guests) |
 | **P11** | Fabric Platform | CI/CD Runner | Automated deployment | Entra SPN + Workspace role via `microsoft/fabric` | [Jump to P11](#p11-cicd-runner-deployment-pipeline) |
 
 ---

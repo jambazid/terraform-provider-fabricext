@@ -9,9 +9,31 @@ description: |-
 
 This guide explains how to authenticate the `fabricext` provider without long-lived credentials using Microsoft Entra Workload Identity Federation (OIDC) in CI/CD platforms like GitHub Actions.
 
-## GitHub Actions Example
+## Native GitHub Actions OIDC
 
-When using the official `azure/login` action, GitHub Actions sets `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, and `AZURE_FEDERATED_TOKEN_FILE`. The `fabricext` provider automatically detects these environment variables and authenticates via OIDC:
+The provider supports native GitHub Actions OIDC without requiring the `azure/login` action or Azure CLI. Grant the workflow job `id-token: write` permission and configure the client and tenant identifiers:
+
+```yaml
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ARM_USE_OIDC: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - run: terraform apply
+```
+
+The provider automatically queries `ACTIONS_ID_TOKEN_REQUEST_URL` with audience `api://AzureADTokenExchange` to retrieve the assertion token and authenticate with Microsoft Entra ID.
+
+## Using azure/login Action
+
+Alternatively, when using `azure/login`, GitHub Actions sets `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, and `AZURE_FEDERATED_TOKEN_FILE`. The `fabricext` provider detects these environment variables automatically:
 
 ```yaml
 jobs:
@@ -33,7 +55,7 @@ jobs:
 
 ```terraform
 # Authenticate using Workload Identity Federation (OIDC) in CI/CD (e.g., GitHub Actions).
-# Note: When omitting oidc_token, the runner environment must supply AZURE_FEDERATED_TOKEN_FILE.
+# Note: When omitting oidc_token, the runner environment can supply native GitHub Actions OIDC (ACTIONS_ID_TOKEN_REQUEST_URL) or AZURE_FEDERATED_TOKEN_FILE.
 provider "fabricext" {
   client_id = "00000000-0000-0000-0000-000000000001"
   tenant_id = "00000000-0000-0000-0000-000000000000"

@@ -48,7 +48,7 @@ resource "fabricext_sql_database_permission" "app_managed_identity" {
 
 ### Required
 
-- `permissions` (Set of String) Set of item permissions granted to the principal. Valid permissions for SQL Database are `Read`, `Write`, `ReadData`, `ReadAll`, `Reshare`, and `Execute`.
+- `permissions` (Set of String) Set of item permissions granted to the principal. Must include `Read`. Valid permissions for SQL Database are `Read`, `Write`, `ReadData`, `ReadAll`, `Reshare`, and `Execute`.
 - `principal_id` (String) Microsoft Entra Object ID (UUID) of the user, group, service principal, or managed identity.
 - `principal_type` (String) Type of Microsoft Entra principal (`User`, `Group`, `ServicePrincipal`, `ManagedIdentity`).
 - `workspace_id` (String) UUID of the Microsoft Fabric workspace containing the SQL Database.

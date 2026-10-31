@@ -380,6 +380,10 @@
       "ArtifactAccessEntity": {
         "type": "object",
         "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Internal Power BI artifact identifier"
+          },
           "objectId": {
             "type": "string",
             "format": "uuid"
@@ -401,7 +405,7 @@
           }
         },
         "required": ["objectId", "detail"],
-        "additionalProperties": false
+        "additionalProperties": true
       },
       "AccessDetailEntry": {
         "type": "object",
@@ -465,7 +469,7 @@
             ]
           }
         },
-        "additionalProperties": false
+        "additionalProperties": true
       },
       "ArtifactDefinitionsResponse": {
         "type": "object",

@@ -99,7 +99,7 @@ The provider supports Microsoft Entra ID authentication with parameter parity to
 | **Service Principal (Secret)** | `client_id`, `client_secret`, `tenant_id` (or `ARM_CLIENT_SECRET`) |
 | **Service Principal (Cert)** | `client_id`, `client_certificate_file_path` / `client_certificate_password`, `tenant_id` |
 | **Managed Identity (MSI)** | `use_msi = true`, optional `client_id` for user-assigned MSI |
-| **Workload Identity (OIDC)** | `use_oidc = true`, `oidc_token` or `oidc_token_file_path`, `client_id`, `tenant_id` |
+| **Workload Identity (OIDC)** | `use_oidc = true`, `client_id`, `tenant_id` (supports native GitHub Actions OIDC or token file) |
 | **Sovereign Clouds** | `environment = "public" \| "usgovernment" \| "china"` |
 
 See the [Provider Documentation](docs/index.md) for full authentication examples.

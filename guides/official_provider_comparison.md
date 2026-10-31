@@ -88,21 +88,22 @@ Practitioners frequently run `microsoft/fabric` (to provision workspaces and ite
 | Attribute | `microsoft/fabric` Env Vars | `jambazid/fabricext` Env Vars | Notes |
 | :--- | :--- | :--- | :--- |
 | `endpoint` | `FABRIC_ENDPOINT` | `FABRIC_ENDPOINT` | Defaults to `https://api.fabric.microsoft.com` (normalized to `/v1` automatically). |
-| `powerbi_endpoint` | *(Not supported)* | `FABRIC_POWERBI_ENDPOINT` | Power BI cluster discovery endpoint. Defaults to `https://app.powerbi.com`. |
-| `tenant_id` | `FABRIC_TENANT_ID` | `AZURE_TENANT_ID`, `ARM_TENANT_ID`, `FABRIC_TENANT_ID` | Entra ID tenant UUID. |
-| `client_id` | `FABRIC_CLIENT_ID` | `AZURE_CLIENT_ID`, `ARM_CLIENT_ID`, `FABRIC_CLIENT_ID` | Service Principal / Managed Identity client ID. |
-| `client_secret` | `FABRIC_CLIENT_SECRET` | `AZURE_CLIENT_SECRET`, `ARM_CLIENT_SECRET`, `FABRIC_CLIENT_SECRET` | Marked `Sensitive: true` and redacted via `Credentials.String()` / `GoString()`. |
-| `use_oidc` | `FABRIC_USE_OIDC` | `AZURE_USE_OIDC`, `ARM_USE_OIDC`, `FABRIC_USE_OIDC` | Uses `azidentity.NewWorkloadIdentityCredential` in GitHub Actions / ADO. |
+| `environment` | `FABRIC_ENVIRONMENT` | `FABRIC_ENVIRONMENT`, `AZURE_ENVIRONMENT`, `ARM_ENVIRONMENT` | Cloud environment (`public`, `usgovernment`, `china`). |
+| `powerbi_endpoint` | *(Not supported)* | `FABRIC_POWERBI_ENDPOINT` | Power BI cluster discovery endpoint. Automatically routes to sovereign portals (`app.powerbigov.us`, `app.powerbi.cn`) when `environment` is configured; regional cluster URLs bypass discovery. |
+| `tenant_id` | `FABRIC_TENANT_ID` | `AZURE_TENANT_ID`, `ARM_TENANT_ID`, `FABRIC_TENANT_ID` | Entra ID tenant UUID (supports `*_FILE_PATH` variants). |
+| `client_id` | `FABRIC_CLIENT_ID` | `AZURE_CLIENT_ID`, `ARM_CLIENT_ID`, `FABRIC_CLIENT_ID` | Service Principal / Managed Identity client ID (supports `*_FILE_PATH` variants). |
+| `client_secret` | `FABRIC_CLIENT_SECRET` | `AZURE_CLIENT_SECRET`, `ARM_CLIENT_SECRET`, `FABRIC_CLIENT_SECRET` | Marked `Sensitive: true` and redacted (supports `*_FILE_PATH` variants). |
+| `use_oidc` | `FABRIC_USE_OIDC` | `AZURE_USE_OIDC`, `ARM_USE_OIDC`, `FABRIC_USE_OIDC` | Supports Workload Identity Federation and native GitHub Actions OIDC. |
 | `use_msi` | `FABRIC_USE_MSI` | `AZURE_USE_MSI`, `ARM_USE_MSI`, `FABRIC_USE_MSI` | Uses `azidentity.NewManagedIdentityCredential`. |
 | `use_cli` | `FABRIC_USE_CLI` | `AZURE_USE_CLI`, `ARM_USE_CLI`, `FABRIC_USE_CLI` | Uses `azidentity.NewAzureCLICredential`. |
 | `access_token` | *(Not supported)* | `FABRIC_ACCESS_TOKEN` | Static bearer token override; enables zero-network `TF_ACC=1` testing. |
-| `powerbi_access_token`| *(Not supported)* | `FABRIC_POWERBI_ACCESS_TOKEN` | Static Power BI bearer token override; falls back to `access_token`. |
-| `timeout` / `request_timeout` | `FABRIC_TIMEOUT` | `FABRIC_REQUEST_TIMEOUT` | HTTP timeout: `microsoft/fabric` uses `timeout` (default `"10m"`); `fabricext` uses `request_timeout` (default `"60s"`). |
+| `powerbi_access_token`| *(Not supported)* | `FABRIC_POWERBI_ACCESS_TOKEN` | Dedicated static Power BI bearer token override; isolated from `access_token`. |
+| `timeout` / `request_timeout` | `FABRIC_TIMEOUT` | `FABRIC_TIMEOUT`, `FABRIC_REQUEST_TIMEOUT` | HTTP request timeout duration. |
 | `skip_credentials_validation` | *(Not supported)* | `FABRIC_SKIP_CREDENTIALS_VALIDATION` | Skips eager token validation in `Configure()` when set to `true`. |
 
 ### Dual-Provider HCL Pattern
 
-Because active `jambazid/fabricext` resources accept human-readable item names (such as `lakehouse_name`) and resolve them via a paginated, type-isolated cache, referencing `display_name` from a `microsoft/fabric` resource automatically establishes the Terraform dependency graph edge:
+Because active `jambazid/fabricext` resources accept either item UUIDs (such as `lakehouse_id`) or human-readable names (such as `lakehouse_name`) resolved via a paginated cache, referencing `id` or `display_name` from a `microsoft/fabric` resource automatically establishes the Terraform dependency graph edge:
 
 ```hcl
 terraform {

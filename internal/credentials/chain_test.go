@@ -11,6 +11,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
@@ -1139,5 +1140,228 @@ func TestChain_ProviderEdgeCasesAndFileErrors(t *testing.T) {
 	}
 	if _, _, err := cliWithFetcher.ResolveForScope(ctx, "scope"); !errors.Is(err, fetchErr) {
 		t.Errorf("expected fetchErr, got %v", err)
+	}
+}
+
+func TestValidateConfig_MutualExclusion(t *testing.T) {
+	t.Parallel()
+
+	trueVal := true
+	falseVal := false
+
+	testCases := []struct {
+		name        string
+		cfg         Config
+		expectError bool
+		errMsg      string
+	}{
+		{
+			name: "single modality use_oidc",
+			cfg: Config{
+				UseOIDC: &trueVal,
+			},
+			expectError: false,
+		},
+		{
+			name: "single modality use_msi",
+			cfg: Config{
+				UseMSI: true,
+			},
+			expectError: false,
+		},
+		{
+			name: "modal conflict use_oidc and use_msi",
+			cfg: Config{
+				UseOIDC: &trueVal,
+				UseMSI:  true,
+			},
+			expectError: true,
+			errMsg:      "can be enabled at a time",
+		},
+		{
+			name: "modal conflict use_cli and use_dev_cli",
+			cfg: Config{
+				UseCLI:    &trueVal,
+				UseDevCLI: &trueVal,
+			},
+			expectError: true,
+			errMsg:      "can be enabled at a time",
+		},
+		{
+			name: "explicitly disabled modality does not conflict",
+			cfg: Config{
+				UseOIDC: &falseVal,
+				UseMSI:  true,
+			},
+			expectError: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			err := ValidateConfig(tc.cfg)
+			if tc.expectError {
+				if err == nil {
+					t.Fatalf("expected error containing %q, got nil", tc.errMsg)
+				}
+				if !strings.Contains(err.Error(), tc.errMsg) {
+					t.Fatalf("expected error containing %q, got %q", tc.errMsg, err.Error())
+				}
+			} else if err != nil {
+				t.Fatalf("expected clean validation, got error: %v", err)
+			}
+		})
+	}
+}
+
+func TestWorkloadIdentity_GitHubActionsOIDC(t *testing.T) {
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		if auth != "Bearer gha-token-secret" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		audience := r.URL.Query().Get("audience")
+		if audience != "api://AzureADTokenExchange" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"value": "gha-federated-jwt-12345",
+		})
+	}))
+	defer ts.Close()
+
+	env := map[string]string{
+		"AZURE_TENANT_ID":                "00000000-0000-0000-0000-000000000001",
+		"AZURE_CLIENT_ID":                "00000000-0000-0000-0000-000000000002",
+		"ACTIONS_ID_TOKEN_REQUEST_URL":   ts.URL,
+		"ACTIONS_ID_TOKEN_REQUEST_TOKEN": "gha-token-secret",
+	}
+
+	cfg := Config{
+		Getenv: func(k string) string { return env[k] },
+	}
+
+	wi := &workloadIdentityProvider{
+		cfg: cfg,
+		tokenFetcher: func(_ context.Context, _, _, assertion string) (azcore.AccessToken, error) {
+			if assertion != "gha-federated-jwt-12345" {
+				return azcore.AccessToken{}, fmt.Errorf("unexpected assertion: %s", assertion)
+			}
+			return azcore.AccessToken{
+				Token:     "exchanged-oidc-token",
+				ExpiresOn: time.Now().Add(1 * time.Hour),
+			}, nil
+		},
+	}
+
+	creds, skipped, err := wi.ResolveForScope(context.Background(), FabricScopePublic)
+	if err != nil {
+		t.Fatalf("expected clean resolution, got: %v", err)
+	}
+	if skipped {
+		t.Fatal("expected provider not to be skipped")
+	}
+	if creds.AccessToken != "exchanged-oidc-token" {
+		t.Fatalf("expected token exchanged-oidc-token, got %q", creds.AccessToken)
+	}
+	if creds.Source != SourceWorkloadIdentity {
+		t.Fatalf("expected source %q, got %q", SourceWorkloadIdentity, creds.Source)
+	}
+}
+
+func TestFetchOIDCAssertion_SecurityValidation(t *testing.T) {
+	t.Parallel()
+
+	// Cleartext HTTP on non-loopback host must fail
+	_, err := fetchOIDCAssertion(context.Background(), "http://attacker.com/token", "token")
+	if err == nil || !strings.Contains(err.Error(), "must use https scheme") {
+		t.Fatalf("expected scheme error, got: %v", err)
+	}
+
+	// URL with user credentials must fail
+	_, err = fetchOIDCAssertion(context.Background(), "https://user:pass@example.com/token", "token")
+	if err == nil || !strings.Contains(err.Error(), "must not contain user credentials") {
+		t.Fatalf("expected user credentials error, got: %v", err)
+	}
+}
+
+func TestConfig_FilePathEnvFallbacks(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	tenantFile := filepath.Join(tmpDir, "tenant.txt")
+	clientFile := filepath.Join(tmpDir, "client.txt")
+	secretFile := filepath.Join(tmpDir, "secret.txt")
+
+	if err := os.WriteFile(tenantFile, []byte("  tenant-from-arm-file  \n"), 0o600); err != nil {
+		t.Fatalf("writing tenant file: %v", err)
+	}
+	if err := os.WriteFile(clientFile, []byte("  client-from-azure-file  \n"), 0o600); err != nil {
+		t.Fatalf("writing client file: %v", err)
+	}
+	if err := os.WriteFile(secretFile, []byte("  secret-from-arm-file  \n"), 0o600); err != nil {
+		t.Fatalf("writing secret file: %v", err)
+	}
+
+	env := map[string]string{
+		"ARM_TENANT_ID_FILE_PATH":     tenantFile,
+		"AZURE_CLIENT_ID_FILE_PATH":   clientFile,
+		"ARM_CLIENT_SECRET_FILE_PATH": secretFile,
+	}
+
+	cfg := Config{
+		Getenv: func(k string) string { return env[k] },
+	}
+
+	tenantID, err := cfg.ResolveTenantID()
+	if err != nil {
+		t.Fatalf("unexpected tenant error: %v", err)
+	}
+	if tenantID != "tenant-from-arm-file" {
+		t.Fatalf("expected tenant-from-arm-file, got %q", tenantID)
+	}
+
+	clientID, err := cfg.resolveClientID()
+	if err != nil {
+		t.Fatalf("unexpected client error: %v", err)
+	}
+	if clientID != "client-from-azure-file" {
+		t.Fatalf("expected client-from-azure-file, got %q", clientID)
+	}
+
+	secret, err := cfg.resolveClientSecret()
+	if err != nil {
+		t.Fatalf("unexpected secret error: %v", err)
+	}
+	if secret != "secret-from-arm-file" {
+		t.Fatalf("expected secret-from-arm-file, got %q", secret)
+	}
+}
+
+func TestChain_PowerBIScopeMismatchHint(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{
+		AccessToken: "static-fabric-token-only",
+	}
+	chain := NewChain(cfg)
+
+	_, err := chain.ResolveForScope(context.Background(), ResolvePowerBIScope("public"))
+	if err == nil {
+		t.Fatal("expected error resolving Power BI scope with only fabric token")
+	}
+
+	var chainErr *ChainError
+	if !errors.As(err, &chainErr) {
+		t.Fatalf("expected *ChainError, got %T: %v", err, err)
+	}
+	if !strings.Contains(chainErr.Error(), "hint: a static Fabric access token (FABRIC_ACCESS_TOKEN) was configured") {
+		t.Fatalf("expected scope hint in error message, got: %s", chainErr.Error())
 	}
 }

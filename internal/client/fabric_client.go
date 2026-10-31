@@ -277,6 +277,7 @@ type itemCacheKey struct {
 type FabricClient struct {
 	baseURL              string
 	powerBIEndpoint      string
+	environment          string
 	httpClient           *http.Client
 	tokenProvider        func(ctx context.Context) (string, error)
 	powerBITokenProvider func(ctx context.Context) (string, error)
@@ -354,6 +355,7 @@ func NewFabricClient(cfg Config) (*FabricClient, error) {
 	return &FabricClient{
 		baseURL:              endpoint,
 		powerBIEndpoint:      powerBIEndpoint,
+		environment:          cfg.Environment,
 		httpClient:           httpClient,
 		tokenProvider:        tokenProvider,
 		powerBITokenProvider: pbiTokenProvider,
