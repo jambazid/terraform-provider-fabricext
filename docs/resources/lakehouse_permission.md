@@ -48,7 +48,7 @@ resource "fabricext_lakehouse_permission" "pipeline_service_principal" {
 
 ### Required
 
-- `permissions` (Set of String) Set of item permissions granted to the principal. Valid permissions for Lakehouse are `Read`, `ReadData`, `ReadAll`, `Reshare`, and `Execute`.
+- `permissions` (Set of String) Set of item permissions granted to the principal. Must include `Read`. Valid permissions for Lakehouse are `Read`, `ReadData`, `ReadAll`, `Reshare`, and `Execute`.
 - `principal_id` (String) Microsoft Entra Object ID (UUID) of the user, group, service principal, or managed identity.
 - `principal_type` (String) Type of Microsoft Entra principal (`User`, `Group`, `ServicePrincipal`, `ManagedIdentity`).
 - `workspace_id` (String) UUID of the Microsoft Fabric workspace containing the Lakehouse.

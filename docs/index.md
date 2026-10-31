@@ -78,28 +78,28 @@ For comprehensive guides on access control architecture, cross-engine identity p
 ### Optional
 
 - `access_token` (String, Sensitive) Static Microsoft Entra ID bearer token for the Microsoft Fabric API (`https://api.fabric.microsoft.com/.default`). Can also be sourced from `FABRIC_ACCESS_TOKEN`.
-- `auxiliary_tenant_ids` (List of String) Auxiliary Tenant IDs for multi-tenant token acquisition. Can also be sourced from comma-separated `FABRIC_AUXILIARY_TENANT_IDS`.
-- `azure_devops_service_connection_id` (String) Azure DevOps Service Connection ID that uses Workload Identity Federation. Can also be sourced from `FABRIC_AZURE_DEVOPS_SERVICE_CONNECTION_ID`.
+- `auxiliary_tenant_ids` (List of String) Auxiliary Tenant IDs for multi-tenant token acquisition. Can also be sourced from comma-separated `FABRIC_AUXILIARY_TENANT_IDS`, `AZURE_AUXILIARY_TENANT_IDS`, or `ARM_AUXILIARY_TENANT_IDS`.
+- `azure_devops_service_connection_id` (String) Azure DevOps Service Connection ID that uses Workload Identity Federation. Can also be sourced from `FABRIC_AZURE_DEVOPS_SERVICE_CONNECTION_ID`, `ARM_ADO_PIPELINE_SERVICE_CONNECTION_ID`, or `ARM_OIDC_AZURE_SERVICE_CONNECTION_ID`.
 - `client_certificate` (String, Sensitive) Base64 encoded PKCS#12 certificate bundle (.pfx / .p12). Can also be sourced from `FABRIC_CLIENT_CERTIFICATE`, `AZURE_CLIENT_CERTIFICATE`, or `ARM_CLIENT_CERTIFICATE`.
-- `client_certificate_file_path` (String) Path to a PKCS#12 certificate file (.pfx / .p12). Can also be sourced from `FABRIC_CLIENT_CERTIFICATE_PATH`, `AZURE_CLIENT_CERTIFICATE_PATH`, or `ARM_CLIENT_CERTIFICATE_PATH`.
+- `client_certificate_file_path` (String) Path to a PKCS#12 certificate file (.pfx / .p12, raw binary or base64 text). Can also be sourced from `FABRIC_CLIENT_CERTIFICATE_FILE_PATH`, `AZURE_CLIENT_CERTIFICATE_FILE_PATH`, `ARM_CLIENT_CERTIFICATE_FILE_PATH`, `FABRIC_CLIENT_CERTIFICATE_PATH`, `AZURE_CLIENT_CERTIFICATE_PATH`, or `ARM_CLIENT_CERTIFICATE_PATH`.
 - `client_certificate_password` (String, Sensitive) Password associated with the PKCS#12 client certificate. Can also be sourced from `FABRIC_CLIENT_CERTIFICATE_PASSWORD`, `AZURE_CLIENT_CERTIFICATE_PASSWORD`, or `ARM_CLIENT_CERTIFICATE_PASSWORD`.
 - `client_id` (String) Microsoft Entra ID application (client) UUID. Can also be sourced from `FABRIC_CLIENT_ID`, `AZURE_CLIENT_ID`, or `ARM_CLIENT_ID`.
-- `client_id_file_path` (String) Path to a file containing the Entra ID application (client) UUID.
+- `client_id_file_path` (String) Path to a file containing the Entra ID application (client) UUID. Can also be sourced from `FABRIC_CLIENT_ID_FILE_PATH`, `AZURE_CLIENT_ID_FILE_PATH`, or `ARM_CLIENT_ID_FILE_PATH`.
 - `client_secret` (String, Sensitive) Microsoft Entra ID Service Principal client secret. Can also be sourced from `FABRIC_CLIENT_SECRET`, `AZURE_CLIENT_SECRET`, or `ARM_CLIENT_SECRET`.
-- `client_secret_file_path` (String) Path to a file containing the Service Principal client secret.
+- `client_secret_file_path` (String) Path to a file containing the Service Principal client secret. Can also be sourced from `FABRIC_CLIENT_SECRET_FILE_PATH`, `AZURE_CLIENT_SECRET_FILE_PATH`, or `ARM_CLIENT_SECRET_FILE_PATH`.
 - `endpoint` (String) Base URL for the Microsoft Fabric REST API. Defaults to `https://api.fabric.microsoft.com` (or sovereign cloud equivalent). Can also be sourced from `FABRIC_ENDPOINT`.
-- `environment` (String) Cloud environment to target (`public`, `usgovernment`, `china`). Defaults to `public`. Can also be sourced from `FABRIC_ENVIRONMENT` or `ARM_ENVIRONMENT`.
-- `oidc_request_token` (String, Sensitive) Bearer token for requesting an ID token from an OIDC provider. Can also be sourced from `SYSTEM_ACCESSTOKEN`, `FABRIC_OIDC_REQUEST_TOKEN`, or `ARM_OIDC_REQUEST_TOKEN`.
-- `oidc_request_url` (String) URL for requesting an ID token from an OIDC provider. Can also be sourced from `SYSTEM_OIDCREQUESTURI`, `FABRIC_OIDC_REQUEST_URL`, or `ARM_OIDC_REQUEST_URL`.
-- `oidc_token` (String, Sensitive) OIDC JWT assertion token. Can also be sourced from `FABRIC_OIDC_TOKEN` or `ARM_OIDC_TOKEN`.
-- `oidc_token_file_path` (String) Path to a file containing the OIDC JWT assertion token. Can also be sourced from `FABRIC_OIDC_TOKEN_FILE_PATH` or `ARM_OIDC_TOKEN_FILE_PATH`.
+- `environment` (String) Cloud environment to target (`public`, `usgovernment`, `china`, case-insensitive). Defaults to `public`. Can also be sourced from `FABRIC_ENVIRONMENT`, `AZURE_ENVIRONMENT`, or `ARM_ENVIRONMENT`.
+- `oidc_request_token` (String, Sensitive) Bearer token for requesting an ID token from an OIDC provider. Can also be sourced from `FABRIC_OIDC_REQUEST_TOKEN`, `ACTIONS_ID_TOKEN_REQUEST_TOKEN`, `SYSTEM_ACCESSTOKEN`, or `ARM_OIDC_REQUEST_TOKEN`.
+- `oidc_request_url` (String) URL for requesting an ID token from an OIDC provider. Can also be sourced from `FABRIC_OIDC_REQUEST_URL`, `ACTIONS_ID_TOKEN_REQUEST_URL`, `SYSTEM_OIDCREQUESTURI`, or `ARM_OIDC_REQUEST_URL`.
+- `oidc_token` (String, Sensitive) OIDC JWT assertion token. Can also be sourced from `FABRIC_OIDC_TOKEN`, `AZURE_OIDC_TOKEN`, or `ARM_OIDC_TOKEN`.
+- `oidc_token_file_path` (String) Path to a file containing the OIDC JWT assertion token. Can also be sourced from `FABRIC_OIDC_TOKEN_FILE_PATH`, `AZURE_OIDC_TOKEN_FILE_PATH`, `ARM_OIDC_TOKEN_FILE_PATH`, or `AZURE_FEDERATED_TOKEN_FILE`.
 - `powerbi_access_token` (String, Sensitive) Static Microsoft Entra ID bearer token scoped to Power BI (`https://analysis.windows.net/powerbi/api/.default`). Can also be sourced from `FABRIC_POWERBI_ACCESS_TOKEN`.
-- `powerbi_endpoint` (String) Base URL or bootstrap portal for Power BI metadata cluster discovery. Defaults to `https://app.powerbi.com`. Can also be sourced from `FABRIC_POWERBI_ENDPOINT`.
-- `request_timeout` (String) Per-request HTTP timeout as a Go duration string (for example, `60s`). Defaults to `60s`. Can also be sourced from `FABRIC_REQUEST_TIMEOUT`.
+- `powerbi_endpoint` (String) Regional Power BI cluster endpoint (e.g. `https://wabi-west-europe-redirect.analysis.windows.net`) or bootstrap portal. When configured with a regional cluster URL, bootstrap discovery is bypassed. Can also be sourced from `FABRIC_POWERBI_ENDPOINT`.
+- `request_timeout` (String) Per-request HTTP timeout as a Go duration string (for example, `60s`). Defaults to `60s`. Can also be sourced from `FABRIC_REQUEST_TIMEOUT` or `FABRIC_TIMEOUT`.
 - `skip_credentials_validation` (Boolean) Skip eager credential validation during `Configure()`. Defaults to `false`. Can also be sourced from `FABRIC_SKIP_CREDENTIALS_VALIDATION`.
 - `tenant_id` (String) Microsoft Entra ID tenant UUID. Can also be sourced from `FABRIC_TENANT_ID`, `AZURE_TENANT_ID`, or `ARM_TENANT_ID`.
-- `tenant_id_file_path` (String) Path to a file containing the Entra ID tenant UUID.
+- `tenant_id_file_path` (String) Path to a file containing the Entra ID tenant UUID. Can also be sourced from `FABRIC_TENANT_ID_FILE_PATH`, `AZURE_TENANT_ID_FILE_PATH`, or `ARM_TENANT_ID_FILE_PATH`.
 - `use_cli` (Boolean) Allow fallback to the local Azure CLI (`az login`) session. Defaults to `true`. Can also be sourced from `FABRIC_USE_CLI`, `AZURE_USE_CLI`, or `ARM_USE_CLI`.
-- `use_dev_cli` (Boolean) Allow fallback to the Azure Developer CLI (`azd auth login`) session. Can also be sourced from `FABRIC_USE_DEV_CLI`.
+- `use_dev_cli` (Boolean) Allow fallback to the Azure Developer CLI (`azd auth login`) session. Can also be sourced from `FABRIC_USE_DEV_CLI`, `AZURE_USE_DEV_CLI`, or `ARM_USE_DEV_CLI`.
 - `use_msi` (Boolean) Enable Azure Managed Identity authentication. Can also be sourced from `FABRIC_USE_MSI`, `AZURE_USE_MSI`, or `ARM_USE_MSI`.
-- `use_oidc` (Boolean) Enable Microsoft Entra Workload Identity (OIDC) authentication. Can also be sourced from `FABRIC_USE_OIDC`, `AZURE_USE_OIDC`, or `ARM_USE_OIDC`.
+- `use_oidc` (Boolean) Enable Microsoft Entra Workload Identity (OIDC) authentication. When enabled, requires OIDC request tokens or assertion files. Can also be sourced from `FABRIC_USE_OIDC`, `AZURE_USE_OIDC`, or `ARM_USE_OIDC`.

@@ -28,5 +28,5 @@ resource "fabricext_sql_database_permission" "example" {
   `[@test] ../internal/provider/sql_database_permission_resource_test.go::TestAccSQLDatabasePermissionResource_DriftDetectionAndRecreation`
 - Validates item type during Read and Create and reports actionable diagnostic error when target item type is not SQLDatabase
   `[@test] ../internal/provider/sql_database_permission_resource_test.go::TestAccSQLDatabasePermissionResource_TypeMismatchError`
-- Supports optional recipient email notification (`notify = true`) and custom message delivery, and fails validation if `message` is configured with `notify = false`
+- Supports optional recipient email notification (`notify = true`) and custom message delivery, and fails validation if `message` is configured with `notify = false` or if `permissions` does not include `Read`
   `[@test] ../internal/provider/sql_database_permission_resource_test.go::TestAccSQLDatabasePermissionResource_NotificationAndValidation`

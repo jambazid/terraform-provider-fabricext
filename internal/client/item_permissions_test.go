@@ -60,14 +60,14 @@ func TestItemPermissions_BitmaskBijection(t *testing.T) {
 			itemType:    "Lakehouse",
 			perms:       []string{"Read", "ReadData", "Execute"},
 			expCore:     65, // 1 | 64
-			expArtifact: 67, // 1 | 2 | 64
+			expArtifact: 3,  // 1 | 2 (Execute is strictly in core permissions bit 64)
 			expDecoded:  []string{"Read", "ReadData", "Execute"},
 		},
 		{
 			itemType:    "SQLDatabase",
 			perms:       []string{"Read", "ReadData", "ReadAll", "Reshare", "Execute"},
 			expCore:     69, // 1 | 4 | 64
-			expArtifact: 79, // 1 | 2 | 4 | 8 | 64
+			expArtifact: 15, // 1 | 2 | 4 | 8 (Execute is strictly in core permissions bit 64)
 			expDecoded:  []string{"Read", "ReadData", "ReadAll", "Reshare", "Execute"},
 		},
 		{
@@ -1363,6 +1363,27 @@ func TestItemPermissions_DiscoveryAndErrorCoverage(t *testing.T) {
 	_, errUntrusted := cUntrusted.DiscoverClusterURI(ctx)
 	if errUntrusted == nil || !strings.Contains(errUntrusted.Error(), "untrusted redirect target") {
 		t.Fatalf("expected untrusted redirect target error, got: %v", errUntrusted)
+	}
+
+	// 1b. DiscoverClusterURI redirect to 127.* domain (SSRF bypass attempt)
+	c127Domain, _ := client.NewFabricClient(client.Config{
+		Endpoint:        "https://api.fabric.microsoft.com",
+		PowerBIEndpoint: "https://app.powerbi.com",
+		HTTPClient: &http.Client{
+			Transport: roundTripperFunc(func(_ *http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: http.StatusFound,
+					Header:     http.Header{"Location": []string{"https://127.attacker.com/malicious"}},
+					Body:       io.NopCloser(strings.NewReader("")),
+				}, nil
+			}),
+		},
+		TokenProvider:        func(context.Context) (string, error) { return "tok", nil },
+		PowerBITokenProvider: func(context.Context) (string, error) { return "tok", nil },
+	})
+	_, err127Domain := c127Domain.DiscoverClusterURI(ctx)
+	if err127Domain == nil || !strings.Contains(err127Domain.Error(), "untrusted redirect target") {
+		t.Fatalf("expected untrusted redirect target error for 127.attacker.com, got: %v", err127Domain)
 	}
 
 	// 2. DiscoverClusterURI redirect with empty Location header

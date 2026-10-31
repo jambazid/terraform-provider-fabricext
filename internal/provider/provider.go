@@ -158,7 +158,7 @@ func (p *FabricProvider) Schema(_ context.Context, _ provider.SchemaRequest, res
 			},
 			"tenant_id_file_path": schema.StringAttribute{
 				Optional:            true,
-				MarkdownDescription: "Path to a file containing the Entra ID tenant UUID.",
+				MarkdownDescription: "Path to a file containing the Entra ID tenant UUID. Can also be sourced from `FABRIC_TENANT_ID_FILE_PATH`, `AZURE_TENANT_ID_FILE_PATH`, or `ARM_TENANT_ID_FILE_PATH`.",
 			},
 			"client_id": schema.StringAttribute{
 				Optional:            true,
@@ -166,7 +166,7 @@ func (p *FabricProvider) Schema(_ context.Context, _ provider.SchemaRequest, res
 			},
 			"client_id_file_path": schema.StringAttribute{
 				Optional:            true,
-				MarkdownDescription: "Path to a file containing the Entra ID application (client) UUID.",
+				MarkdownDescription: "Path to a file containing the Entra ID application (client) UUID. Can also be sourced from `FABRIC_CLIENT_ID_FILE_PATH`, `AZURE_CLIENT_ID_FILE_PATH`, or `ARM_CLIENT_ID_FILE_PATH`.",
 			},
 			"client_secret": schema.StringAttribute{
 				Optional:            true,
@@ -175,7 +175,7 @@ func (p *FabricProvider) Schema(_ context.Context, _ provider.SchemaRequest, res
 			},
 			"client_secret_file_path": schema.StringAttribute{
 				Optional:            true,
-				MarkdownDescription: "Path to a file containing the Service Principal client secret.",
+				MarkdownDescription: "Path to a file containing the Service Principal client secret. Can also be sourced from `FABRIC_CLIENT_SECRET_FILE_PATH`, `AZURE_CLIENT_SECRET_FILE_PATH`, or `ARM_CLIENT_SECRET_FILE_PATH`.",
 			},
 			"client_certificate": schema.StringAttribute{
 				Optional:            true,
@@ -184,7 +184,7 @@ func (p *FabricProvider) Schema(_ context.Context, _ provider.SchemaRequest, res
 			},
 			"client_certificate_file_path": schema.StringAttribute{
 				Optional:            true,
-				MarkdownDescription: "Path to a PKCS#12 certificate file (.pfx / .p12). Can also be sourced from `FABRIC_CLIENT_CERTIFICATE_PATH`, `AZURE_CLIENT_CERTIFICATE_PATH`, or `ARM_CLIENT_CERTIFICATE_PATH`.",
+				MarkdownDescription: "Path to a PKCS#12 certificate file (.pfx / .p12, raw binary or base64 text). Can also be sourced from `FABRIC_CLIENT_CERTIFICATE_FILE_PATH`, `AZURE_CLIENT_CERTIFICATE_FILE_PATH`, `ARM_CLIENT_CERTIFICATE_FILE_PATH`, `FABRIC_CLIENT_CERTIFICATE_PATH`, `AZURE_CLIENT_CERTIFICATE_PATH`, or `ARM_CLIENT_CERTIFICATE_PATH`.",
 			},
 			"client_certificate_password": schema.StringAttribute{
 				Optional:            true,
@@ -197,29 +197,29 @@ func (p *FabricProvider) Schema(_ context.Context, _ provider.SchemaRequest, res
 			},
 			"use_oidc": schema.BoolAttribute{
 				Optional:            true,
-				MarkdownDescription: "Enable Microsoft Entra Workload Identity (OIDC) authentication. Can also be sourced from `FABRIC_USE_OIDC`, `AZURE_USE_OIDC`, or `ARM_USE_OIDC`.",
+				MarkdownDescription: "Enable Microsoft Entra Workload Identity (OIDC) authentication. When enabled, requires OIDC request tokens or assertion files. Can also be sourced from `FABRIC_USE_OIDC`, `AZURE_USE_OIDC`, or `ARM_USE_OIDC`.",
 			},
 			"oidc_token": schema.StringAttribute{
 				Optional:            true,
 				Sensitive:           true,
-				MarkdownDescription: "OIDC JWT assertion token. Can also be sourced from `FABRIC_OIDC_TOKEN` or `ARM_OIDC_TOKEN`.",
+				MarkdownDescription: "OIDC JWT assertion token. Can also be sourced from `FABRIC_OIDC_TOKEN`, `AZURE_OIDC_TOKEN`, or `ARM_OIDC_TOKEN`.",
 			},
 			"oidc_token_file_path": schema.StringAttribute{
 				Optional:            true,
-				MarkdownDescription: "Path to a file containing the OIDC JWT assertion token. Can also be sourced from `FABRIC_OIDC_TOKEN_FILE_PATH` or `ARM_OIDC_TOKEN_FILE_PATH`.",
+				MarkdownDescription: "Path to a file containing the OIDC JWT assertion token. Can also be sourced from `FABRIC_OIDC_TOKEN_FILE_PATH`, `AZURE_OIDC_TOKEN_FILE_PATH`, `ARM_OIDC_TOKEN_FILE_PATH`, or `AZURE_FEDERATED_TOKEN_FILE`.",
 			},
 			"oidc_request_token": schema.StringAttribute{
 				Optional:            true,
 				Sensitive:           true,
-				MarkdownDescription: "Bearer token for requesting an ID token from an OIDC provider. Can also be sourced from `SYSTEM_ACCESSTOKEN`, `FABRIC_OIDC_REQUEST_TOKEN`, or `ARM_OIDC_REQUEST_TOKEN`.",
+				MarkdownDescription: "Bearer token for requesting an ID token from an OIDC provider. Can also be sourced from `FABRIC_OIDC_REQUEST_TOKEN`, `ACTIONS_ID_TOKEN_REQUEST_TOKEN`, `SYSTEM_ACCESSTOKEN`, or `ARM_OIDC_REQUEST_TOKEN`.",
 			},
 			"oidc_request_url": schema.StringAttribute{
 				Optional:            true,
-				MarkdownDescription: "URL for requesting an ID token from an OIDC provider. Can also be sourced from `SYSTEM_OIDCREQUESTURI`, `FABRIC_OIDC_REQUEST_URL`, or `ARM_OIDC_REQUEST_URL`.",
+				MarkdownDescription: "URL for requesting an ID token from an OIDC provider. Can also be sourced from `FABRIC_OIDC_REQUEST_URL`, `ACTIONS_ID_TOKEN_REQUEST_URL`, `SYSTEM_OIDCREQUESTURI`, or `ARM_OIDC_REQUEST_URL`.",
 			},
 			"azure_devops_service_connection_id": schema.StringAttribute{
 				Optional:            true,
-				MarkdownDescription: "Azure DevOps Service Connection ID that uses Workload Identity Federation. Can also be sourced from `FABRIC_AZURE_DEVOPS_SERVICE_CONNECTION_ID`.",
+				MarkdownDescription: "Azure DevOps Service Connection ID that uses Workload Identity Federation. Can also be sourced from `FABRIC_AZURE_DEVOPS_SERVICE_CONNECTION_ID`, `ARM_ADO_PIPELINE_SERVICE_CONNECTION_ID`, or `ARM_OIDC_AZURE_SERVICE_CONNECTION_ID`.",
 			},
 			"use_cli": schema.BoolAttribute{
 				Optional:            true,
@@ -227,23 +227,23 @@ func (p *FabricProvider) Schema(_ context.Context, _ provider.SchemaRequest, res
 			},
 			"use_dev_cli": schema.BoolAttribute{
 				Optional:            true,
-				MarkdownDescription: "Allow fallback to the Azure Developer CLI (`azd auth login`) session. Can also be sourced from `FABRIC_USE_DEV_CLI`.",
+				MarkdownDescription: "Allow fallback to the Azure Developer CLI (`azd auth login`) session. Can also be sourced from `FABRIC_USE_DEV_CLI`, `AZURE_USE_DEV_CLI`, or `ARM_USE_DEV_CLI`.",
 			},
 			"environment": schema.StringAttribute{
 				Optional:            true,
-				MarkdownDescription: "Cloud environment to target (`public`, `usgovernment`, `china`). Defaults to `public`. Can also be sourced from `FABRIC_ENVIRONMENT` or `ARM_ENVIRONMENT`.",
+				MarkdownDescription: "Cloud environment to target (`public`, `usgovernment`, `china`, case-insensitive). Defaults to `public`. Can also be sourced from `FABRIC_ENVIRONMENT`, `AZURE_ENVIRONMENT`, or `ARM_ENVIRONMENT`.",
 				Validators: []validator.String{
-					stringvalidator.OneOf(string(EnvironmentPublic), string(EnvironmentUSGovernment), string(EnvironmentChina)),
+					stringvalidator.OneOfCaseInsensitive(string(EnvironmentPublic), string(EnvironmentUSGovernment), string(EnvironmentChina)),
 				},
 			},
 			"auxiliary_tenant_ids": schema.ListAttribute{
 				ElementType:         types.StringType,
 				Optional:            true,
-				MarkdownDescription: "Auxiliary Tenant IDs for multi-tenant token acquisition. Can also be sourced from comma-separated `FABRIC_AUXILIARY_TENANT_IDS`.",
+				MarkdownDescription: "Auxiliary Tenant IDs for multi-tenant token acquisition. Can also be sourced from comma-separated `FABRIC_AUXILIARY_TENANT_IDS`, `AZURE_AUXILIARY_TENANT_IDS`, or `ARM_AUXILIARY_TENANT_IDS`.",
 			},
 			"request_timeout": schema.StringAttribute{
 				Optional:            true,
-				MarkdownDescription: "Per-request HTTP timeout as a Go duration string (for example, `60s`). Defaults to `60s`. Can also be sourced from `FABRIC_REQUEST_TIMEOUT`.",
+				MarkdownDescription: "Per-request HTTP timeout as a Go duration string (for example, `60s`). Defaults to `60s`. Can also be sourced from `FABRIC_REQUEST_TIMEOUT` or `FABRIC_TIMEOUT`.",
 			},
 			"skip_credentials_validation": schema.BoolAttribute{
 				Optional:            true,
@@ -251,7 +251,7 @@ func (p *FabricProvider) Schema(_ context.Context, _ provider.SchemaRequest, res
 			},
 			"powerbi_endpoint": schema.StringAttribute{
 				Optional:            true,
-				MarkdownDescription: "Base URL or bootstrap portal for Power BI metadata cluster discovery. Defaults to `https://app.powerbi.com`. Can also be sourced from `FABRIC_POWERBI_ENDPOINT`.",
+				MarkdownDescription: "Regional Power BI cluster endpoint (e.g. `https://wabi-west-europe-redirect.analysis.windows.net`) or bootstrap portal. When configured with a regional cluster URL, bootstrap discovery is bypassed. Can also be sourced from `FABRIC_POWERBI_ENDPOINT`.",
 			},
 			"powerbi_access_token": schema.StringAttribute{
 				Optional:            true,
@@ -355,6 +355,9 @@ func (p *FabricProvider) Configure(ctx context.Context, req provider.ConfigureRe
 
 	envStr := strings.TrimSpace(os.Getenv("FABRIC_ENVIRONMENT"))
 	if envStr == "" {
+		envStr = strings.TrimSpace(os.Getenv("AZURE_ENVIRONMENT"))
+	}
+	if envStr == "" {
 		envStr = strings.TrimSpace(os.Getenv("ARM_ENVIRONMENT"))
 	}
 	if !config.Environment.IsNull() && strings.TrimSpace(config.Environment.ValueString()) != "" {
@@ -386,6 +389,9 @@ func (p *FabricProvider) Configure(ctx context.Context, req provider.ConfigureRe
 	}
 
 	timeoutStr := strings.TrimSpace(os.Getenv("FABRIC_REQUEST_TIMEOUT"))
+	if timeoutStr == "" {
+		timeoutStr = strings.TrimSpace(os.Getenv("FABRIC_TIMEOUT"))
+	}
 	if !config.RequestTimeout.IsNull() && strings.TrimSpace(config.RequestTimeout.ValueString()) != "" {
 		timeoutStr = strings.TrimSpace(config.RequestTimeout.ValueString())
 	}
@@ -396,6 +402,16 @@ func (p *FabricProvider) Configure(ctx context.Context, req provider.ConfigureRe
 	if err != nil || requestTimeout <= 0 {
 		resp.Diagnostics.AddAttributeError(path.Root("request_timeout"), "Invalid Request Timeout", fmt.Sprintf("request_timeout %q must be a positive Go duration string (for example, \"60s\")", timeoutStr))
 		return
+	}
+
+	powerBIEndpoint := strings.TrimSpace(os.Getenv("FABRIC_POWERBI_ENDPOINT"))
+	if !config.PowerBIEndpoint.IsNull() && strings.TrimSpace(config.PowerBIEndpoint.ValueString()) != "" {
+		powerBIEndpoint = strings.TrimSpace(config.PowerBIEndpoint.ValueString())
+	}
+
+	powerBIAccessToken := strings.TrimSpace(os.Getenv("FABRIC_POWERBI_ACCESS_TOKEN"))
+	if !config.PowerBIAccessToken.IsNull() && strings.TrimSpace(config.PowerBIAccessToken.ValueString()) != "" {
+		powerBIAccessToken = strings.TrimSpace(config.PowerBIAccessToken.ValueString())
 	}
 
 	var useOIDCPtr *bool
@@ -445,8 +461,8 @@ func (p *FabricProvider) Configure(ctx context.Context, req provider.ConfigureRe
 		UseDevCLI:                      useDevCLIPtr,
 		Environment:                    envStr,
 		AuxiliaryTenantIDs:             auxTenants,
-		PowerBIEndpoint:                strings.TrimSpace(config.PowerBIEndpoint.ValueString()),
-		PowerBIAccessToken:             strings.TrimSpace(config.PowerBIAccessToken.ValueString()),
+		PowerBIEndpoint:                powerBIEndpoint,
+		PowerBIAccessToken:             powerBIAccessToken,
 	}
 
 	if err := credentials.ValidateConfig(credCfg); err != nil {
@@ -467,7 +483,7 @@ func (p *FabricProvider) Configure(ctx context.Context, req provider.ConfigureRe
 
 	fabricClient, err := client.NewFabricClient(client.Config{
 		Endpoint:        endpoint,
-		PowerBIEndpoint: strings.TrimSpace(config.PowerBIEndpoint.ValueString()),
+		PowerBIEndpoint: powerBIEndpoint,
 		Environment:     envStr,
 		CredentialChain: chain,
 		HTTPClient:      &http.Client{Timeout: requestTimeout},

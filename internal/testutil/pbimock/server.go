@@ -306,7 +306,7 @@ func (s *Server) handleAccess(w http.ResponseWriter, r *http.Request) {
 				if int(ap)&8 != 0 {
 					perms = append(perms, "Reshare")
 				}
-				if int(ap)&64 != 0 {
+				if int(p)&64 != 0 || int(ap)&64 != 0 {
 					perms = append(perms, "Execute")
 				}
 				events = append(events, mutationEvent{

@@ -1357,9 +1357,9 @@ func TestItemShareGateAndAccessDetails_EdgeCoverage(t *testing.T) {
 	if bProd < 70*time.Second || bProd > 130*time.Second {
 		t.Errorf("unexpected production backoff with jitter: %v", bProd)
 	}
-	bFloor := backoffWithJitter(5*time.Second, false)
-	if bFloor < 10*time.Second {
-		t.Errorf("expected clamp to 10s floor: %v", bFloor)
+	bFloor := backoffWithJitter(1*time.Second, false)
+	if bFloor < 2*time.Second {
+		t.Errorf("expected clamp to 2s floor: %v", bFloor)
 	}
 	bTest := backoffWithJitter(5*time.Millisecond, true)
 	if bTest != 5*time.Millisecond {

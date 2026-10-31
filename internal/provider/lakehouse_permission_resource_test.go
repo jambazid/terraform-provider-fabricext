@@ -210,7 +210,20 @@ resource "fabricext_lakehouse_permission" "test" {
 `, wsID, lhID, principalID),
 				ExpectError: regexp.MustCompile(`The 'message' attribute requires 'notify = true'`),
 			},
-			// 2. Successful create with notify=true and message
+			// 2. Validation error when permissions set does not contain Read
+			{
+				Config: testAccProviderConfigWithPBI(fabricSrv, pbiSrv) + fmt.Sprintf(`
+resource "fabricext_lakehouse_permission" "test" {
+  workspace_id   = %q
+  lakehouse_id   = %q
+  principal_id   = %q
+  principal_type = "User"
+  permissions    = ["ReadData"]
+}
+`, wsID, lhID, principalID),
+				ExpectError: regexp.MustCompile(`The 'permissions' set must contain 'Read'`),
+			},
+			// 3. Successful create with notify=true and message
 			{
 				Config: testAccProviderConfigWithPBI(fabricSrv, pbiSrv) + fmt.Sprintf(`
 resource "fabricext_lakehouse_permission" "test" {
@@ -228,7 +241,7 @@ resource "fabricext_lakehouse_permission" "test" {
 					resource.TestCheckResourceAttr("fabricext_lakehouse_permission.test", "message", "Welcome to lakehouse access!"),
 				),
 			},
-			// 3. Update message and permissions in-place
+			// 4. Update message and permissions in-place
 			{
 				Config: testAccProviderConfigWithPBI(fabricSrv, pbiSrv) + fmt.Sprintf(`
 resource "fabricext_lakehouse_permission" "test" {

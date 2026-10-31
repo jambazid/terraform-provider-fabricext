@@ -10,14 +10,17 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jambazid/terraform-provider-fabricext/internal/credentials"
 )
 
 // ItemDirectShare represents a direct item-level permission grant on a Fabric item.
@@ -56,15 +59,15 @@ type notifyAccessRequestBody struct {
 var clusterURIRegex = regexp.MustCompile(`(?i)ClusterUri=[^=;\s]+=(https?://[^;,\s"]+)`)
 
 type artifactGrantEntry struct {
-	ID                  int    `json:"id"`
-	ArtifactObjectID    string `json:"artifactObjectId"`
-	Permissions         int64  `json:"permissions"`
-	ArtifactPermissions int64  `json:"artifactPermissions"`
-	UserID              *int   `json:"userId,omitempty"`
-	GroupID             *int   `json:"groupId,omitempty"`
-	UserObjectID        string `json:"userObjectId,omitempty"`
-	GroupObjectID       string `json:"groupObjectId,omitempty"`
-	IsServicePrincipal  bool   `json:"isServicePrincipal"`
+	ID                  int     `json:"id"`
+	ArtifactObjectID    string  `json:"artifactObjectId"`
+	Permissions         int64   `json:"permissions"`
+	ArtifactPermissions int64   `json:"artifactPermissions"`
+	UserID              *int    `json:"userId"`
+	GroupID             *int    `json:"groupId"`
+	UserObjectID        *string `json:"userObjectId"`
+	GroupObjectID       *string `json:"groupObjectId"`
+	IsServicePrincipal  bool    `json:"isServicePrincipal"`
 }
 
 type rawArtifactAccessResponse struct {
@@ -116,6 +119,33 @@ func (c *FabricClient) getPowerBIToken(ctx context.Context) (string, error) {
 	return "", errors.New("no token provider configured for Power BI metadata API")
 }
 
+type cookieCollectorTransport struct {
+	base        http.RoundTripper
+	initialHost string
+	customHost  string
+	token       string
+	mu          sync.Mutex
+	cookies     []string
+}
+
+func (t *cookieCollectorTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	host := strings.ToLower(req.URL.Hostname())
+	if host == strings.ToLower(t.initialHost) || (t.customHost != "" && host == strings.ToLower(t.customHost)) {
+		req.Header.Set("Authorization", "Bearer "+t.token)
+		req.Header.Set("Accept", "application/json, text/plain, */*")
+		req.Header.Set("x-powerbi-hostenv", "Power BI Web App")
+		req.Header.Set("Referer", "https://app.fabric.microsoft.com/")
+	}
+
+	resp, err := t.base.RoundTrip(req)
+	if resp != nil {
+		t.mu.Lock()
+		t.cookies = append(t.cookies, resp.Header.Values("Set-Cookie")...)
+		t.mu.Unlock()
+	}
+	return resp, err
+}
+
 // DiscoverClusterURI resolves and validates the regional Power BI cluster URI.
 func (c *FabricClient) DiscoverClusterURI(ctx context.Context) (string, error) {
 	c.clusterURIMu.RLock()
@@ -134,7 +164,7 @@ func (c *FabricClient) DiscoverClusterURI(ctx context.Context) (string, error) {
 
 	portalURL := c.powerBIEndpoint
 	if portalURL == "" {
-		portalURL = "https://app.powerbi.com"
+		portalURL = credentials.ResolvePowerBIPortalURL(c.environment)
 	}
 
 	parsedPortal, err := url.Parse(portalURL)
@@ -151,13 +181,24 @@ func (c *FabricClient) DiscoverClusterURI(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("invalid portal url %q: %w", portalURL, err)
 	}
 
+	// 1. Direct Cluster Fast-Path: If configured powerBIEndpoint is already a regional cluster
+	// or non-portal custom endpoint, validate and return immediately without network discovery.
+	isPortalDomain := strings.HasSuffix(parsedPortal.Hostname(), "powerbi.com") ||
+		strings.HasSuffix(parsedPortal.Hostname(), "powerbigov.us") ||
+		strings.HasSuffix(parsedPortal.Hostname(), "powerbi.cn")
+	if c.powerBIEndpoint != "" && !isPortalDomain && !isLoopback(parsedPortal.Hostname()) {
+		clean := strings.TrimRight(portalURL, "/")
+		c.cachedClusterURI = clean
+		return clean, nil
+	}
+
+	// 2. Loopback test server handling (for unit and acceptance tests with httptest.Server)
 	if isLoopback(parsedPortal.Hostname()) {
-		// Probe loopback test server
-		req, reqErr := http.NewRequestWithContext(ctx, http.MethodGet, portalURL+"/", nil)
+		req, reqErr := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(portalURL, "/")+"/", nil)
 		if reqErr == nil {
 			tok, _ := c.getPowerBIToken(ctx)
 			if tok != "" {
-				req.Header.Set("Authorization", "Bearer "+tok)
+				c.setPowerBIHeaders(req, tok, false)
 			}
 			resp, doErr := c.httpClient.Do(req)
 			if doErr == nil {
@@ -177,87 +218,136 @@ func (c *FabricClient) DiscoverClusterURI(ctx context.Context) (string, error) {
 		return c.cachedClusterURI, nil
 	}
 
-	// 5-hop redirect discovery
-	currentURL := portalURL
-	client := &http.Client{
+	// 3. Upfront Token Acquisition: Verify token can be resolved before making network discovery calls.
+	tok, err := c.getPowerBIToken(ctx)
+	if err != nil {
+		return "", fmt.Errorf("resolving Power BI token for cluster discovery: %w", err)
+	}
+	if strings.TrimSpace(tok) == "" {
+		return "", errors.New("resolving Power BI token for cluster discovery: token provider returned empty token")
+	}
+
+	// 4. Portal Bootstrap URL & Multi-Hop Redirects with cookie collection
+	bootstrapURL := strings.TrimRight(portalURL, "/") + "/"
+	baseTransport := c.httpClient.Transport
+	if baseTransport == nil {
+		baseTransport = http.DefaultTransport
+	}
+	collector := &cookieCollectorTransport{
+		base:        baseTransport,
+		initialHost: parsedPortal.Hostname(),
+		customHost:  customHost,
+		token:       tok,
+	}
+
+	discoveryClient := &http.Client{
 		Timeout:   15 * time.Second,
-		Transport: c.httpClient.Transport,
-		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
-			return http.ErrUseLastResponse
+		Transport: collector,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return errors.New("stopped after 10 redirects during cluster discovery")
+			}
+			if valErr := validateRedirectURL(req.URL.String(), customHost); valErr != nil {
+				return fmt.Errorf("untrusted redirect target %q during cluster discovery: %w", req.URL.String(), valErr)
+			}
+			return nil
 		},
 	}
 
-	initialHost := parsedPortal.Hostname()
-	for hop := 0; hop < 5; hop++ {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, currentURL, nil)
-		if err != nil {
-			return "", fmt.Errorf("building cluster discovery request: %w", err)
-		}
-		// Protect bearer token: only send Authorization if target matches initial host
-		if req.URL.Hostname() == initialHost {
-			tok, err := c.getPowerBIToken(ctx)
-			if err == nil && tok != "" {
-				req.Header.Set("Authorization", "Bearer "+tok)
-			}
-		}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, bootstrapURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("building cluster discovery request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set("Accept", "application/json, text/plain, */*")
+	req.Header.Set("x-powerbi-hostenv", "Power BI Web App")
+	req.Header.Set("Referer", "https://app.fabric.microsoft.com/")
 
-		resp, err := client.Do(req)
-		if err != nil {
-			return "", fmt.Errorf("executing cluster discovery request: %w", err)
-		}
+	resp, err := discoveryClient.Do(req)
+	var lastStatus int
+	if resp != nil {
+		lastStatus = resp.StatusCode
 		_ = resp.Body.Close()
-
-		for _, sc := range resp.Header.Values("Set-Cookie") {
-			if cluster := extractClusterURIFromCookie(sc); cluster != "" {
-				cluster = strings.TrimRight(cluster, "/")
-				if valErr := validateClusterURI(cluster, customHost); valErr == nil {
-					c.cachedClusterURI = cluster
-					return cluster, nil
-				}
-			}
-		}
-
-		if resp.StatusCode >= 300 && resp.StatusCode < 400 {
-			loc := resp.Header.Get("Location")
-			if loc == "" {
-				break
-			}
-			nextURL, err := url.Parse(loc)
-			if err != nil {
-				break
-			}
-			resolved := req.URL.ResolveReference(nextURL)
-			if valErr := validateRedirectURL(resolved.String(), customHost); valErr != nil {
-				return "", fmt.Errorf("untrusted redirect target %q during cluster discovery: %w", resolved.String(), valErr)
-			}
-			currentURL = resolved.String()
-			continue
-		}
-		break
 	}
-
-	if c.powerBIEndpoint != "" && !strings.HasSuffix(parsedPortal.Hostname(), "powerbi.com") {
-		cleanPortal := strings.TrimRight(portalURL, "/")
-		if err := validateClusterURI(cleanPortal, customHost); err == nil {
-			c.cachedClusterURI = cleanPortal
-			return cleanPortal, nil
+	if err != nil {
+		if strings.Contains(err.Error(), "untrusted redirect target") {
+			return "", err
+		}
+		if lastStatus == 0 {
+			return "", fmt.Errorf("executing cluster discovery request to %s: %w", bootstrapURL, err)
 		}
 	}
 
-	return "", fmt.Errorf("failed to discover Power BI cluster URI from %s (no ClusterUri cookie in response)", portalURL)
+	collector.mu.Lock()
+	collectedCookies := collector.cookies
+	collector.mu.Unlock()
+
+	for _, sc := range collectedCookies {
+		if cluster := extractClusterURIFromCookie(sc); cluster != "" {
+			cluster = strings.TrimRight(cluster, "/")
+			if valErr := validateClusterURI(cluster, customHost); valErr == nil {
+				c.cachedClusterURI = cluster
+				return cluster, nil
+			}
+		}
+	}
+	if len(collectedCookies) > 0 {
+		joined := strings.Join(collectedCookies, ", ")
+		if cluster := extractClusterURIFromCookie(joined); cluster != "" {
+			cluster = strings.TrimRight(cluster, "/")
+			if valErr := validateClusterURI(cluster, customHost); valErr == nil {
+				c.cachedClusterURI = cluster
+				return cluster, nil
+			}
+		}
+	}
+
+	var cookieNames []string
+	for _, sc := range collectedCookies {
+		parts := strings.Split(sc, ";")
+		if len(parts) > 0 {
+			nameVal := strings.SplitN(strings.TrimSpace(parts[0]), "=", 2)
+			if len(nameVal) > 0 && nameVal[0] != "" {
+				cookieNames = append(cookieNames, nameVal[0])
+			}
+		}
+	}
+	slices.Sort(cookieNames)
+	cookieNames = slices.Compact(cookieNames)
+
+	return "", fmt.Errorf("failed to discover Power BI cluster URI from %s (no ClusterUri cookie in response, HTTP %d, received cookies: [%s]); ensure credentials have Power BI access or configure 'powerbi_endpoint' / FABRIC_POWERBI_ENDPOINT",
+		portalURL, lastStatus, strings.Join(cookieNames, ", "))
 }
 
 func extractClusterURIFromCookie(cookieHeader string) string {
-	if matches := clusterURIRegex.FindStringSubmatch(cookieHeader); len(matches) > 1 {
+	unescaped := cookieHeader
+	if u, err := url.QueryUnescape(cookieHeader); err == nil {
+		unescaped = u
+	}
+	if matches := clusterURIRegex.FindStringSubmatch(unescaped); len(matches) > 1 {
 		return matches[1]
 	}
-	for _, part := range strings.Split(cookieHeader, ";") {
+	if matches := clusterURIRegex.FindStringSubmatch(cookieHeader); len(matches) > 1 {
+		target := matches[1]
+		if u, err := url.QueryUnescape(target); err == nil {
+			target = u
+		}
+		return target
+	}
+
+	for _, part := range strings.FieldsFunc(cookieHeader, func(r rune) bool {
+		return r == ';' || r == ','
+	}) {
 		part = strings.TrimSpace(part)
-		if strings.HasPrefix(strings.ToLower(part), "clusteruri=") {
-			val := part[len("clusteruri="):]
+		idx := strings.Index(strings.ToLower(part), "clusteruri=")
+		if idx >= 0 {
+			val := part[idx+len("clusteruri="):]
 			val = strings.Trim(val, `"'`)
-			if unescaped, err := url.QueryUnescape(val); err == nil {
-				val = unescaped
+			if lastEq := strings.LastIndex(val, "="); lastEq >= 0 {
+				val = val[lastEq+1:]
+			}
+			if u, err := url.QueryUnescape(val); err == nil {
+				val = u
 			}
 			val = strings.Trim(val, `"'`)
 			if idx := strings.LastIndex(val, "http://"); idx != -1 {
@@ -352,7 +442,11 @@ func validateClusterURI(raw string, allowedCustomHost string) error {
 }
 
 func isLoopback(host string) bool {
-	return host == "localhost" || host == "127.0.0.1" || host == "::1" || strings.HasPrefix(host, "127.")
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func normalizeWorkloadType(itemType string) (string, error) {
@@ -397,7 +491,6 @@ func EncodePermissions(itemType string, perms []string) (coreBitmask int64, arti
 				return 0, 0, fmt.Errorf("permission %q is not supported on Warehouse", p)
 			}
 			coreBitmask |= 64
-			artifactBitmask |= 64
 		default:
 			return 0, 0, fmt.Errorf("unsupported permission %q for %s", p, normType)
 		}
@@ -435,7 +528,7 @@ func DecodePermissions(itemType string, coreBitmask, artifactBitmask int64) ([]s
 	if (coreBitmask&4 != 0) || (artifactBitmask&8 != 0) {
 		permSet["Reshare"] = true
 	}
-	if normType != "Warehouse" && ((coreBitmask&64 != 0) || (artifactBitmask&64 != 0)) {
+	if normType != "Warehouse" && (coreBitmask&64 != 0) {
 		permSet["Execute"] = true
 	}
 
@@ -449,7 +542,10 @@ func DecodePermissions(itemType string, coreBitmask, artifactBitmask int64) ([]s
 	return out, nil
 }
 
-var bearerTokenRegex = regexp.MustCompile(`(?i)Bearer\s+[A-Za-z0-9\-._~+/]+=*`)
+var (
+	bearerTokenRegex = regexp.MustCompile(`(?i)Bearer\s+[A-Za-z0-9\-._~+/]+=*`)
+	rawJWTRegex      = regexp.MustCompile(`ey[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9\-._~+/]+=*`)
+)
 
 func scrubAndCapBody(body []byte) string {
 	const maxCap = 4096
@@ -457,7 +553,8 @@ func scrubAndCapBody(body []byte) string {
 	if len(s) > maxCap {
 		s = s[:maxCap] + "... [truncated]"
 	}
-	return bearerTokenRegex.ReplaceAllString(s, "Bearer [REDACTED]")
+	s = bearerTokenRegex.ReplaceAllString(s, "Bearer [REDACTED]")
+	return rawJWTRegex.ReplaceAllString(s, "[REDACTED]")
 }
 
 func (c *FabricClient) setPowerBIHeaders(req *http.Request, token string, isJSON bool) {
@@ -657,6 +754,17 @@ func (c *FabricClient) UpsertItemDirectPermissions(ctx context.Context, workspac
 	isSP := share.IsServicePrincipal || strings.EqualFold(share.PrincipalType, "ServicePrincipal") || strings.EqualFold(share.PrincipalType, "ManagedIdentity")
 	isGroup := strings.EqualFold(share.PrincipalType, "Group")
 
+	var userObjID *string
+	var groupObjID *string
+	if share.PrincipalID != "" {
+		pID := share.PrincipalID
+		if isGroup {
+			groupObjID = &pID
+		} else {
+			userObjID = &pID
+		}
+	}
+
 	// If updating an existing grant with notify=true and permissions changed, first execute PUT /metadata/access
 	// to ensure exact bitmask assignment without additive bit accumulation on revocation/downgrade.
 	if existing != nil && share.Notify && (existing.RawPermissions != coreBitmask || existing.RawArtifactPermissions != artifactBitmask) {
@@ -671,13 +779,13 @@ func (c *FabricClient) UpsertItemDirectPermissions(ctx context.Context, workspac
 			if existing.InternalGroupID != 0 {
 				putEntry.GroupID = &existing.InternalGroupID
 			} else {
-				putEntry.GroupObjectID = share.PrincipalID
+				putEntry.GroupObjectID = groupObjID
 			}
 		} else {
 			if existing.InternalUserID != 0 {
 				putEntry.UserID = &existing.InternalUserID
 			} else {
-				putEntry.UserObjectID = share.PrincipalID
+				putEntry.UserObjectID = userObjID
 			}
 		}
 		putBody := accessRequestBody{
@@ -728,9 +836,9 @@ func (c *FabricClient) UpsertItemDirectPermissions(ctx context.Context, workspac
 	case share.Notify:
 		// POST /metadata/access/notify requires Entra User/Group Object ID and userId/groupId=null
 		if isGroup {
-			entry.GroupObjectID = share.PrincipalID
+			entry.GroupObjectID = groupObjID
 		} else {
-			entry.UserObjectID = share.PrincipalID
+			entry.UserObjectID = userObjID
 		}
 	case existing != nil:
 		// Silent update: PUT /metadata/access with internal ID
@@ -739,22 +847,22 @@ func (c *FabricClient) UpsertItemDirectPermissions(ctx context.Context, workspac
 			if existing.InternalGroupID != 0 {
 				entry.GroupID = &existing.InternalGroupID
 			} else {
-				entry.GroupObjectID = share.PrincipalID
+				entry.GroupObjectID = groupObjID
 			}
 		} else {
 			if existing.InternalUserID != 0 {
 				entry.UserID = &existing.InternalUserID
 			} else {
-				entry.UserObjectID = share.PrincipalID
+				entry.UserObjectID = userObjID
 			}
 		}
 	default:
 		// Silent create: POST /metadata/access with Entra Object ID
 		method = http.MethodPost
 		if isGroup {
-			entry.GroupObjectID = share.PrincipalID
+			entry.GroupObjectID = groupObjID
 		} else {
-			entry.UserObjectID = share.PrincipalID
+			entry.UserObjectID = userObjID
 		}
 	}
 
@@ -832,7 +940,7 @@ func (c *FabricClient) UpsertItemDirectPermissions(ctx context.Context, workspac
 		if checkErr == nil && check != nil {
 			lastCore = check.RawPermissions
 			lastArtifact = check.RawArtifactPermissions
-			if share.Notify {
+			if method == http.MethodPost || share.Notify {
 				if (check.RawPermissions&coreBitmask == coreBitmask) && (check.RawArtifactPermissions&artifactBitmask == artifactBitmask) {
 					return nil
 				}
@@ -889,18 +997,29 @@ func (c *FabricClient) RevokeItemDirectPermissions(ctx context.Context, workspac
 		ArtifactPermissions: 0,
 	}
 
+	var userObjID *string
+	var groupObjID *string
+	if principalID != "" {
+		pID := principalID
+		if strings.EqualFold(existing.PrincipalType, "Group") {
+			groupObjID = &pID
+		} else {
+			userObjID = &pID
+		}
+	}
+
 	// Strict XOR: Send ONLY internal ID or ONLY Entra Object ID, never both.
 	if strings.EqualFold(existing.PrincipalType, "Group") {
 		if existing.InternalGroupID != 0 {
 			entry.GroupID = &existing.InternalGroupID
 		} else {
-			entry.GroupObjectID = principalID
+			entry.GroupObjectID = groupObjID
 		}
 	} else {
 		if existing.InternalUserID != 0 {
 			entry.UserID = &existing.InternalUserID
 		} else {
-			entry.UserObjectID = principalID
+			entry.UserObjectID = userObjID
 		}
 		if existing.IsServicePrincipal || strings.EqualFold(existing.PrincipalType, "ServicePrincipal") || strings.EqualFold(existing.PrincipalType, "ManagedIdentity") {
 			entry.IsServicePrincipal = true

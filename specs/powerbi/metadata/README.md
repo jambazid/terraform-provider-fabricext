@@ -79,9 +79,11 @@ curl -s -X GET \
 
 | Workload Key | Fabric Item Type | Valid Permission Names & Bit Values |
 | :--- | :--- | :--- |
-| `Datawarehouse` | `Warehouse` | `Read: 1`, `ReadData: 2`, `ReadAll: 4`, `Reshare: 8`, `Monitor: 16`, `Audit: 64`, `Restore: 128` |
-| `Lakehouse` | `Lakehouse` | `Read: 1`, `ReadData: 2`, `ReadAll: 4`, `Execute: 64`, `Reshare: 8` |
-| `SQLDbNative` | `SQLDatabase` | `Read: 1`, `ReadData: 2`, `ReadAll: 4`, `Execute: 64`, `Reshare: 8` |
+| `Datawarehouse` | `Warehouse` | `Read: 1`, `ReadData: 2`, `ReadAll: 4`, `Reshare: 8`, `Monitor: 16`, `Audit?: 64`, `Restore?: 128` |
+| `Lakehouse` | `Lakehouse` | `Read: 1`, `ReadData: 2`, `ReadAll: 4`, `Reshare: 8` |
+| `SQLDbNative` | `SQLDatabase` | `Read: 1`, `Write: 2`, `Reshare: 4`, `ReadData: 8`, `ReadAll: 16` (resolved via `definitions`) |
+
+*Note*: `Execute = 64` belongs strictly in the core `permissions` bitmask, not `artifactPermissions`.
 
 ---
 
@@ -108,7 +110,7 @@ curl -s -X GET \
 
 ### Silent Direct Grant (`POST /metadata/access`)
 
-Grant `Read` (1) + `ReadData` (2) to an Entra User:
+Grant `Read` (1) + `ReadData` (2) to an Entra User with explicit `null` fields matching `grant.py`:
 
 ```bash
 curl -s -X POST \
@@ -126,7 +128,10 @@ curl -s -X POST \
         "artifactObjectId": "22222222-2222-2222-2222-222222222222",
         "permissions": 1,
         "artifactPermissions": 3,
+        "userId": null,
+        "groupId": null,
         "userObjectId": "33333333-3333-3333-3333-333333333333",
+        "groupObjectId": null,
         "isServicePrincipal": false
       }
     ]

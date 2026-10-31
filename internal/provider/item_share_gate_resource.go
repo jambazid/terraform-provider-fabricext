@@ -526,7 +526,7 @@ func (r *ItemShareGateResource) pollForItemShare(
 	timeout time.Duration,
 ) (string, string, error) {
 	isTestMode := r.client.BaseBackoff() < 50*time.Millisecond
-	backoff := 60 * time.Second
+	backoff := 5 * time.Second
 	maxBackoff := 300 * time.Second
 	if isTestMode {
 		backoff = 5 * time.Millisecond
@@ -587,8 +587,8 @@ func backoffWithJitter(base time.Duration, isTestMode bool) time.Duration {
 	// Add +/- 20% jitter
 	jitter := time.Duration(rand.Int63n(int64(base*4/10))) - (base / 5)
 	actual := base + jitter
-	if actual < 10*time.Second {
-		actual = 10 * time.Second
+	if actual < 2*time.Second {
+		actual = 2 * time.Second
 	}
 	return actual
 }

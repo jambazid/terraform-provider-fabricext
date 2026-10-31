@@ -14,9 +14,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -53,8 +55,6 @@ const (
 	SourceStatic = "static_access_token"
 	// SourceStaticPowerBI identifies credentials resolved from a static Power BI bearer token.
 	SourceStaticPowerBI = "static_powerbi_access_token"
-	// SourceStaticFallback identifies credentials resolved from static_access_token fallback.
-	SourceStaticFallback = "static_access_token_fallback"
 	// SourceClientCertificate identifies credentials resolved via Service Principal client certificate.
 	SourceClientCertificate = "service_principal_client_certificate"
 	// SourceClientSecret identifies credentials resolved via Service Principal client secret.
@@ -145,7 +145,8 @@ type AttemptError struct {
 
 // ChainError aggregates every credential provider attempted when the chain fails.
 type ChainError struct {
-	Attempts []AttemptError
+	Attempts  []AttemptError
+	ScopeHint string
 }
 
 func (e *ChainError) Error() string {
@@ -157,7 +158,11 @@ func (e *ChainError) Error() string {
 		}
 		parts = append(parts, fmt.Sprintf("%s (%s: %v)", a.Source, status, a.Err))
 	}
-	return fmt.Sprintf("%s; tried [%s]", ErrNoCredentials.Error(), strings.Join(parts, "; "))
+	base := fmt.Sprintf("%s; tried [%s]", ErrNoCredentials.Error(), strings.Join(parts, "; "))
+	if e.ScopeHint != "" {
+		base += "; " + e.ScopeHint
+	}
+	return base
 }
 
 func (e *ChainError) Unwrap() error {
@@ -263,6 +268,9 @@ func (c Config) resolveTenantID() (string, error) {
 	if v := c.firstEnv("FABRIC_TENANT_ID", "AZURE_TENANT_ID", "ARM_TENANT_ID"); v != "" {
 		return v, nil
 	}
+	if v := c.firstEnv("FABRIC_TENANT_ID_FILE_PATH", "AZURE_TENANT_ID_FILE_PATH", "ARM_TENANT_ID_FILE_PATH"); v != "" {
+		return c.readFile(v)
+	}
 	return "", nil
 }
 
@@ -275,6 +283,9 @@ func (c Config) resolveClientID() (string, error) {
 	}
 	if v := c.firstEnv("FABRIC_CLIENT_ID", "AZURE_CLIENT_ID", "ARM_CLIENT_ID"); v != "" {
 		return v, nil
+	}
+	if v := c.firstEnv("FABRIC_CLIENT_ID_FILE_PATH", "AZURE_CLIENT_ID_FILE_PATH", "ARM_CLIENT_ID_FILE_PATH"); v != "" {
+		return c.readFile(v)
 	}
 	return "", nil
 }
@@ -289,6 +300,9 @@ func (c Config) resolveClientSecret() (string, error) {
 	if v := c.firstEnv("FABRIC_CLIENT_SECRET", "AZURE_CLIENT_SECRET", "ARM_CLIENT_SECRET"); v != "" {
 		return v, nil
 	}
+	if v := c.firstEnv("FABRIC_CLIENT_SECRET_FILE_PATH", "AZURE_CLIENT_SECRET_FILE_PATH", "ARM_CLIENT_SECRET_FILE_PATH"); v != "" {
+		return c.readFile(v)
+	}
 	return "", nil
 }
 
@@ -296,7 +310,7 @@ func (c Config) resolveEnvironment() string {
 	if v := strings.TrimSpace(c.Environment); v != "" {
 		return v
 	}
-	if v := c.firstEnv("FABRIC_ENVIRONMENT", "ARM_ENVIRONMENT"); v != "" {
+	if v := c.firstEnv("FABRIC_ENVIRONMENT", "AZURE_ENVIRONMENT", "ARM_ENVIRONMENT"); v != "" {
 		return v
 	}
 	return "public"
@@ -306,7 +320,7 @@ func (c Config) resolveAuxiliaryTenants() []string {
 	if len(c.AuxiliaryTenantIDs) > 0 {
 		return c.AuxiliaryTenantIDs
 	}
-	if v := c.firstEnv("FABRIC_AUXILIARY_TENANT_IDS"); v != "" {
+	if v := c.firstEnv("FABRIC_AUXILIARY_TENANT_IDS", "AZURE_AUXILIARY_TENANT_IDS", "ARM_AUXILIARY_TENANT_IDS"); v != "" {
 		var ids []string
 		for _, part := range strings.Split(v, ",") {
 			if trimmed := strings.TrimSpace(part); trimmed != "" {
@@ -383,6 +397,23 @@ func NewChain(cfg Config, opts ...Option) *Chain {
 
 // ValidateConfig checks for invalid partial explicit configuration in the provider HCL block.
 func ValidateConfig(cfg Config) error {
+	var modes []string
+	if cfg.UseOIDC != nil && *cfg.UseOIDC {
+		modes = append(modes, "use_oidc")
+	}
+	if cfg.UseMSI {
+		modes = append(modes, "use_msi")
+	}
+	if cfg.UseDevCLI != nil && *cfg.UseDevCLI {
+		modes = append(modes, "use_dev_cli")
+	}
+	if cfg.UseCLI != nil && *cfg.UseCLI {
+		modes = append(modes, "use_cli")
+	}
+	if len(modes) > 1 {
+		return fmt.Errorf("only one of %s can be enabled at a time", strings.Join(modes, ", "))
+	}
+
 	hasSecret := strings.TrimSpace(cfg.ClientSecret) != "" || strings.TrimSpace(cfg.ClientSecretFilePath) != ""
 	hasCert := strings.TrimSpace(cfg.ClientCertificate) != "" || strings.TrimSpace(cfg.ClientCertificateFilePath) != ""
 
@@ -462,7 +493,16 @@ func (c *Chain) ResolveForScope(ctx context.Context, scope string) (Credentials,
 		})
 	}
 
-	return Credentials{}, &ChainError{Attempts: attempts}
+	var scopeHint string
+	if strings.Contains(strings.ToLower(scope), "powerbi") {
+		hasFabricToken := strings.TrimSpace(c.cfg.AccessToken) != "" || c.cfg.firstEnv("FABRIC_ACCESS_TOKEN") != ""
+		hasPBIToken := strings.TrimSpace(c.cfg.PowerBIAccessToken) != "" || c.cfg.firstEnv("FABRIC_POWERBI_ACCESS_TOKEN") != ""
+		if hasFabricToken && !hasPBIToken {
+			scopeHint = "hint: a static Fabric access token (FABRIC_ACCESS_TOKEN) was configured but Power BI metadata operations require a separate Power BI token (FABRIC_POWERBI_ACCESS_TOKEN) or a dynamic credential modality (OIDC, SPN, MSI, CLI)"
+		}
+	}
+
+	return Credentials{}, &ChainError{Attempts: attempts, ScopeHint: scopeHint}
 }
 
 // GetToken implements azcore.TokenCredential so Chain can be used directly with Azure SDK pipelines.
@@ -558,7 +598,14 @@ func (p *clientCertificateProvider) ResolveForScope(ctx context.Context, scope s
 	}
 	certPath := strings.TrimSpace(p.cfg.ClientCertificateFilePath)
 	if certPath == "" {
-		certPath = p.cfg.firstEnv("FABRIC_CLIENT_CERTIFICATE_PATH", "AZURE_CLIENT_CERTIFICATE_PATH", "ARM_CLIENT_CERTIFICATE_PATH")
+		certPath = p.cfg.firstEnv(
+			"FABRIC_CLIENT_CERTIFICATE_FILE_PATH",
+			"AZURE_CLIENT_CERTIFICATE_FILE_PATH",
+			"ARM_CLIENT_CERTIFICATE_FILE_PATH",
+			"FABRIC_CLIENT_CERTIFICATE_PATH",
+			"AZURE_CLIENT_CERTIFICATE_PATH",
+			"ARM_CLIENT_CERTIFICATE_PATH",
+		)
 	}
 	password := p.cfg.ClientCertificatePassword
 	if password == "" {
@@ -588,6 +635,12 @@ func (p *clientCertificateProvider) ResolveForScope(ctx context.Context, scope s
 	}
 
 	key, cert, _, err := pkcs12.DecodeChain(certBytes, password)
+	if err != nil {
+		// Attempt base64 decoding in case the file contains base64-encoded PKCS#12 text.
+		if b64Data, b64Err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(certBytes))); b64Err == nil {
+			key, cert, _, err = pkcs12.DecodeChain(b64Data, password)
+		}
+	}
 	if err != nil {
 		return Credentials{}, false, fmt.Errorf("decoding PKCS#12 certificate bundle: %w", err)
 	}
@@ -724,9 +777,20 @@ func (p *azureDevOpsOIDCProvider) ResolveForScope(ctx context.Context, scope str
 	if strings.TrimSpace(scope) == "" {
 		scope = ResolveFabricScope(p.cfg.resolveEnvironment())
 	}
+	if p.cfg.UseOIDC != nil && !*p.cfg.UseOIDC {
+		return Credentials{}, true, errors.New("use_oidc is explicitly disabled")
+	}
+	if strings.EqualFold(p.cfg.firstEnv("FABRIC_USE_OIDC", "AZURE_USE_OIDC", "ARM_USE_OIDC"), "false") {
+		return Credentials{}, true, errors.New("use_oidc is explicitly disabled via env")
+	}
+
 	connID := strings.TrimSpace(p.cfg.AzureDevOpsServiceConnectionID)
 	if connID == "" {
-		connID = p.cfg.firstEnv("FABRIC_AZURE_DEVOPS_SERVICE_CONNECTION_ID")
+		connID = p.cfg.firstEnv(
+			"FABRIC_AZURE_DEVOPS_SERVICE_CONNECTION_ID",
+			"ARM_ADO_PIPELINE_SERVICE_CONNECTION_ID",
+			"ARM_OIDC_AZURE_SERVICE_CONNECTION_ID",
+		)
 	}
 	if connID == "" {
 		return Credentials{}, true, errors.New("azure_devops_service_connection_id is not set")
@@ -742,11 +806,16 @@ func (p *azureDevOpsOIDCProvider) ResolveForScope(ctx context.Context, scope str
 	}
 	sysToken := strings.TrimSpace(p.cfg.OIDCRequestToken)
 	if sysToken == "" {
-		sysToken = p.cfg.firstEnv("SYSTEM_ACCESSTOKEN", "FABRIC_OIDC_REQUEST_TOKEN", "ARM_OIDC_REQUEST_TOKEN")
+		sysToken = p.cfg.firstEnv(
+			"FABRIC_OIDC_REQUEST_TOKEN",
+			"ACTIONS_ID_TOKEN_REQUEST_TOKEN",
+			"SYSTEM_ACCESSTOKEN",
+			"ARM_OIDC_REQUEST_TOKEN",
+		)
 	}
 
 	if tenantID == "" || clientID == "" || sysToken == "" {
-		return Credentials{}, true, errors.New("azure devops oidc requires tenant_id, client_id, and oidc_request_token (SYSTEM_ACCESSTOKEN)")
+		return Credentials{}, true, errors.New("azure devops oidc requires tenant_id, client_id, and oidc_request_token")
 	}
 
 	if p.tokenFetcher != nil {
@@ -821,7 +890,7 @@ func (p *workloadIdentityProvider) ResolveForScope(ctx context.Context, scope st
 	// 1. Direct OIDC Token
 	directToken := strings.TrimSpace(p.cfg.OIDCToken)
 	if directToken == "" {
-		directToken = p.cfg.firstEnv("FABRIC_OIDC_TOKEN", "ARM_OIDC_TOKEN")
+		directToken = p.cfg.firstEnv("FABRIC_OIDC_TOKEN", "AZURE_OIDC_TOKEN", "ARM_OIDC_TOKEN")
 	}
 	if directToken == "" && strings.TrimSpace(p.cfg.OIDCTokenFilePath) != "" {
 		data, err := p.cfg.readFile(p.cfg.OIDCTokenFilePath)
@@ -831,7 +900,7 @@ func (p *workloadIdentityProvider) ResolveForScope(ctx context.Context, scope st
 		directToken = data
 	}
 	if directToken == "" {
-		if path := p.cfg.firstEnv("FABRIC_OIDC_TOKEN_FILE_PATH", "ARM_OIDC_TOKEN_FILE_PATH"); path != "" {
+		if path := p.cfg.firstEnv("FABRIC_OIDC_TOKEN_FILE_PATH", "AZURE_OIDC_TOKEN_FILE_PATH", "ARM_OIDC_TOKEN_FILE_PATH"); path != "" {
 			data, err := p.cfg.readFile(path)
 			if err != nil {
 				return Credentials{}, false, err
@@ -843,25 +912,52 @@ func (p *workloadIdentityProvider) ResolveForScope(ctx context.Context, scope st
 	// 2. OIDC Request URL + Request Token exchange
 	reqURL := strings.TrimSpace(p.cfg.OIDCRequestURL)
 	if reqURL == "" {
-		reqURL = p.cfg.firstEnv("SYSTEM_OIDCREQUESTURI", "FABRIC_OIDC_REQUEST_URL", "ARM_OIDC_REQUEST_URL")
+		reqURL = p.cfg.firstEnv(
+			"FABRIC_OIDC_REQUEST_URL",
+			"ACTIONS_ID_TOKEN_REQUEST_URL",
+			"SYSTEM_OIDCREQUESTURI",
+			"ARM_OIDC_REQUEST_URL",
+		)
 	}
 	reqToken := strings.TrimSpace(p.cfg.OIDCRequestToken)
 	if reqToken == "" {
-		reqToken = p.cfg.firstEnv("SYSTEM_ACCESSTOKEN", "FABRIC_OIDC_REQUEST_TOKEN", "ARM_OIDC_REQUEST_TOKEN")
+		reqToken = p.cfg.firstEnv(
+			"FABRIC_OIDC_REQUEST_TOKEN",
+			"ACTIONS_ID_TOKEN_REQUEST_TOKEN",
+			"SYSTEM_ACCESSTOKEN",
+			"ARM_OIDC_REQUEST_TOKEN",
+		)
 	}
 
 	// 3. Azure Federated Token File
 	tokenFile := p.cfg.firstEnv("AZURE_FEDERATED_TOKEN_FILE")
 
+	explicitOIDC := (p.cfg.UseOIDC != nil && *p.cfg.UseOIDC) ||
+		strings.EqualFold(p.cfg.firstEnv("FABRIC_USE_OIDC", "AZURE_USE_OIDC", "ARM_USE_OIDC"), "true")
+
 	if directToken == "" && (reqURL == "" || reqToken == "") && tokenFile == "" {
+		if explicitOIDC {
+			return Credentials{}, false, errors.New("use_oidc was explicitly enabled but OIDC request parameters or assertion token are missing (in GitHub Actions, ensure 'permissions: id-token: write' is granted; otherwise set FABRIC_OIDC_TOKEN or tenant_id/client_id)")
+		}
 		return Credentials{}, true, errors.New("no OIDC token, token file, or request URI configured")
 	}
 	if tenantID == "" || clientID == "" {
+		if explicitOIDC {
+			return Credentials{}, false, errors.New("use_oidc was explicitly enabled but tenant_id or client_id is missing")
+		}
 		return Credentials{}, true, errors.New("OIDC token configured but tenant_id or client_id is missing")
 	}
 
 	if p.tokenFetcher != nil {
-		tok, err := p.tokenFetcher(ctx, tenantID, clientID, directToken)
+		assertion := directToken
+		if assertion == "" && reqURL != "" && reqToken != "" {
+			fetched, err := fetchOIDCAssertion(ctx, reqURL, reqToken, p.cfg.Transport)
+			if err != nil {
+				return Credentials{}, false, err
+			}
+			assertion = fetched
+		}
+		tok, err := p.tokenFetcher(ctx, tenantID, clientID, assertion)
 		if err != nil {
 			return Credentials{}, false, err
 		}
@@ -880,7 +976,7 @@ func (p *workloadIdentityProvider) ResolveForScope(ctx context.Context, scope st
 			if directToken != "" {
 				return directToken, nil
 			}
-			return fetchOIDCAssertion(c, reqURL, reqToken)
+			return fetchOIDCAssertion(c, reqURL, reqToken, p.cfg.Transport)
 		}
 
 		cred, err := azidentity.NewClientAssertionCredential(tenantID, clientID, assertionFunc, &azidentity.ClientAssertionCredentialOptions{
@@ -930,10 +1026,36 @@ func (p *workloadIdentityProvider) ResolveForScope(ctx context.Context, scope st
 	}, false, nil
 }
 
-func fetchOIDCAssertion(ctx context.Context, requestURL, requestToken string) (string, error) {
+var oidcSecretRegex = regexp.MustCompile(`(?i)(?:Bearer\s+|ey[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.)[A-Za-z0-9\-._~+/]+=*`)
+
+func scrubSensitiveOIDC(body []byte) string {
+	const maxCap = 4096
+	s := string(body)
+	if len(s) > maxCap {
+		s = s[:maxCap] + "... [truncated]"
+	}
+	return oidcSecretRegex.ReplaceAllString(s, "[REDACTED]")
+}
+
+func isLoopbackHost(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+func fetchOIDCAssertion(ctx context.Context, requestURL, requestToken string, transport ...policy.Transporter) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, http.NoBody)
 	if err != nil {
 		return "", fmt.Errorf("building OIDC assertion request: %w", err)
+	}
+
+	if req.URL.Scheme != "https" && (req.URL.Scheme != "http" || !isLoopbackHost(req.URL.Hostname())) {
+		return "", fmt.Errorf("OIDC request URL must use https scheme (got %q)", req.URL.Scheme)
+	}
+	if req.URL.User != nil {
+		return "", errors.New("OIDC request URL must not contain user credentials")
 	}
 
 	q, err := url.ParseQuery(req.URL.RawQuery)
@@ -949,7 +1071,13 @@ func fetchOIDCAssertion(ctx context.Context, requestURL, requestToken string) (s
 	req.Header.Set("Authorization", "Bearer "+requestToken)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	resp, err := http.DefaultClient.Do(req)
+	var resp *http.Response
+	if len(transport) > 0 && transport[0] != nil {
+		resp, err = transport[0].Do(req)
+	} else {
+		client := &http.Client{Timeout: 30 * time.Second}
+		resp, err = client.Do(req)
+	}
 	if err != nil {
 		return "", fmt.Errorf("executing OIDC assertion request: %w", err)
 	}
@@ -957,13 +1085,13 @@ func fetchOIDCAssertion(ctx context.Context, requestURL, requestToken string) (s
 		_ = resp.Body.Close()
 	}()
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	if err != nil {
 		return "", fmt.Errorf("reading OIDC assertion response: %w", err)
 	}
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return "", fmt.Errorf("received HTTP status %d from OIDC provider: %s", resp.StatusCode, string(body))
+		return "", fmt.Errorf("received HTTP status %d from OIDC provider: %s", resp.StatusCode, scrubSensitiveOIDC(body))
 	}
 
 	var tokenResp struct {
@@ -996,6 +1124,9 @@ func (p *managedIdentityProvider) Resolve(ctx context.Context) (Credentials, boo
 func (p *managedIdentityProvider) ResolveForScope(ctx context.Context, scope string) (Credentials, bool, error) {
 	if strings.TrimSpace(scope) == "" {
 		scope = ResolveFabricScope(p.cfg.resolveEnvironment())
+	}
+	if strings.EqualFold(p.cfg.firstEnv("FABRIC_USE_MSI", "AZURE_USE_MSI", "ARM_USE_MSI"), "false") {
+		return Credentials{}, true, errors.New("managed identity explicitly disabled via USE_MSI=false")
 	}
 	useMSI := p.cfg.UseMSI ||
 		strings.EqualFold(p.cfg.firstEnv("FABRIC_USE_MSI", "AZURE_USE_MSI", "ARM_USE_MSI"), "true") ||
@@ -1069,7 +1200,7 @@ func (p *azureDeveloperCLIProvider) ResolveForScope(ctx context.Context, scope s
 	useDevCLI := false
 	if p.cfg.UseDevCLI != nil {
 		useDevCLI = *p.cfg.UseDevCLI
-	} else if strings.EqualFold(p.cfg.firstEnv("FABRIC_USE_DEV_CLI"), "true") {
+	} else if strings.EqualFold(p.cfg.firstEnv("FABRIC_USE_DEV_CLI", "AZURE_USE_DEV_CLI", "ARM_USE_DEV_CLI"), "true") {
 		useDevCLI = true
 	}
 

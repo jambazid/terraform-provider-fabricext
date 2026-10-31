@@ -210,7 +210,20 @@ resource "fabricext_warehouse_permission" "test" {
 `, wsID, whID, principalID),
 				ExpectError: regexp.MustCompile(`The 'message' attribute requires 'notify = true'`),
 			},
-			// 2. Successful create with notify=true and message
+			// 2. Validation error when permissions set does not contain Read
+			{
+				Config: testAccProviderConfigWithPBI(fabricSrv, pbiSrv) + fmt.Sprintf(`
+resource "fabricext_warehouse_permission" "test" {
+  workspace_id   = %q
+  warehouse_id   = %q
+  principal_id   = %q
+  principal_type = "User"
+  permissions    = ["ReadData"]
+}
+`, wsID, whID, principalID),
+				ExpectError: regexp.MustCompile(`The 'permissions' set must contain 'Read'`),
+			},
+			// 3. Successful create with notify=true and message
 			{
 				Config: testAccProviderConfigWithPBI(fabricSrv, pbiSrv) + fmt.Sprintf(`
 resource "fabricext_warehouse_permission" "test" {
@@ -228,7 +241,7 @@ resource "fabricext_warehouse_permission" "test" {
 					resource.TestCheckResourceAttr("fabricext_warehouse_permission.test", "message", "Welcome to warehouse access!"),
 				),
 			},
-			// 3. Update message and permissions in-place
+			// 4. Update message and permissions in-place
 			{
 				Config: testAccProviderConfigWithPBI(fabricSrv, pbiSrv) + fmt.Sprintf(`
 resource "fabricext_warehouse_permission" "test" {
