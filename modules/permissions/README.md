@@ -15,7 +15,7 @@ This module flattens and declaratively provisions workspace-wide Microsoft Fabri
 
 ~> **Important:** **Workspace Role Prerequisites**: The executing identity (user, service principal, or managed identity) must have **Admin** or **Member** permissions on the target Microsoft Fabric workspace to manage item-level permissions and OneLake Data Access Roles. Principals with only **Contributor** or **Viewer** workspace roles cannot grant or revoke item permissions.
 
-~> **Important:** **Share Verification Privileges**: The default `verify_item_shares = true` setting chains `fabricext_item_share_gate` to query effective permissions via the Microsoft Fabric Admin API (`GET /v1/admin/workspaces/{workspaceId}/items/{itemId}/users`). Calling the Admin API strictly requires the executing identity to hold the **Fabric Administrator** tenant role or be a Service Principal enrolled in the tenant setting *"Service principals can access read-only admin APIs"* with delegated scope `Tenant.Read.All` or `Tenant.ReadWrite.All`. Teams operating with workspace-scoped permissions only should set `verify_item_shares = false`.
+~> **Important:** **Share Verification Privileges**: The default `verify_item_shares = true` setting chains `fabricext_item_share_gate` to query effective permissions via the Microsoft Fabric Admin API (`GET /v1/admin/workspaces/{workspaceId}/items/{itemId}/users`). Calling the Admin API strictly requires the executing identity to hold the **Fabric Administrator** tenant role or be a Service Principal enrolled in the tenant setting *"Service principals can use Fabric admin APIs"* (or *"read-only admin APIs"*) with application permission `Tenant.Read.All` or `Tenant.ReadWrite.All`. If a Service Principal has `Tenant.ReadWrite.All` but the tenant only permits read-only admin APIs, Fabric returns HTTP 401/403 `PowerBINotAuthorizedException`. For environments without tenant admin permissions, set `verify_item_shares = false`. Item-level sharing resources (`fabricext_*_permission`) and OneLake Data Access Roles only require workspace **Admin** or **Member** roles.
 
 ~> **Note:** **Lakehouse Security Sequencing**: When managing Lakehouses, the module automatically coordinates `fabricext_lakehouse_onelake_security` to verify security enablement and purge `DefaultReader` before creating OneLake Data Access Roles, enforcing execution order via an explicit `depends_on` across all Lakehouses.
 
@@ -408,7 +408,7 @@ Entries within `fabric_item_members` support:
 | Name | Version |
 | :--- | :--- |
 | terraform | `>= 1.6.0` |
-| fabricext | `>= 0.7.0` |
+| fabricext | `>= 0.7.1` |
 
 ## Inputs
 

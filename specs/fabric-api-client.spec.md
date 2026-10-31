@@ -8,6 +8,8 @@ targets:
   - ../internal/client/item_permissions_test.go
   - ../internal/testutil/fabricmock/server.go
   - ../internal/testutil/fabricmock/server_test.go
+  - ../internal/testutil/pbimock/server.go
+  - ../internal/testutil/pbimock/server_test.go
 ---
 
 # Fabric REST Client Spec
@@ -26,6 +28,7 @@ func (c *FabricClient) GetItemByID(ctx context.Context, workspaceID, itemID, ite
 func (c *FabricClient) UpsertDataAccessRole(ctx context.Context, workspaceID, lakehouseID string, role DataAccessRole) error
 func (c *FabricClient) GetDataAccessRole(ctx context.Context, workspaceID, lakehouseID, roleName string) (*DataAccessRole, error)
 func (c *FabricClient) DeleteDataAccessRole(ctx context.Context, workspaceID, lakehouseID, roleName string) error
+func (c *FabricClient) DiscoverClusterURI(ctx context.Context) (string, error)
 ```
 
 `[@test] ../internal/client/fabric_client_test.go::TestGetItemIDByName_PaginationTypeIsolationAndCacheRefresh`
@@ -52,8 +55,10 @@ func (c *FabricClient) DeleteDataAccessRole(ctx context.Context, workspaceID, la
 
 - HTTP `429 Too Many Requests` responses honor the `Retry-After` header; transient `502`/`503`/`504` responses retry with exponential backoff respecting `ctx.Done()`
   `[@test] ../internal/client/fabric_client_test.go::TestRetryAfter429And503Backoff`
-- `fabricmock.Server` loads the vendored Swagger 2.0 specs in `specs/fabric/` via `kin-openapi` (`openapi2conv.ToV3` + `openapi3filter`) and validates every HTTP request and response at runtime
+- `fabricmock.Server` loads the vendored Swagger 2.0 specs in `specs/fabric/` via `kin-openapi` (`openapi2conv.ToV3` + `openapi3filter`) and validates every HTTP request and response at runtime, including `GET /v1/workspaces/{workspaceId}`, `GET /v1/workspaces`, and optional `home-cluster-uri` response headers
   `[@test] ../internal/testutil/fabricmock/server_test.go::TestServer_OpenAPIContractValidation`
+- `pbimock.Server` loads `specs/powerbi/metadata/openapi.json` via `kin-openapi` (`openapi3filter`) and validates every HTTP request and response at runtime, including `GET /v1.0/myorg/groups`, root integer `id` on `GET /metadata/access/artifacts/{itemId}`, and `X-PowerBI-Error-Info` + `RequestId` headers on `401`/`403` error simulation
+  `[@test] ../internal/testutil/pbimock/server_test.go::TestServer_OpenAPIContractValidation`
 
 ## Security Error Disambiguation
 
@@ -68,17 +73,25 @@ func (c *FabricClient) DeleteDataAccessRole(ctx context.Context, workspaceID, la
 
 - `ListItemAccessDetails` queries `GET /v1/admin/workspaces/{workspaceId}/items/{itemId}/users` with optional query parameter `type`, parses the `ItemAccessDetailsResponse` payload, and handles HTTP 429 `Retry-After` rate limit headers
   `[@test] ../internal/client/fabric_client_test.go::TestListItemAccessDetails_SuccessAndRateLimitRetry`
-- When calling `ListItemAccessDetails` without sufficient tenant administrative permissions (HTTP 403 Forbidden), the client returns a structured `AdminAPIAccessDeniedError` citing the required Fabric Administrator role or tenant setting
+- When calling `ListItemAccessDetails` returns HTTP 401 Unauthorized or HTTP 403 Forbidden, the client returns a structured `*AdminAPIAccessDeniedError` containing `fault_class` (`ServicePrincipalTenantRoleConflict` when `Tenant.*` application roles are present, otherwise `AdminAPIAccessDenied`), `x_powerbi_error`, `request_id`, and `caller_posture` (`tid`, `appid`, `oid`, `aud`, `roles`, `token_type`, `auth_source`)
   `[@test] ../internal/client/fabric_client_test.go::TestListItemAccessDetails_AdminForbiddenError`
+  `[@test] ../internal/client/fabric_client_test.go::TestListItemAccessDetails_SPNTenantRoleConflict401`
 
 ## Item Permissions & Cluster Discovery
 
 - `EncodePermissions` and `DecodePermissions` provide a deterministic bijection between high-level permission tokens (`Read`, `ReadData`, `ReadAll`, `Reshare`, `Execute`) and low-level Core and Artifact bitmasks across Warehouses, Lakehouses, and SQL Databases, encoding `Execute` strictly as `coreBitmask |= 64`
   `[@test] ../internal/client/item_permissions_test.go::TestItemPermissions_BitmaskBijection`
-- `DiscoverClusterURI` bypasses bootstrap discovery when `powerbi_endpoint` is configured with a regional cluster URL, resolves the Power BI token upfront to fail fast on auth errors, and otherwise bootstraps from the portal URL with trailing slash, preserving `Authorization` on same-origin redirects, collecting `Set-Cookie` across hops, comma-joining headers, and extracting URL-unescaped `ClusterUri`
+- `DiscoverClusterURI` bypasses bootstrap discovery when `powerbi_endpoint` is configured with a regional cluster URL, resolves the Power BI token upfront, inspects caller token posture, and conditionally routes cluster discovery by token type:
+  - `delegated-user` tokens execute portal cookie discovery first (`GET {portalURL}/` sending only `Authorization: Bearer <token>`, preserving `Authorization` on same-origin redirects, collecting comma-joined `Set-Cookie` headers, and extracting URL-unescaped `ClusterUri`) with automatic fallback to `home-cluster-uri` discovery if portal bootstrap fails.
+  - `app-only` Service Principal and Managed Identity tokens execute REST `home-cluster-uri` discovery exclusively (passive `FabricClient.doJSON` `2xx` header $\rightarrow$ `GET {fabricEndpoint}/v1/workspaces/{workspaceId}` $\rightarrow$ `GET {pbiAPIBase}/v1.0/myorg/groups?$top=1`), skipping interactive `app.powerbi.com` completely (`PortalRequestCount() == 0`).
+  - Cached regional cluster hosts are validated via `validateBackendClusterURI` (permitting sovereign `.powerbigov.us` and `.powerbi.cn` on portal/gateway hops while preventing portal or API gateway hosts from being cached as regional backend clusters).
   `[@test] ../internal/client/item_permissions_test.go::TestExtractClusterURIFromCookie`
   `[@test] ../internal/client/item_permissions_test.go::TestDiscoverClusterURI_5HopRedirect`
-- `GetItemDirectPermissions`, `UpsertItemDirectPermissions`, and `RevokeItemDirectPermissions` manage direct item permissions via undocumented Power BI metadata endpoints (`/metadata/access` and `/metadata/access/artifacts/{itemId}`), serializing explicit JSON `null` fields for unused principal properties, capturing root `id` on GET for PUT, isolating direct shares from workspace inheritance, and verifying propagation via superset read-back polling on POST and managed-mask polling on PUT
+  `[@test] ../internal/client/item_permissions_test.go::TestDiscoverClusterURI_ConditionalTokenRouting`
+- `GetItemDirectPermissions`, `UpsertItemDirectPermissions`, and `RevokeItemDirectPermissions` manage direct item permissions via undocumented Power BI metadata endpoints (`/metadata/access` and `/metadata/access/artifacts/{itemId}`), serializing explicit JSON `null` fields for unused principal properties, capturing root integer `id` (`InternalArtifactID`) and `detail[].aadAppId` on GET for subsequent PUT calls, isolating direct shares from workspace inheritance, and verifying propagation via superset read-back polling on POST and managed-mask polling on PUT
   `[@test] ../internal/client/item_permissions_test.go::TestItemPermissions_LifecycleWithPBIMock`
+  `[@test] ../internal/client/item_permissions_test.go::TestItemPermissions_InternalArtifactIDAndAADAppID`
+- Non-2xx Power BI metadata and cluster discovery responses return structured default error diagnostics containing `fault_class` (`ServicePrincipalTenantRoleConflict`, `ServicePrincipalMetadataAccessRejected`, `ClusterDiscoveryExhausted`), `x_powerbi_error`, `request_id`, `activity_id`, `cluster_source`, `caller_posture` (`tid`, `appid`, `oid`, `aud`, `roles`, `scp_present`, `token_type`, `auth_source`), and token-scrubbed `response_body` (reading error bodies across all `GET`/`POST`/`PUT` paths while redacting raw JWTs, secrets, cookies, and human `upn`/`email` claims)
+  `[@test] ../internal/client/item_permissions_test.go::TestItemPermissions_RichAuthErrorDiagnostics`
 - Item permission mutations acquire per-item mutexes (`workspaceID + "/" + itemID`), preventing race conditions and payload clobbering across concurrent goroutines
   `[@test] ../internal/client/item_permissions_test.go::TestItemPermissions_ConcurrentAccessSafety`

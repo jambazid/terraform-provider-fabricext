@@ -469,3 +469,46 @@ resource "fabricext_item_share_gate" "multi" {
 		},
 	})
 }
+
+func TestAccItemShareGateResource_SPNTenantRoleConflict401Error(t *testing.T) {
+	t.Parallel()
+
+	srv := fabricmock.NewServer(t)
+	wsID := "11111111-1111-1111-1111-111111111111"
+	itemID := "22222222-2222-2222-2222-222222222222"
+	principalID := "33333333-3333-3333-3333-333333333333"
+
+	srv.UpsertItem(fabricmock.Item{
+		ID:          itemID,
+		WorkspaceID: wsID,
+		DisplayName: "gold_warehouse",
+		Type:        "Warehouse",
+	})
+
+	srv.SetAdminUnauthorizedErrorInfo(wsID, itemID, "PowerBINotAuthorizedException")
+
+	spnToken := createSyntheticAccJWT(`{"idtyp":"app","appid":"app-spn-gate","oid":"spn-oid-gate","tid":"tenant-gate","roles":["Tenant.ReadWrite.All"]}`)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: fmt.Sprintf(`
+provider "fabricext" {
+  endpoint     = %q
+  access_token = %q
+  tenant_id    = "77777777-7777-7777-7777-777777777777"
+}
+
+resource "fabricext_item_share_gate" "test" {
+  workspace_id         = %q
+  item_id              = %q
+  principal_id         = %q
+  expected_permissions = ["Read"]
+}
+`, srv.URL(), spnToken, wsID, itemID, principalID),
+				ExpectError: regexp.MustCompile(`(?s)fault_class=ServicePrincipalTenantRoleConflict.*status_code=401.*x_powerbi_error=PowerBINotAuthorizedException.*caller_posture=\[.*appid=app-spn-gate.*roles=\[Tenant\.ReadWrite\.All\].*\]`),
+			},
+		},
+	})
+}

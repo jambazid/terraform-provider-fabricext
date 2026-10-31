@@ -5,6 +5,7 @@ package client_test
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -1424,7 +1425,7 @@ func TestItemPermissions_DiscoveryAndErrorCoverage(t *testing.T) {
 		PowerBITokenProvider: func(context.Context) (string, error) { return "tok", nil },
 	})
 	_, errNoCookie := cNoCookie.DiscoverClusterURI(ctx)
-	if errNoCookie == nil || !strings.Contains(errNoCookie.Error(), "no ClusterUri cookie in response") {
+	if errNoCookie == nil || !strings.Contains(errNoCookie.Error(), "no ClusterUri cookie") {
 		t.Fatalf("expected no ClusterUri cookie error, got: %v", errNoCookie)
 	}
 
@@ -1510,7 +1511,7 @@ func TestItemPermissions_DiscoveryAndErrorCoverage(t *testing.T) {
 		MaxRetries:           1,
 	})
 	errRevoke500 := cRevoke500.RevokeItemDirectPermissions(ctx, "ws-1", "item-1", "Warehouse", "user-1")
-	if errRevoke500 == nil || !strings.Contains(errRevoke500.Error(), "powerbi API revocation failed (HTTP 500)") {
+	if errRevoke500 == nil || !strings.Contains(errRevoke500.Error(), "HTTP 500") {
 		t.Fatalf("expected revocation failed 500, got: %v", errRevoke500)
 	}
 
@@ -1543,4 +1544,471 @@ func TestItemPermissions_DiscoveryAndErrorCoverage(t *testing.T) {
 	if errUpsertLookup500 == nil || !strings.Contains(errUpsertLookup500.Error(), "checking existing item permissions") {
 		t.Fatalf("expected checking existing item permissions error on upsert, got: %v", errUpsertLookup500)
 	}
+}
+
+func createSyntheticJWT(claimsJSON string) string {
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`))
+	claims := base64.RawURLEncoding.EncodeToString([]byte(claimsJSON))
+	return header + "." + claims + ".sig"
+}
+
+func TestDiscoverClusterURI_ConditionalTokenRouting(t *testing.T) {
+	t.Parallel()
+
+	// Subtest 1: App-Only SPN token routes strictly to home-cluster-uri discovery (skipping portal GET /)
+	t.Run("AppOnlySPN_SkipsPortal", func(t *testing.T) {
+		t.Parallel()
+		srv, err := pbimock.NewServer()
+		if err != nil {
+			t.Fatalf("failed to create pbimock server: %v", err)
+		}
+		defer srv.Close()
+
+		spnToken := createSyntheticJWT(`{"idtyp":"app","appid":"app-1234","oid":"spn-oid-1234","tid":"tenant-1234","roles":["Dataset.ReadWrite.All"]}`)
+		c, err := client.NewFabricClient(client.Config{
+			Endpoint:        srv.URL,
+			PowerBIEndpoint: srv.URL,
+			TokenProvider: func(_ context.Context) (string, error) {
+				return spnToken, nil
+			},
+			PowerBITokenProvider: func(_ context.Context) (string, error) {
+				return spnToken, nil
+			},
+			PowerBIAuthSource: "oidc",
+		})
+		if err != nil {
+			t.Fatalf("failed to create client: %v", err)
+		}
+
+		cluster, err := c.DiscoverClusterURI(context.Background())
+		if err != nil {
+			t.Fatalf("unexpected discovery error: %v", err)
+		}
+		if cluster != srv.URL {
+			t.Errorf("expected cluster %q, got %q", srv.URL, cluster)
+		}
+		if srv.PortalRequestCount() != 0 {
+			t.Errorf("expected 0 portal requests for app-only token, got %d", srv.PortalRequestCount())
+		}
+	})
+
+	// Subtest 2: Delegated user token routes to portal bootstrap first
+	t.Run("DelegatedUser_QueriesPortalCookie", func(t *testing.T) {
+		t.Parallel()
+		srv, err := pbimock.NewServer()
+		if err != nil {
+			t.Fatalf("failed to create pbimock server: %v", err)
+		}
+		defer srv.Close()
+
+		userToken := createSyntheticJWT(`{"oid":"user-oid-5678","tid":"tenant-1234","scp":"Item.ReadWrite.All"}`)
+		c, err := client.NewFabricClient(client.Config{
+			Endpoint:        srv.URL,
+			PowerBIEndpoint: srv.URL,
+			TokenProvider: func(_ context.Context) (string, error) {
+				return userToken, nil
+			},
+			PowerBITokenProvider: func(_ context.Context) (string, error) {
+				return userToken, nil
+			},
+			PowerBIAuthSource: "azurecli",
+		})
+		if err != nil {
+			t.Fatalf("failed to create client: %v", err)
+		}
+
+		cluster, err := c.DiscoverClusterURI(context.Background())
+		if err != nil {
+			t.Fatalf("unexpected discovery error: %v", err)
+		}
+		if cluster != srv.URL {
+			t.Errorf("expected cluster %q, got %q", srv.URL, cluster)
+		}
+		if srv.PortalRequestCount() == 0 {
+			t.Errorf("expected portal requests > 0 for delegated user, got 0")
+		}
+	})
+
+	// Subtest 3: Delegated user token with 403 on portal falls back to home-cluster-uri REST header
+	t.Run("DelegatedUser_Portal403FallbackToHomeClusterHeader", func(t *testing.T) {
+		t.Parallel()
+		srv, err := pbimock.NewServer()
+		if err != nil {
+			t.Fatalf("failed to create pbimock server: %v", err)
+		}
+		defer srv.Close()
+		srv.SetPortalForbidden(true)
+
+		userToken := createSyntheticJWT(`{"oid":"user-oid-5678","tid":"tenant-1234","scp":"Item.ReadWrite.All"}`)
+		c, err := client.NewFabricClient(client.Config{
+			Endpoint:        srv.URL,
+			PowerBIEndpoint: srv.URL,
+			TokenProvider: func(_ context.Context) (string, error) {
+				return userToken, nil
+			},
+			PowerBITokenProvider: func(_ context.Context) (string, error) {
+				return userToken, nil
+			},
+			PowerBIAuthSource: "azurecli",
+		})
+		if err != nil {
+			t.Fatalf("failed to create client: %v", err)
+		}
+
+		cluster, err := c.DiscoverClusterURI(context.Background())
+		if err != nil {
+			t.Fatalf("unexpected discovery error on fallback: %v", err)
+		}
+		if cluster != srv.URL {
+			t.Errorf("expected cluster %q, got %q", srv.URL, cluster)
+		}
+		if srv.PortalRequestCount() == 0 {
+			t.Errorf("expected portal to be queried before fallback, got 0 requests")
+		}
+	})
+
+	// Subtest 4: Discovery exhausted returns structured diagnostic with fault_class=ClusterDiscoveryExhausted
+	t.Run("DiscoveryExhausted_ReturnsStructuredDiagnostic", func(t *testing.T) {
+		t.Parallel()
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer srv.Close()
+
+		spnToken := createSyntheticJWT(`{"idtyp":"app","appid":"app-1234","oid":"spn-oid-1234","tid":"tenant-1234","roles":["Tenant.ReadWrite.All"]}`)
+		c, err := client.NewFabricClient(client.Config{
+			Endpoint:        srv.URL,
+			PowerBIEndpoint: srv.URL,
+			TokenProvider: func(_ context.Context) (string, error) {
+				return spnToken, nil
+			},
+			PowerBITokenProvider: func(_ context.Context) (string, error) {
+				return spnToken, nil
+			},
+			PowerBIAuthSource: "oidc",
+		})
+		if err != nil {
+			t.Fatalf("failed to create client: %v", err)
+		}
+
+		_, err = c.DiscoverClusterURI(context.Background())
+		if err == nil {
+			t.Fatal("expected error on exhausted discovery, got nil")
+		}
+		errStr := err.Error()
+		if !strings.Contains(errStr, "fault_class=ClusterDiscoveryExhausted") {
+			t.Errorf("expected error to contain 'fault_class=ClusterDiscoveryExhausted', got: %s", errStr)
+		}
+		if !strings.Contains(errStr, "caller_posture") {
+			t.Errorf("expected error to contain 'caller_posture', got: %s", errStr)
+		}
+		if !strings.Contains(errStr, "appid=app-1234") {
+			t.Errorf("expected error to contain 'appid=app-1234', got: %s", errStr)
+		}
+	})
+
+	// Subtest 5: Deadlock regression test - SPN discovery without PowerBIEndpoint resolves via probe without hanging
+	t.Run("SPNDiscovery_WithoutExplicitPowerBIEndpoint_NoDeadlock", func(t *testing.T) {
+		t.Parallel()
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/v1/workspaces" {
+				w.Header().Set("home-cluster-uri", "https://wabi-us-east2-redirect.analysis.windows.net")
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"value":[]}`))
+				return
+			}
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer srv.Close()
+
+		spnToken := createSyntheticJWT(`{"idtyp":"app","appid":"app-deadlock-test","oid":"spn-oid-1234","tid":"tenant-1234"}`)
+		c, err := client.NewFabricClient(client.Config{
+			Endpoint: srv.URL,
+			// PowerBIEndpoint intentionally omitted to trigger standard production discovery path
+			TokenProvider: func(_ context.Context) (string, error) {
+				return spnToken, nil
+			},
+			PowerBITokenProvider: func(_ context.Context) (string, error) {
+				return spnToken, nil
+			},
+			PowerBIAuthSource: "oidc",
+		})
+		if err != nil {
+			t.Fatalf("failed to create client: %v", err)
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		clusterURI, err := c.DiscoverClusterURI(ctx)
+		if err != nil {
+			t.Fatalf("expected successful cluster discovery without deadlock, got error: %v", err)
+		}
+		if clusterURI != "https://wabi-us-east2-redirect.analysis.windows.net" {
+			t.Errorf("expected cluster URI 'https://wabi-us-east2-redirect.analysis.windows.net', got: %s", clusterURI)
+		}
+	})
+}
+
+func TestItemPermissions_InternalArtifactIDAndAADAppID(t *testing.T) {
+	t.Parallel()
+	srv, err := pbimock.NewServer()
+	if err != nil {
+		t.Fatalf("failed to create pbimock server: %v", err)
+	}
+	defer srv.Close()
+
+	srv.SetArtifactID(42)
+	itemID := "33333333-3333-3333-3333-333333333333"
+	appID := "44444444-4444-4444-4444-444444444444"
+
+	// Pre-seed an existing permission on pbimock with aadAppId set
+	srv.SeedDirectAccess(itemID, map[string]any{
+		"objectId":            appID,
+		"aadAppId":            appID,
+		"isServicePrincipal":  false, // Notice false, but aadAppId is present!
+		"permissions":         1,
+		"artifactPermissions": 1,
+		"userId":              99,
+	})
+
+	spnToken := createSyntheticJWT(`{"idtyp":"app","appid":"app-spn","oid":"spn-oid","tid":"tenant-1"}`)
+	c, err := client.NewFabricClient(client.Config{
+		Endpoint:        srv.URL,
+		PowerBIEndpoint: srv.URL,
+		TokenProvider: func(_ context.Context) (string, error) {
+			return spnToken, nil
+		},
+		PowerBITokenProvider: func(_ context.Context) (string, error) {
+			return spnToken, nil
+		},
+		PowerBIAuthSource: "oidc",
+		BaseBackoff:       5 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	ctx := context.Background()
+
+	// 1. GetItemDirectPermissions captures InternalArtifactID=42 and sets IsServicePrincipal=true
+	share, err := c.GetItemDirectPermissions(ctx, "ws-1", itemID, "Lakehouse", appID)
+	if err != nil {
+		t.Fatalf("unexpected GetItemDirectPermissions error: %v", err)
+	}
+	if share == nil {
+		t.Fatal("expected direct share, got nil")
+	}
+	if share.InternalArtifactID != 42 {
+		t.Errorf("expected InternalArtifactID 42, got %d", share.InternalArtifactID)
+	}
+	if !share.IsServicePrincipal {
+		t.Errorf("expected IsServicePrincipal=true due to non-empty aadAppId, got false")
+	}
+	if share.PrincipalType != "ServicePrincipal" {
+		t.Errorf("expected PrincipalType ServicePrincipal, got %s", share.PrincipalType)
+	}
+
+	// 2. UpsertItemDirectPermissions uses targetArtifactID=42 on PUT /metadata/access
+	err = c.UpsertItemDirectPermissions(ctx, "ws-1", itemID, "Lakehouse", client.ItemDirectShare{
+		PrincipalID:        appID,
+		PrincipalType:      "ServicePrincipal",
+		Permissions:        []string{"Read", "ReadData"},
+		IsServicePrincipal: true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected UpsertItemDirectPermissions error: %v", err)
+	}
+
+	lastArtifacts := srv.LastArtifacts()
+	if len(lastArtifacts) == 0 {
+		t.Fatal("expected LastArtifacts to be recorded on pbimock")
+	}
+	lastID, ok := lastArtifacts[0]["id"].(float64)
+	if !ok || int(lastID) != 42 {
+		t.Errorf("expected PUT to send artifacts[0].id=42, got: %v", lastArtifacts[0]["id"])
+	}
+
+	// 3. RevokeItemDirectPermissions uses targetArtifactID=42 on PUT /metadata/access
+	err = c.RevokeItemDirectPermissions(ctx, "ws-1", itemID, "Lakehouse", appID)
+	if err != nil {
+		t.Fatalf("unexpected RevokeItemDirectPermissions error: %v", err)
+	}
+
+	lastRevokeArtifacts := srv.LastArtifacts()
+	if len(lastRevokeArtifacts) == 0 {
+		t.Fatal("expected LastArtifacts on revocation")
+	}
+	revokeID, ok := lastRevokeArtifacts[0]["id"].(float64)
+	if !ok || int(revokeID) != 42 {
+		t.Errorf("expected revocation to send artifacts[0].id=42, got: %v", lastRevokeArtifacts[0]["id"])
+	}
+}
+
+func TestItemPermissions_RichAuthErrorDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	// Subtest 1: SPN with Tenant.* role receives 401 PowerBINotAuthorizedException -> ServicePrincipalTenantRoleConflict
+	t.Run("TenantRoleConflict401", func(t *testing.T) {
+		t.Parallel()
+		srv, err := pbimock.NewServer()
+		if err != nil {
+			t.Fatalf("failed to create pbimock server: %v", err)
+		}
+		defer srv.Close()
+		srv.SetAccessAuthError(http.StatusUnauthorized, "PowerBINotAuthorizedException")
+
+		spnToken := createSyntheticJWT(`{"idtyp":"app","appid":"app-spn-999","oid":"spn-oid-999","tid":"tenant-999","roles":["Tenant.ReadWrite.All"]}`)
+		c, err := client.NewFabricClient(client.Config{
+			Endpoint:        srv.URL,
+			PowerBIEndpoint: srv.URL,
+			TokenProvider: func(_ context.Context) (string, error) {
+				return spnToken, nil
+			},
+			PowerBITokenProvider: func(_ context.Context) (string, error) {
+				return spnToken, nil
+			},
+			PowerBIAuthSource: "oidc",
+			BaseBackoff:       5 * time.Millisecond,
+		})
+		if err != nil {
+			t.Fatalf("failed to create client: %v", err)
+		}
+
+		ctx := context.Background()
+		testItemID := "22222222-2222-2222-2222-222222222222"
+		testWsID := "11111111-1111-1111-1111-111111111111"
+		testUserID := "33333333-3333-3333-3333-333333333333"
+		_, err = c.GetItemDirectPermissions(ctx, testWsID, testItemID, "Lakehouse", testUserID)
+		if err == nil {
+			t.Fatal("expected error from GetItemDirectPermissions, got nil")
+		}
+
+		var pbiErr *client.PowerBIHTTPError
+		if !errors.As(err, &pbiErr) {
+			t.Fatalf("expected *client.PowerBIHTTPError, got %T: %v", err, err)
+		}
+		if pbiErr.FaultClass != "ServicePrincipalTenantRoleConflict" {
+			t.Errorf("expected FaultClass ServicePrincipalTenantRoleConflict, got %q", pbiErr.FaultClass)
+		}
+		if pbiErr.StatusCode != 401 {
+			t.Errorf("expected StatusCode 401, got %d", pbiErr.StatusCode)
+		}
+		if pbiErr.XPowerBIError != "PowerBINotAuthorizedException" {
+			t.Errorf("expected XPowerBIError PowerBINotAuthorizedException, got %q", pbiErr.XPowerBIError)
+		}
+		if !strings.Contains(pbiErr.CallerPosture, "roles=[Tenant.ReadWrite.All]") {
+			t.Errorf("expected CallerPosture to contain roles=[Tenant.ReadWrite.All], got: %s", pbiErr.CallerPosture)
+		}
+		if !strings.Contains(pbiErr.CallerPosture, "appid=app-spn-999") {
+			t.Errorf("expected CallerPosture to contain appid=app-spn-999, got: %s", pbiErr.CallerPosture)
+		}
+		if !strings.Contains(pbiErr.CallerPosture, "oid=spn-oid-999") {
+			t.Errorf("expected CallerPosture to contain oid=spn-oid-999, got: %s", pbiErr.CallerPosture)
+		}
+		if !strings.Contains(pbiErr.CallerPosture, "tid=tenant-999") {
+			t.Errorf("expected CallerPosture to contain tid=tenant-999, got: %s", pbiErr.CallerPosture)
+		}
+		errStr := pbiErr.Error()
+		if !strings.Contains(errStr, "ServicePrincipalTenantRoleConflict") {
+			t.Errorf("expected Error() to contain fault class, got: %s", errStr)
+		}
+	})
+
+	// Subtest 2: App-only token without Tenant.* roles receives 403 -> ServicePrincipalMetadataAccessRejected
+	t.Run("MetadataAccessRejected403", func(t *testing.T) {
+		t.Parallel()
+		srv, err := pbimock.NewServer()
+		if err != nil {
+			t.Fatalf("failed to create pbimock server: %v", err)
+		}
+		defer srv.Close()
+		srv.SetAccessAuthError(http.StatusForbidden, "PowerBIAccessForbidden")
+
+		spnToken := createSyntheticJWT(`{"idtyp":"app","appid":"app-spn-777","oid":"spn-oid-777","tid":"tenant-777","roles":["Dataset.ReadWrite.All"]}`)
+		c, err := client.NewFabricClient(client.Config{
+			Endpoint:        srv.URL,
+			PowerBIEndpoint: srv.URL,
+			TokenProvider: func(_ context.Context) (string, error) {
+				return spnToken, nil
+			},
+			PowerBITokenProvider: func(_ context.Context) (string, error) {
+				return spnToken, nil
+			},
+			PowerBIAuthSource: "client_secret",
+			BaseBackoff:       5 * time.Millisecond,
+		})
+		if err != nil {
+			t.Fatalf("failed to create client: %v", err)
+		}
+
+		ctx := context.Background()
+		testItemID := "22222222-2222-2222-2222-222222222222"
+		testWsID := "11111111-1111-1111-1111-111111111111"
+		testUserID := "33333333-3333-3333-3333-333333333333"
+		_, err = c.GetItemDirectPermissions(ctx, testWsID, testItemID, "Lakehouse", testUserID)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+
+		var pbiErr *client.PowerBIHTTPError
+		if !errors.As(err, &pbiErr) {
+			t.Fatalf("expected *client.PowerBIHTTPError, got %T: %v", err, err)
+		}
+		if pbiErr.FaultClass != "ServicePrincipalMetadataAccessRejected" {
+			t.Errorf("expected FaultClass ServicePrincipalMetadataAccessRejected, got %q", pbiErr.FaultClass)
+		}
+		if pbiErr.StatusCode != 403 {
+			t.Errorf("expected StatusCode 403, got %d", pbiErr.StatusCode)
+		}
+	})
+
+	// Subtest 3: Raw JWTs and secrets in error response body are scrubbed ([REDACTED])
+	t.Run("ResponseBodyTokenScrubbing", func(t *testing.T) {
+		t.Parallel()
+		rawSecret := "secret12345"
+		rawJWT := "eyJhbGciOiJub25lIn0.eyJzdWIiOiIxMjM0NTY3ODkwIn0.c2ln"
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = fmt.Fprintf(w, `{"error":"Bearer %s rejected for token %s"}`, rawSecret, rawJWT)
+		}))
+		defer srv.Close()
+
+		c, err := client.NewFabricClient(client.Config{
+			Endpoint:        srv.URL,
+			PowerBIEndpoint: srv.URL,
+			TokenProvider: func(_ context.Context) (string, error) {
+				return "tok", nil
+			},
+			PowerBITokenProvider: func(_ context.Context) (string, error) {
+				return "tok", nil
+			},
+			BaseBackoff: 5 * time.Millisecond,
+		})
+		if err != nil {
+			t.Fatalf("failed to create client: %v", err)
+		}
+
+		ctx := context.Background()
+		testItemID := "22222222-2222-2222-2222-222222222222"
+		testWsID := "11111111-1111-1111-1111-111111111111"
+		testUserID := "33333333-3333-3333-3333-333333333333"
+		_, err = c.GetItemDirectPermissions(ctx, testWsID, testItemID, "Lakehouse", testUserID)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+
+		var pbiErr *client.PowerBIHTTPError
+		if !errors.As(err, &pbiErr) {
+			t.Fatalf("expected *client.PowerBIHTTPError, got %T: %v", err, err)
+		}
+		if strings.Contains(pbiErr.ResponseBody, rawJWT) {
+			t.Errorf("raw JWT was not scrubbed from ResponseBody: %s", pbiErr.ResponseBody)
+		}
+		if !strings.Contains(pbiErr.ResponseBody, "[REDACTED]") {
+			t.Errorf("expected [REDACTED] in ResponseBody: %s", pbiErr.ResponseBody)
+		}
+	})
 }

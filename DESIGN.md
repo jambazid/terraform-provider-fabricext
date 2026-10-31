@@ -530,7 +530,10 @@ While public Fabric v1 REST APIs do not offer write endpoints for item sharing, 
 
 ### 13.2 Security & Rate Limiting
 
-1. **Administrative Scope**: The Admin API requires Fabric Administrator privileges or a Service Principal enrolled in the tenant setting *"Service principals can access read-only admin APIs"* with delegated scope `Tenant.Read.All` or `Tenant.ReadWrite.All` (C55). Standard workspace-level service principals receive HTTP 403 Forbidden. The provider detects 403 responses and emits an explicit diagnostic citing the required tenant setting.
+1. **Administrative Scope**:
+   - **Delegated Users**: Require the Fabric Administrator role (or equivalent administrative Entra role) with delegated OAuth2 scope `Tenant.Read.All` or `Tenant.ReadWrite.All` (C55).
+   - **Service Principals & Managed Identities**: Must belong to an Entra security group enabled in the Fabric Admin Portal under *"Service principals can access read-only admin APIs"* **without** Entra ID Application (`appRole`) permissions `Tenant.Read.All` or `Tenant.ReadWrite.All` configured on the app registration (C59). Microsoft's Admin API authorization layer explicitly rejects app-only tokens carrying `Tenant.Read*.All` `roles` claims with `HTTP 401 Unauthorized` (`X-PowerBI-Error-Info: PowerBINotAuthorizedException`), while un-enrolled principals receive `HTTP 403 Forbidden`.
+   - **Structured Diagnostics**: `ListItemAccessDetails` intercepts both `HTTP 401` and `HTTP 403` and returns `*AdminAPIAccessDeniedError` populated with `fault_class` (`ServicePrincipalTenantRoleConflict` when `HasTenantRoles` is true, otherwise `AdminAPIAccessDenied`), `x_powerbi_error`, `request_id`, and `caller_posture` (`tid`, `appid`, `oid`, `aud`, `roles`, `token_type`, `auth_source`).
 2. **Quota Preservation**: Fabric limits admin metadata calls to 200 requests/hour per tenant (C56). To avoid exhausting this quota across concurrent resources:
    - Polling uses an initial 60-second backoff doubling up to a 300-second cap with randomized jitter.
    - The HTTP client honors `Retry-After` response headers on HTTP 429.
@@ -622,23 +625,19 @@ Item-level permissions across Fabric Warehouses, Lakehouses, and SQL Databases a
 ### 15.2 Cluster Discovery & SSRF
 
 1. **Direct Cluster Fast-Path**: When `powerbi_endpoint` (or `FABRIC_POWERBI_ENDPOINT`) is configured with a regional cluster URL (e.g. `https://wabi-west-europe-redirect.analysis.windows.net`), the client validates the host against the SSRF allowlist and returns it immediately, bypassing bootstrap portal discovery completely.
-2. **Upfront Token Resolution**: Before initiating portal discovery, `DiscoverClusterURI` resolves the `PowerBIScope` Entra ID token via `getPowerBIToken(ctx)`. If token acquisition fails, it aborts immediately with structured diagnostic hints (including OIDC permissions and static dual-token advice), preventing anonymous requests that return HTTP 200 without cookies.
-3. **`httpx2`-Aligned Portal Bootstrap**:
-   - Resolves the portal bootstrap URL via `ResolvePowerBIPortalURL(environment)` and ensures a trailing slash (`https://app.powerbi.com/`).
-   - Uses a `cookieCollectorTransport` executing a bounded 15s request following up to 10 redirects.
-   - In accordance with RFC 9110 and `httpx2`, `Authorization: Bearer <tok>` is preserved on same-origin redirects and stripped only if the origin changes (`url.origin != request.url.origin`).
-   - Validates all redirect target URLs against the SSRF allowlist (`validateRedirectURL`).
-4. **Comma-Joined & URL-Encoded Cookie Extraction**:
-   - Collects `Set-Cookie` headers across every hop and comma-joins them with `", "` matching `grant.py:108`.
-   - Matches both raw `ClusterUri=...` and URL-encoded `ClusterUri=[^=;\s,]+=(https?(?:://|%3A%2F%2F)[^;,\s"]+)` patterns.
-   - Unescapes URL-encoded values (`url.QueryUnescape`), strips trailing slashes, validates the resulting hostname via `validateClusterURI`, and caches the cluster URL under `clusterURIMu`.
-   - On discovery failure, logs the HTTP status code, final host, redacted cookie names observed, and guidance to pin `FABRIC_POWERBI_ENDPOINT`.
+2. **Upfront Token Resolution & Posture Inspection**: Before initiating discovery, `DiscoverClusterURI` resolves the `PowerBIScope` Entra ID token via `getPowerBIToken(ctx)`. `InspectTokenPosture` classifies the token into `delegated-user`, `app-only` (Service Principal / Managed Identity), or `opaque`, extracting non-secret directory identifiers (`tid`, `appid`, `oid`, `aud`, `roles`, `scp_present`) matching official `fabric`/`azurerm`/`azuread`/`azapi` provider redaction standards without retaining raw JWT strings, signatures, or human emails/UPNs.
+3. **Conditional Token-Type Discovery Routing**:
+   - **`delegated-user` Modality** (`az login`, `azd auth login`, user static JWT): Executes portal cookie bootstrap first (`GET https://app.powerbi.com/` sending **only** `Authorization: Bearer <tok>` matching `grant.py`), with automatic fallback to REST `home-cluster-uri` discovery if the portal frontend returns 403 or omits `ClusterUri`.
+   - **`app-only` Modality** (Service Principal via OIDC, Secret, Certificate, or Managed Identity): Executes the REST `home-cluster-uri` discovery chain exclusively, completely bypassing `https://app.powerbi.com/` (`PortalRequestCount() == 0`). Priority order: (1) passive header recorded from prior `FabricClient.doJSON` `2xx` calls (`passive-fabric-header`); (2) probe `GET {fabricEndpoint}/v1/workspaces/{workspaceID}` (`fabric-workspace-probe`); (3) probe `GET {pbiAPIBase}/v1.0/myorg/groups?$top=1` (`powerbi-groups-probe`).
+   - **`opaque` Modality**: Probes `home-cluster-uri` first, with fallback to portal cookie discovery.
+4. **Backend Cluster Validation & Sovereign Clouds**: `validateBackendClusterURI` ensures that frontend portal URLs (`app.powerbi.*`) and REST gateways (`api.powerbi.*`) are never cached as regional backend clusters, while allowing sovereign regional clusters (`.analysis.windows.net`, `.analysis.usgovcloudapi.net`, `.analysis.chinacloudapi.cn`).
+5. **Structured Default Error Diagnostics**: Non-2xx responses across Power BI metadata, cluster discovery, and Fabric Admin calls format actionable diagnostics directly into default Terraform `Error:` output (zero `TF_LOG` required, zero warnings on `2xx` success), reporting `fault_class` (`ServicePrincipalTenantRoleConflict`, `ServicePrincipalMetadataAccessRejected`, `AdminAPIAccessDenied`, `ClusterDiscoveryExhausted`), `x_powerbi_error`, `request_id`, `activity_id`, `cluster_source`, `caller_posture`, and token-scrubbed `response_body`.
 
 ### 15.3 Principal XOR & Payload Fidelity
 
 1. **Principal XOR Rule**: Every mutation payload to `/metadata/access` sets either internal Power BI IDs (`userId`/`groupId` on existing shares) XOR Entra Object IDs (`userObjectId` for Users and Service Principals/Managed Identities, XOR `groupObjectId` for Groups), never both.
 2. **Explicit `null` JSON Serialization**: In accordance with `grant.py:228-238`, unused principal fields (`userId`, `groupId`, `userObjectId`, `groupObjectId`) are serialized as explicit JSON `null` values rather than being omitted via `omitempty`.
-3. **Root Integer Artifact ID**: `GET /metadata/access/artifacts/{itemId}` captures the root integer `id` (`InternalArtifactID`, fallback `1`), which is passed in `artifacts[0].id` when issuing subsequent `PUT /metadata/access` calls.
+3. **Root Integer Artifact ID & Service Principal Flag**: `GET /metadata/access/artifacts/{itemId}` captures root integer `id` (`InternalArtifactID`, fallback `1`), which is passed in `artifacts[0].id` when issuing subsequent `PUT /metadata/access` calls (`POST` uses `1`). Principal classification inspects both `detail.IsServicePrincipal` and `detail.AADAppID != ""` matching web bundle `Kr$1` and `tl$3`.
 
 ### 15.4 Read-Back Verification & Validation
 

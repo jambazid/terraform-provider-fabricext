@@ -19,6 +19,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -110,6 +111,174 @@ func ResolvePowerBIPortalURL(env string) string {
 	default:
 		return "https://app.powerbi.com"
 	}
+}
+
+// ResolvePowerBIAPIBaseURL returns the public REST API gateway base URL for Power BI.
+func ResolvePowerBIAPIBaseURL(env string) string {
+	switch strings.ToLower(strings.TrimSpace(env)) {
+	case "usgovernment":
+		return "https://api.powerbigov.us"
+	case "china":
+		return "https://api.powerbi.cn"
+	default:
+		return "https://api.powerbi.com"
+	}
+}
+
+// TokenPosture holds non-sensitive metadata describing caller identity and token capabilities
+// for diagnostic error output, strictly following official provider redaction boundaries.
+type TokenPosture struct {
+	AuthSource     string   `json:"auth_source"`
+	TokenType      string   `json:"token_type"` // "app-only", "delegated-user", or "opaque"
+	TenantID       string   `json:"tenant_id,omitempty"`
+	AppID          string   `json:"app_id,omitempty"`
+	ObjectID       string   `json:"object_id,omitempty"`
+	Audience       string   `json:"audience,omitempty"`
+	Roles          []string `json:"roles,omitempty"`
+	HasTenantRoles bool     `json:"has_tenant_roles"`
+	ScpPresent     bool     `json:"scp_present"`
+}
+
+// Format returns a concise, single-line diagnostic string suitable for default Terraform Error: output.
+func (p TokenPosture) Format() string {
+	var parts []string
+	if p.AuthSource != "" {
+		parts = append(parts, fmt.Sprintf("auth_source=%s", p.AuthSource))
+	}
+	if p.TokenType != "" {
+		parts = append(parts, fmt.Sprintf("token_type=%s", p.TokenType))
+	}
+	if p.TenantID != "" {
+		parts = append(parts, fmt.Sprintf("tid=%s", p.TenantID))
+	}
+	if p.AppID != "" {
+		parts = append(parts, fmt.Sprintf("appid=%s", p.AppID))
+	}
+	if p.ObjectID != "" {
+		parts = append(parts, fmt.Sprintf("oid=%s", p.ObjectID))
+	}
+	if p.Audience != "" {
+		parts = append(parts, fmt.Sprintf("aud=%s", p.Audience))
+	}
+	if len(p.Roles) > 0 {
+		parts = append(parts, fmt.Sprintf("roles=[%s]", strings.Join(p.Roles, ", ")))
+	} else {
+		parts = append(parts, "roles=none")
+	}
+	parts = append(parts, fmt.Sprintf("scp_present=%t", p.ScpPresent))
+	return strings.Join(parts, ", ")
+}
+
+type rawTokenClaims struct {
+	Audience   interface{} `json:"aud"`
+	IDType     string      `json:"idtyp"`
+	AppID      string      `json:"appid"`
+	Azp        string      `json:"azp"`
+	AppIDAcr   string      `json:"appidacr"`
+	ObjectID   string      `json:"oid"`
+	TenantID   string      `json:"tid"`
+	Roles      []string    `json:"roles"`
+	Scopes     string      `json:"scp"`
+	Upn        string      `json:"upn"`
+	UniqueName string      `json:"unique_name"`
+	Email      string      `json:"email"`
+}
+
+// InspectTokenPosture decodes non-sensitive JWT token claims in memory without retaining the raw token
+// or PII (e.g. human UPN/email), classifying caller identity and token posture for diagnostic reporting.
+func InspectTokenPosture(rawToken, authSource string) TokenPosture {
+	posture := TokenPosture{
+		AuthSource: authSource,
+		TokenType:  "opaque",
+	}
+
+	trimmedToken := strings.TrimSpace(rawToken)
+	parts := strings.Split(trimmedToken, ".")
+	if len(parts) == 3 {
+		payloadBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
+		if err != nil {
+			payloadBytes, err = base64.RawStdEncoding.DecodeString(parts[1])
+		}
+		if err != nil {
+			payloadBytes, err = base64.URLEncoding.DecodeString(parts[1])
+		}
+		if err == nil {
+			var raw rawTokenClaims
+			if jsonErr := json.Unmarshal(payloadBytes, &raw); jsonErr == nil {
+				posture.TenantID = raw.TenantID
+				if raw.AppID != "" {
+					posture.AppID = raw.AppID
+				} else if raw.Azp != "" {
+					posture.AppID = raw.Azp
+				}
+				posture.ObjectID = raw.ObjectID
+
+				switch v := raw.Audience.(type) {
+				case string:
+					posture.Audience = v
+				case []interface{}:
+					var auds []string
+					for _, item := range v {
+						if s, ok := item.(string); ok && s != "" {
+							auds = append(auds, s)
+						}
+					}
+					posture.Audience = strings.Join(auds, ",")
+				}
+
+				if len(raw.Roles) > 0 {
+					roles := make([]string, len(raw.Roles))
+					copy(roles, raw.Roles)
+					sort.Strings(roles)
+					posture.Roles = roles
+					for _, r := range roles {
+						if strings.HasPrefix(strings.ToLower(strings.TrimSpace(r)), "tenant.") {
+							posture.HasTenantRoles = true
+							break
+						}
+					}
+				}
+
+				if strings.TrimSpace(raw.Scopes) != "" {
+					posture.ScpPresent = true
+				}
+
+				hasUserSignals := raw.IDType == "user" ||
+					posture.ScpPresent ||
+					strings.TrimSpace(raw.Upn) != "" ||
+					strings.TrimSpace(raw.UniqueName) != "" ||
+					strings.TrimSpace(raw.Email) != ""
+
+				switch {
+				case raw.IDType == "app":
+					posture.TokenType = "app-only"
+				case hasUserSignals:
+					posture.TokenType = "delegated-user"
+				case raw.AppIDAcr == "1" || raw.AppIDAcr == "2" || len(posture.Roles) > 0 || (posture.ObjectID != "" && posture.AppID != ""):
+					posture.TokenType = "app-only"
+				}
+			}
+		}
+	}
+
+	// Fallback classification if token_type could not be conclusively determined from claims
+	if posture.TokenType == "opaque" && authSource != "" {
+		src := strings.ToLower(authSource)
+		switch {
+		case strings.Contains(src, "oidc"),
+			strings.Contains(src, "secret"),
+			strings.Contains(src, "certificate"),
+			strings.Contains(src, "cert"),
+			strings.Contains(src, "msi"),
+			strings.Contains(src, "managed_identity"):
+			posture.TokenType = "app-only"
+		case strings.Contains(src, "cli"),
+			strings.Contains(src, "dev_cli"):
+			posture.TokenType = "delegated-user"
+		}
+	}
+
+	return posture
 }
 
 // ResolvePowerBIAllowedHostSuffix returns the expected domain suffix for cluster discovery.

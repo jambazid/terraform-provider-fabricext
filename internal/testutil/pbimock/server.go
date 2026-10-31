@@ -25,16 +25,22 @@ import (
 
 // Server represents a stateful in-memory mock Power BI metadata server.
 type Server struct {
-	URL          string
-	Server       *httptest.Server
-	mu           sync.RWMutex
-	router       routers.Router
-	doc          *openapi3.T
-	entries      map[string][]map[string]any // itemId -> entries
-	deletedItems map[string]bool             // itemId -> deleted (returns 404)
-	nextUserID   int
-	nextGroupID  int
-	OnMutation   func(action string, itemId string, principalId string, permissions []string)
+	URL                string
+	Server             *httptest.Server
+	mu                 sync.RWMutex
+	router             routers.Router
+	doc                *openapi3.T
+	entries            map[string][]map[string]any // itemId -> entries
+	deletedItems       map[string]bool             // itemId -> deleted (returns 404)
+	portalForbidden    bool
+	portalRequestCount int
+	accessAuthStatus   int
+	accessAuthError    string
+	artifactID         int
+	lastArtifacts      []map[string]any
+	nextUserID         int
+	nextGroupID        int
+	OnMutation         func(action string, itemId string, principalId string, permissions []string)
 }
 
 // NewServer creates a new stateful mock Power BI metadata server.
@@ -75,6 +81,7 @@ func NewServer() (*Server, error) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.handleRoot)
+	mux.HandleFunc("/v1.0/myorg/groups", s.handleGroups)
 	mux.HandleFunc("/metadata/access", s.handleAccess)
 	mux.HandleFunc("/metadata/access/notify", s.handleAccessNotify)
 	mux.HandleFunc("/metadata/access/artifacts/", s.handleArtifactAccess)
@@ -108,6 +115,47 @@ func (s *Server) DeleteArtifact(itemID string) {
 	}
 	s.deletedItems[itemID] = true
 	delete(s.entries, itemID)
+}
+
+// SetPortalForbidden sets whether GET / returns HTTP 403.
+func (s *Server) SetPortalForbidden(forbidden bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.portalForbidden = forbidden
+}
+
+// PortalRequestCount returns the number of requests received at GET /.
+func (s *Server) PortalRequestCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.portalRequestCount
+}
+
+// SetAccessAuthError configures the mock server to return an error status (e.g. 401 or 403) with errorInfo.
+func (s *Server) SetAccessAuthError(status int, errorInfo string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.accessAuthStatus = status
+	s.accessAuthError = errorInfo
+}
+
+// SetArtifactID configures the root integer "id" returned by GET /metadata/access/artifacts/{itemId}.
+func (s *Server) SetArtifactID(id int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.artifactID = id
+}
+
+// LastArtifacts returns the artifacts list from the last POST or PUT to /metadata/access.
+func (s *Server) LastArtifacts() []map[string]any {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.lastArtifacts == nil {
+		return nil
+	}
+	out := make([]map[string]any, len(s.lastArtifacts))
+	copy(out, s.lastArtifacts)
+	return out
 }
 
 func (s *Server) wrapValidation(next http.Handler) http.Handler {
@@ -166,6 +214,15 @@ func (s *Server) wrapValidation(next http.Handler) http.Handler {
 }
 
 func (s *Server) handleRoot(w http.ResponseWriter, _ *http.Request) {
+	s.mu.Lock()
+	s.portalRequestCount++
+	forbidden := s.portalForbidden
+	s.mu.Unlock()
+
+	if forbidden {
+		w.WriteHeader(http.StatusForbidden)
+		return
+	}
 	w.Header().Add("Set-Cookie", fmt.Sprintf("ClusterUri=wabi-test-cluster=%s/", s.URL))
 	w.WriteHeader(http.StatusOK)
 }
@@ -214,6 +271,7 @@ func (s *Server) handleAccess(w http.ResponseWriter, r *http.Request) {
 	var events []mutationEvent
 
 	s.mu.Lock()
+	s.lastArtifacts = payload.Artifacts
 	for _, a := range payload.Artifacts {
 		itemObjID, _ := a["artifactObjectId"].(string)
 		if itemObjID == "" {
@@ -333,12 +391,70 @@ func (s *Server) handleAccessNotify(w http.ResponseWriter, r *http.Request) {
 	s.handleAccess(w, r)
 }
 
+func (s *Server) handleGroups(w http.ResponseWriter, _ *http.Request) {
+	s.mu.RLock()
+	authStatus := s.accessAuthStatus
+	authErr := s.accessAuthError
+	s.mu.RUnlock()
+
+	if authStatus != 0 {
+		w.Header().Set("home-cluster-uri", s.URL)
+		if authErr != "" {
+			w.Header().Set("X-PowerBI-Error-Info", authErr)
+		}
+		w.Header().Set("RequestId", "test-groups-request-id")
+		w.WriteHeader(authStatus)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("home-cluster-uri", s.URL)
+	w.WriteHeader(http.StatusOK)
+	resp := map[string]any{
+		"@odata.context": "https://wabi-test-cluster.analysis.windows.net/v1.0/myorg/$metadata#groups",
+		"@odata.count":   1,
+		"value": []map[string]any{
+			{
+				"id":                    "f83c9197-4c61-4355-b319-7d0c7f948313",
+				"isReadOnly":            false,
+				"isOnDedicatedCapacity": true,
+				"name":                  "Test Workspace",
+			},
+		},
+	}
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
 func (s *Server) handleArtifactAccess(w http.ResponseWriter, r *http.Request) {
 	itemID := filepath.Base(r.URL.Path)
 	s.mu.RLock()
-	defer s.mu.RUnlock()
+	authStatus := s.accessAuthStatus
+	authErr := s.accessAuthError
+	deleted := s.deletedItems != nil && s.deletedItems[itemID]
+	entries := s.entries[itemID]
+	rootID := s.artifactID
+	if rootID == 0 {
+		rootID = 1
+	}
+	s.mu.RUnlock()
 
-	if s.deletedItems != nil && s.deletedItems[itemID] {
+	if authStatus != 0 {
+		w.Header().Set("Content-Type", "application/json")
+		if authErr != "" {
+			w.Header().Set("X-PowerBI-Error-Info", authErr)
+		}
+		w.Header().Set("RequestId", "test-request-id-1234")
+		w.WriteHeader(authStatus)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error": map[string]string{
+				"code":    "PowerBINotAuthorizedException",
+				"message": "User is not authorized to access Power BI metadata",
+			},
+		})
+		return
+	}
+
+	if deleted {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -350,12 +466,12 @@ func (s *Server) handleArtifactAccess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	entries := s.entries[itemID]
 	if entries == nil {
 		entries = []map[string]any{}
 	}
 
 	resp := map[string]any{
+		"id":                  rootID,
 		"objectId":            itemID,
 		"displayName":         "MockItem",
 		"permissions":         1,

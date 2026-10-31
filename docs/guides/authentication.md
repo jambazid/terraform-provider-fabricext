@@ -42,7 +42,13 @@ The provider automatically routes token acquisition and API calls to Microsoft F
 
 ### Power BI Metadata Endpoint
 
-For declarative item permissions (`fabricext_warehouse_permission`, `fabricext_sql_database_permission`, `fabricext_lakehouse_permission`), the provider authenticates against Power BI metadata access services. Token acquisition occurs automatically through the configured Entra credential chain. Custom endpoints and pre-minted tokens can be configured via `powerbi_endpoint` and `powerbi_access_token` (or `FABRIC_POWERBI_ENDPOINT` / `FABRIC_POWERBI_ACCESS_TOKEN`).
+For declarative item permissions (`fabricext_warehouse_permission`, `fabricext_sql_database_permission`, `fabricext_lakehouse_permission`), the provider authenticates against Power BI metadata access services. Token acquisition occurs automatically through the configured Entra credential chain.
+
+The provider dynamically routes regional cluster discovery based on token posture:
+- **Interactive Users (`delegated-user`)**: Reaches the portal bootstrap discovery endpoint.
+- **Service Principals & Managed Identities (`app-only`)**: Queries the Power BI REST API gateway (`GET /v1.0/myorg/groups`) and extracts the regional cluster URI from the `home-cluster-uri` response header.
+
+Custom endpoints and pre-minted tokens can be configured via `powerbi_endpoint` and `powerbi_access_token` (or `FABRIC_POWERBI_ENDPOINT` / `FABRIC_POWERBI_ACCESS_TOKEN`), which bypasses discovery network hops entirely.
 
 ### Sovereign Cloud Configuration
 

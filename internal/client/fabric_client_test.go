@@ -5,6 +5,7 @@ package client
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/http"
@@ -1141,6 +1142,71 @@ func TestListItemAccessDetails_AdminForbiddenError(t *testing.T) {
 	errStr := adminErr.Error()
 	if !strings.Contains(errStr, "Fabric Administrator") || !strings.Contains(errStr, "Service principals can access read-only admin APIs") {
 		t.Errorf("error string does not cite required tenant settings: %s", errStr)
+	}
+}
+
+func TestListItemAccessDetails_SPNTenantRoleConflict401(t *testing.T) {
+	t.Parallel()
+
+	srv := fabricmock.NewServer(t)
+	wsID := "11111111-1111-1111-1111-111111111111"
+	itemID := "22222222-2222-2222-2222-222222222222"
+
+	srv.UpsertItem(fabricmock.Item{
+		ID:          itemID,
+		WorkspaceID: wsID,
+		DisplayName: "gold_warehouse",
+		Type:        "Warehouse",
+	})
+	srv.SetAdminUnauthorizedErrorInfo(wsID, itemID, "PowerBINotAuthorizedException")
+
+	// Create synthetic SPN token with Tenant.ReadWrite.All role
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`))
+	claims := base64.RawURLEncoding.EncodeToString([]byte(`{"idtyp":"app","appid":"app-spn-uuid","oid":"spn-obj-uuid","tid":"tenant-uuid","roles":["Tenant.ReadWrite.All"]}`))
+	spnToken := header + "." + claims + ".signature"
+
+	c, err := NewFabricClient(Config{
+		Endpoint: srv.URL(),
+		TokenProvider: func(_ context.Context) (string, error) {
+			return spnToken, nil
+		},
+		FabricAuthSource: "oidc",
+		BaseBackoff:      5 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("failed to create FabricClient: %v", err)
+	}
+
+	ctx := context.Background()
+	resp, err := c.ListItemAccessDetails(ctx, wsID, itemID, nil)
+	if err == nil {
+		t.Fatalf("expected error from ListItemAccessDetails when unauthorized, got resp: %+v", resp)
+	}
+
+	var adminErr *AdminAPIAccessDeniedError
+	if !errors.As(err, &adminErr) {
+		t.Fatalf("expected AdminAPIAccessDeniedError, got %T: %v", err, err)
+	}
+
+	if adminErr.FaultClass != "ServicePrincipalTenantRoleConflict" {
+		t.Errorf("expected FaultClass 'ServicePrincipalTenantRoleConflict', got %q", adminErr.FaultClass)
+	}
+	if adminErr.StatusCode != http.StatusUnauthorized {
+		t.Errorf("expected StatusCode 401, got %d", adminErr.StatusCode)
+	}
+	if adminErr.XPowerBIError != "PowerBINotAuthorizedException" {
+		t.Errorf("expected XPowerBIError 'PowerBINotAuthorizedException', got %q", adminErr.XPowerBIError)
+	}
+	if !strings.Contains(adminErr.CallerPosture, "roles=[Tenant.ReadWrite.All]") {
+		t.Errorf("expected CallerPosture to contain roles=[Tenant.ReadWrite.All], got: %s", adminErr.CallerPosture)
+	}
+	if !strings.Contains(adminErr.CallerPosture, "appid=app-spn-uuid") {
+		t.Errorf("expected CallerPosture to contain appid=app-spn-uuid, got: %s", adminErr.CallerPosture)
+	}
+
+	errStr := adminErr.Error()
+	if !strings.Contains(errStr, "fault_class=ServicePrincipalTenantRoleConflict") {
+		t.Errorf("expected Error() to contain fault_class=ServicePrincipalTenantRoleConflict, got: %s", errStr)
 	}
 }
 

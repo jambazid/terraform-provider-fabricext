@@ -32,7 +32,11 @@ ACCESS_TOKEN=$(curl -s -X POST \
 
 ## 2. Cluster URI Discovery
 
-Power BI web frontends route requests through regional backend clusters. The regional cluster host is discovered by querying the bootstrap portal with manual redirect following:
+Power BI web frontends and REST gateways route requests through regional backend clusters. The regional cluster host is discovered via two modalities:
+
+### Modality A: Delegated User (Portal Cookie Discovery)
+
+Delegated user tokens (`az login`, `azd auth login`) query the bootstrap portal with manual redirect following:
 
 ```bash
 CLUSTER_URL=$(curl -s -i \
@@ -44,6 +48,19 @@ CLUSTER_URL=$(curl -s -i \
 
 # Example resolved cluster URL:
 # https://wabi-region-redirect.analysis.windows.net
+```
+
+### Modality B: Service Principal / Managed Identity (REST `home-cluster-uri` Header)
+
+Service Principals and Managed Identities (`idtyp=app`) are blocked by `https://app.powerbi.com/` (HTTP 403), but receive the regional cluster in the `home-cluster-uri` response header from Fabric REST or Power BI REST gateways:
+
+```bash
+CLUSTER_URL=$(curl -s -i \
+  -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+  "https://api.powerbi.com/v1.0/myorg/groups?\$top=1" | \
+  grep -i "^home-cluster-uri:" | \
+  awk '{print $2}' | \
+  tr -d '\r\n')
 ```
 
 ---

@@ -32,6 +32,7 @@ type ItemDirectShare struct {
 	RawArtifactPermissions int64
 	InternalUserID         int
 	InternalGroupID        int
+	InternalArtifactID     int
 	IsServicePrincipal     bool
 	Notify                 bool
 	NotificationMessage    string
@@ -71,12 +72,14 @@ type artifactGrantEntry struct {
 }
 
 type rawArtifactAccessResponse struct {
+	ID                     int                 `json:"id"`
 	ObjectID               string              `json:"objectId"`
 	DisplayName            string              `json:"displayName"`
 	Permissions            int64               `json:"permissions"`
 	ArtifactPermissions    int64               `json:"artifactPermissions"`
 	Detail                 []accessDetailEntry `json:"detail"`
 	ArtifactAccessEntities []struct {
+		ID                  int                 `json:"id"`
 		ObjectID            string              `json:"objectId"`
 		DisplayName         string              `json:"displayName"`
 		Permissions         int64               `json:"permissions"`
@@ -132,9 +135,6 @@ func (t *cookieCollectorTransport) RoundTrip(req *http.Request) (*http.Response,
 	host := strings.ToLower(req.URL.Hostname())
 	if host == strings.ToLower(t.initialHost) || (t.customHost != "" && host == strings.ToLower(t.customHost)) {
 		req.Header.Set("Authorization", "Bearer "+t.token)
-		req.Header.Set("Accept", "application/json, text/plain, */*")
-		req.Header.Set("x-powerbi-hostenv", "Power BI Web App")
-		req.Header.Set("Referer", "https://app.fabric.microsoft.com/")
 	}
 
 	resp, err := t.base.RoundTrip(req)
@@ -146,20 +146,35 @@ func (t *cookieCollectorTransport) RoundTrip(req *http.Request) (*http.Response,
 	return resp, err
 }
 
+func (c *FabricClient) getCachedCluster() string {
+	c.clusterURIMu.RLock()
+	defer c.clusterURIMu.RUnlock()
+	return c.cachedClusterURI
+}
+
+func (c *FabricClient) setCachedCluster(uri, source string) {
+	c.clusterURIMu.Lock()
+	c.cachedClusterURI = uri
+	c.cachedClusterSource = source
+	c.clusterURIMu.Unlock()
+}
+
 // DiscoverClusterURI resolves and validates the regional Power BI cluster URI.
 func (c *FabricClient) DiscoverClusterURI(ctx context.Context) (string, error) {
-	c.clusterURIMu.RLock()
-	if c.cachedClusterURI != "" {
-		uri := c.cachedClusterURI
-		c.clusterURIMu.RUnlock()
+	return c.discoverClusterURI(ctx, "")
+}
+
+func (c *FabricClient) discoverClusterURI(ctx context.Context, workspaceID string) (string, error) {
+	if uri := c.getCachedCluster(); uri != "" {
 		return uri, nil
 	}
-	c.clusterURIMu.RUnlock()
 
-	c.clusterURIMu.Lock()
-	defer c.clusterURIMu.Unlock()
-	if c.cachedClusterURI != "" {
-		return c.cachedClusterURI, nil
+	c.discoveryMu.Lock()
+	defer c.discoveryMu.Unlock()
+
+	// Double-check if another concurrent goroutine completed discovery while waiting for discoveryMu
+	if uri := c.getCachedCluster(); uri != "" {
+		return uri, nil
 	}
 
 	portalURL := c.powerBIEndpoint
@@ -188,37 +203,11 @@ func (c *FabricClient) DiscoverClusterURI(ctx context.Context) (string, error) {
 		strings.HasSuffix(parsedPortal.Hostname(), "powerbi.cn")
 	if c.powerBIEndpoint != "" && !isPortalDomain && !isLoopback(parsedPortal.Hostname()) {
 		clean := strings.TrimRight(portalURL, "/")
-		c.cachedClusterURI = clean
+		c.setCachedCluster(clean, "explicit-endpoint")
 		return clean, nil
 	}
 
-	// 2. Loopback test server handling (for unit and acceptance tests with httptest.Server)
-	if isLoopback(parsedPortal.Hostname()) {
-		req, reqErr := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(portalURL, "/")+"/", nil)
-		if reqErr == nil {
-			tok, _ := c.getPowerBIToken(ctx)
-			if tok != "" {
-				c.setPowerBIHeaders(req, tok, false)
-			}
-			resp, doErr := c.httpClient.Do(req)
-			if doErr == nil {
-				_ = resp.Body.Close()
-				for _, sc := range resp.Header.Values("Set-Cookie") {
-					if cluster := extractClusterURIFromCookie(sc); cluster != "" {
-						cluster = strings.TrimRight(cluster, "/")
-						if valErr := validateClusterURI(cluster, parsedPortal.Hostname()); valErr == nil {
-							c.cachedClusterURI = cluster
-							return cluster, nil
-						}
-					}
-				}
-			}
-		}
-		c.cachedClusterURI = strings.TrimRight(portalURL, "/")
-		return c.cachedClusterURI, nil
-	}
-
-	// 3. Upfront Token Acquisition: Verify token can be resolved before making network discovery calls.
+	// 2. Upfront Token Acquisition & Posture Inspection:
 	tok, err := c.getPowerBIToken(ctx)
 	if err != nil {
 		return "", fmt.Errorf("resolving Power BI token for cluster discovery: %w", err)
@@ -227,7 +216,89 @@ func (c *FabricClient) DiscoverClusterURI(ctx context.Context) (string, error) {
 		return "", errors.New("resolving Power BI token for cluster discovery: token provider returned empty token")
 	}
 
-	// 4. Portal Bootstrap URL & Multi-Hop Redirects with cookie collection
+	posture := credentials.InspectTokenPosture(tok, c.getPowerBIAuthSource())
+
+	// 3. Loopback test server handling (for unit and acceptance tests with httptest.Server)
+	if isLoopback(parsedPortal.Hostname()) {
+		// If app-only token on loopback mock, do NOT call portal bootstrap to ensure PortalRequestCount() == 0.
+		if posture.TokenType == "app-only" {
+			return c.discoverViaHomeClusterHeader(ctx, workspaceID, tok, posture, customHost)
+		}
+		req, reqErr := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(portalURL, "/")+"/", nil)
+		if reqErr == nil {
+			req.Header.Set("Authorization", "Bearer "+tok)
+			resp, doErr := c.httpClient.Do(req)
+			if doErr == nil {
+				_ = resp.Body.Close()
+				for _, sc := range resp.Header.Values("Set-Cookie") {
+					if cluster := extractClusterURIFromCookie(sc); cluster != "" {
+						cluster = strings.TrimRight(cluster, "/")
+						if valErr := validateClusterURI(cluster, parsedPortal.Hostname()); valErr == nil {
+							c.setCachedCluster(cluster, "portal-cookie")
+							return cluster, nil
+						}
+					}
+				}
+				if hcu := resp.Header.Get("home-cluster-uri"); hcu != "" {
+					clean := strings.TrimRight(strings.TrimSpace(hcu), "/")
+					if valErr := validateClusterURI(clean, parsedPortal.Hostname()); valErr == nil {
+						c.setCachedCluster(clean, "home-cluster-header")
+						return clean, nil
+					}
+				}
+			}
+		}
+		c.setCachedCluster(strings.TrimRight(portalURL, "/"), "explicit-endpoint")
+		return strings.TrimRight(portalURL, "/"), nil
+	}
+
+	// 4. Conditional token-type discovery routing:
+	switch posture.TokenType {
+	case "app-only":
+		// Service Principal and Managed Identity tokens execute REST home-cluster-uri discovery exclusively,
+		// never querying app.powerbi.com.
+		return c.discoverViaHomeClusterHeader(ctx, workspaceID, tok, posture, customHost)
+
+	case "delegated-user":
+		// Delegated user tokens query portal bootstrap cookie first (proven grant.py flow).
+		cluster, pErr := c.discoverViaPortalCookie(ctx, tok, customHost)
+		if pErr == nil {
+			c.setCachedCluster(cluster, "portal-cookie")
+			return cluster, nil
+		}
+		// Automatic fallback to REST home-cluster-uri headers if portal bootstrap fails.
+		cluster, hErr := c.discoverViaHomeClusterHeader(ctx, workspaceID, tok, posture, customHost)
+		if hErr == nil {
+			return cluster, nil
+		}
+		return "", fmt.Errorf("failed to discover Power BI cluster URI from portal (%w) and fallback REST headers (%w); configure 'powerbi_endpoint' / FABRIC_POWERBI_ENDPOINT", pErr, hErr)
+
+	default: // "opaque"
+		// Try REST home-cluster-uri first, then portal cookie fallback
+		cluster, hErr := c.discoverViaHomeClusterHeader(ctx, workspaceID, tok, posture, customHost)
+		if hErr == nil {
+			return cluster, nil
+		}
+		cluster, pErr := c.discoverViaPortalCookie(ctx, tok, customHost)
+		if pErr == nil {
+			c.setCachedCluster(cluster, "portal-cookie")
+			return cluster, nil
+		}
+		return "", fmt.Errorf("failed to discover Power BI cluster URI (REST headers: %w, portal: %w); configure 'powerbi_endpoint' / FABRIC_POWERBI_ENDPOINT", hErr, pErr)
+	}
+}
+
+func (c *FabricClient) discoverViaPortalCookie(ctx context.Context, tok string, customHost string) (string, error) {
+	portalURL := c.powerBIEndpoint
+	if portalURL == "" {
+		portalURL = credentials.ResolvePowerBIPortalURL(c.environment)
+	}
+
+	parsedPortal, err := url.Parse(portalURL)
+	if err != nil {
+		return "", fmt.Errorf("parsing portal url: %w", err)
+	}
+
 	bootstrapURL := strings.TrimRight(portalURL, "/") + "/"
 	baseTransport := c.httpClient.Transport
 	if baseTransport == nil {
@@ -258,10 +329,8 @@ func (c *FabricClient) DiscoverClusterURI(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("building cluster discovery request: %w", err)
 	}
+	// Wire fidelity with grant.py: send ONLY Authorization: Bearer <token>
 	req.Header.Set("Authorization", "Bearer "+tok)
-	req.Header.Set("Accept", "application/json, text/plain, */*")
-	req.Header.Set("x-powerbi-hostenv", "Power BI Web App")
-	req.Header.Set("Referer", "https://app.fabric.microsoft.com/")
 
 	resp, err := discoveryClient.Do(req)
 	var lastStatus int
@@ -286,7 +355,6 @@ func (c *FabricClient) DiscoverClusterURI(ctx context.Context) (string, error) {
 		if cluster := extractClusterURIFromCookie(sc); cluster != "" {
 			cluster = strings.TrimRight(cluster, "/")
 			if valErr := validateClusterURI(cluster, customHost); valErr == nil {
-				c.cachedClusterURI = cluster
 				return cluster, nil
 			}
 		}
@@ -296,7 +364,6 @@ func (c *FabricClient) DiscoverClusterURI(ctx context.Context) (string, error) {
 		if cluster := extractClusterURIFromCookie(joined); cluster != "" {
 			cluster = strings.TrimRight(cluster, "/")
 			if valErr := validateClusterURI(cluster, customHost); valErr == nil {
-				c.cachedClusterURI = cluster
 				return cluster, nil
 			}
 		}
@@ -315,8 +382,86 @@ func (c *FabricClient) DiscoverClusterURI(ctx context.Context) (string, error) {
 	slices.Sort(cookieNames)
 	cookieNames = slices.Compact(cookieNames)
 
-	return "", fmt.Errorf("failed to discover Power BI cluster URI from %s (no ClusterUri cookie in response, HTTP %d, received cookies: [%s]); ensure credentials have Power BI access or configure 'powerbi_endpoint' / FABRIC_POWERBI_ENDPOINT",
+	return "", fmt.Errorf("no ClusterUri cookie from %s (HTTP %d, received cookies: [%s])",
 		portalURL, lastStatus, strings.Join(cookieNames, ", "))
+}
+
+func (c *FabricClient) discoverViaHomeClusterHeader(ctx context.Context, workspaceID string, pbiToken string, posture credentials.TokenPosture, customHost string) (string, error) {
+	var stepLogs []string
+
+	// Tier 1: Passive Fabric Header from prior 2xx response
+	c.clusterURIMu.RLock()
+	passive := c.passiveHomeClusterURI
+	c.clusterURIMu.RUnlock()
+	if passive != "" {
+		if err := validateBackendClusterURI(passive, customHost); err == nil {
+			c.setCachedCluster(passive, "passive-fabric-header")
+			return passive, nil
+		}
+	}
+	stepLogs = append(stepLogs, "step 1 (passive-fabric-header): no prior 2xx Fabric REST response recorded")
+
+	// Tier 2: Active probe to Fabric REST API
+	probePath := "/v1/workspaces"
+	if workspaceID != "" {
+		probePath = "/v1/workspaces/" + workspaceID
+	}
+	fabHeaders, fabErr := c.doJSON(ctx, http.MethodGet, probePath, nil, nil, nil)
+	if fabErr == nil && fabHeaders != nil {
+		if hcu := fabHeaders.Get("home-cluster-uri"); hcu != "" {
+			clean := strings.TrimRight(strings.TrimSpace(hcu), "/")
+			if err := validateBackendClusterURI(clean, customHost); err == nil {
+				c.setCachedCluster(clean, "fabric-workspace-probe")
+				return clean, nil
+			}
+			stepLogs = append(stepLogs, fmt.Sprintf("step 2 (fabric-workspace-probe): home-cluster-uri %q failed backend validation", clean))
+		} else {
+			stepLogs = append(stepLogs, fmt.Sprintf("step 2 (fabric-workspace-probe %s): 200 OK but home-cluster-uri header missing", probePath))
+		}
+	} else {
+		stepLogs = append(stepLogs, fmt.Sprintf("step 2 (fabric-workspace-probe %s): %v", probePath, fabErr))
+	}
+
+	// Tier 3: Active probe to Power BI REST API (GET /v1.0/myorg/groups?$top=1)
+	pbiBase := c.powerBIAPIBaseURL
+	if pbiBase == "" {
+		if u, err := url.Parse(c.powerBIEndpoint); err == nil && isLoopback(u.Hostname()) {
+			pbiBase = c.powerBIEndpoint
+		} else if u, err := url.Parse(c.baseURL); err == nil && isLoopback(u.Hostname()) {
+			pbiBase = c.baseURL
+		} else {
+			pbiBase = credentials.ResolvePowerBIAPIBaseURL(c.environment)
+		}
+	}
+	pbiBase = strings.TrimRight(pbiBase, "/")
+	groupsURL := fmt.Sprintf("%s/v1.0/myorg/groups?$top=1", pbiBase)
+
+	req, reqErr := http.NewRequestWithContext(ctx, http.MethodGet, groupsURL, nil)
+	if reqErr == nil {
+		req.Header.Set("Authorization", "Bearer "+pbiToken)
+		req.Header.Set("Accept", "application/json")
+		pbiResp, pbiDoErr := c.httpClient.Do(req)
+		if pbiDoErr == nil {
+			defer func() { _ = pbiResp.Body.Close() }()
+			if hcu := pbiResp.Header.Get("home-cluster-uri"); hcu != "" {
+				clean := strings.TrimRight(strings.TrimSpace(hcu), "/")
+				if err := validateBackendClusterURI(clean, customHost); err == nil {
+					c.setCachedCluster(clean, "powerbi-groups-probe")
+					return clean, nil
+				}
+				stepLogs = append(stepLogs, fmt.Sprintf("step 3 (powerbi-groups-probe): home-cluster-uri %q failed backend validation", clean))
+			} else {
+				stepLogs = append(stepLogs, fmt.Sprintf("step 3 (powerbi-groups-probe): HTTP %d but home-cluster-uri header missing", pbiResp.StatusCode))
+			}
+		} else {
+			stepLogs = append(stepLogs, fmt.Sprintf("step 3 (powerbi-groups-probe): request failed: %v", pbiDoErr))
+		}
+	} else {
+		stepLogs = append(stepLogs, fmt.Sprintf("step 3 (powerbi-groups-probe): build request failed: %v", reqErr))
+	}
+
+	return "", fmt.Errorf("failed to discover Power BI cluster URI via REST home-cluster-uri headers (fault_class=ClusterDiscoveryExhausted, caller_posture=[%s], steps=[%s]); configure 'powerbi_endpoint' / FABRIC_POWERBI_ENDPOINT",
+		posture.Format(), strings.Join(stepLogs, "; "))
 }
 
 func extractClusterURIFromCookie(cookieHeader string) string {
@@ -391,6 +536,8 @@ func validateRedirectURL(raw string, allowedCustomHost string) error {
 		".analysis.chinacloudapi.cn",
 		".pbidedicated.windows.net",
 		".powerbi.com",
+		".powerbigov.us",
+		".powerbi.cn",
 	}
 	for _, suffix := range allowedSuffixes {
 		if host == strings.TrimPrefix(suffix, ".") || strings.HasSuffix(host, suffix) {
@@ -432,6 +579,8 @@ func validateClusterURI(raw string, allowedCustomHost string) error {
 		".analysis.chinacloudapi.cn",
 		".pbidedicated.windows.net",
 		".powerbi.com",
+		".powerbigov.us",
+		".powerbi.cn",
 	}
 	for _, suffix := range allowedSuffixes {
 		if host == strings.TrimPrefix(suffix, ".") || strings.HasSuffix(host, suffix) {
@@ -439,6 +588,70 @@ func validateClusterURI(raw string, allowedCustomHost string) error {
 		}
 	}
 	return fmt.Errorf("cluster uri host %q is not an authorized Power BI domain", host)
+}
+
+func validateBackendClusterURI(raw string, allowedCustomHost string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("parsing backend cluster uri: %w", err)
+	}
+	if u.Scheme != "https" {
+		if u.Scheme != "http" || !isLoopback(u.Hostname()) {
+			return fmt.Errorf("backend cluster uri scheme must be https, got %q", u.Scheme)
+		}
+	}
+	if u.User != nil {
+		return errors.New("backend cluster uri must not contain credentials")
+	}
+	if u.Path != "" && u.Path != "/" {
+		return errors.New("backend cluster uri must not contain path segments")
+	}
+	if u.RawQuery != "" || u.Fragment != "" {
+		return fmt.Errorf("backend cluster uri must not contain query parameters or fragment")
+	}
+	host := strings.ToLower(u.Hostname())
+	if isLoopback(host) {
+		return nil
+	}
+
+	// Reject portal frontends, API gateways, and domain apexes from being cached as backend clusters.
+	disallowedPrefixes := []string{"app.", "api."}
+	disallowedSuffixes := []string{
+		"powerbi.com",
+		"powerbigov.us",
+		"powerbi.cn",
+		"fabric.microsoft.com",
+	}
+	for _, dis := range disallowedSuffixes {
+		if host == dis || strings.HasSuffix(host, "."+dis) {
+			for _, pre := range disallowedPrefixes {
+				if strings.HasPrefix(host, pre) {
+					return fmt.Errorf("host %q is a frontend portal or API gateway, not a regional backend cluster", host)
+				}
+			}
+			if host == dis {
+				return fmt.Errorf("host %q is a domain apex, not a regional backend cluster", host)
+			}
+		}
+	}
+
+	if allowedCustomHost != "" && host == strings.ToLower(allowedCustomHost) {
+		return nil
+	}
+
+	allowedBackendSuffixes := []string{
+		".analysis.windows.net",
+		".analysis.usgovcloudapi.net",
+		".analysis.chinacloudapi.cn",
+		".pbidedicated.windows.net",
+	}
+	for _, suffix := range allowedBackendSuffixes {
+		if host == strings.TrimPrefix(suffix, ".") || strings.HasSuffix(host, suffix) {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("cluster uri host %q is not an authorized Power BI backend cluster", host)
 }
 
 func isLoopback(host string) bool {
@@ -623,9 +836,116 @@ func (c *FabricClient) doPowerBIRequest(ctx context.Context, req *http.Request) 
 	return nil, errors.New("exceeded maximum retries for powerbi request")
 }
 
+// PowerBIHTTPError represents a structured error returned by Power BI metadata endpoints.
+type PowerBIHTTPError struct {
+	StatusCode    int
+	FaultClass    string
+	Operation     string
+	XPowerBIError string
+	RequestID     string
+	ActivityID    string
+	ClusterSource string
+	CallerPosture string
+	ResponseBody  string
+}
+
+func (e *PowerBIHTTPError) Error() string {
+	var parts []string
+	if e.FaultClass != "" {
+		parts = append(parts, fmt.Sprintf("fault_class=%s", e.FaultClass))
+	}
+	if e.StatusCode != 0 {
+		parts = append(parts, fmt.Sprintf("status_code=%d", e.StatusCode))
+	}
+	if e.XPowerBIError != "" {
+		parts = append(parts, fmt.Sprintf("x_powerbi_error=%s", e.XPowerBIError))
+	}
+	if e.RequestID != "" {
+		parts = append(parts, fmt.Sprintf("request_id=%s", e.RequestID))
+	}
+	if e.ActivityID != "" {
+		parts = append(parts, fmt.Sprintf("activity_id=%s", e.ActivityID))
+	}
+	if e.ClusterSource != "" {
+		parts = append(parts, fmt.Sprintf("cluster_source=%s", e.ClusterSource))
+	}
+	if e.CallerPosture != "" {
+		parts = append(parts, fmt.Sprintf("caller_posture=[%s]", e.CallerPosture))
+	}
+	if e.ResponseBody != "" {
+		parts = append(parts, fmt.Sprintf("response_body=%q", e.ResponseBody))
+	}
+
+	hint := ""
+	switch e.FaultClass {
+	case "ServicePrincipalTenantRoleConflict":
+		hint = " (hint: The Service Principal has Power BI tenant-scoped application permissions ('Tenant.ReadWrite.All' or 'Tenant.Read.All'). Microsoft Power BI Admin APIs paradoxically reject SPNs bearing Tenant.* app roles with HTTP 401 PowerBINotAuthorizedException when 'Allow service principals to use Fabric APIs' tenant setting is enabled. Workarounds: (1) Use an SPN without Tenant.* app roles for Fabric/PowerBI metadata operations, or (2) Configure 'powerbi_endpoint' / FABRIC_POWERBI_ENDPOINT directly.)"
+	case "ServicePrincipalMetadataAccessRejected":
+		hint = " (hint: Power BI metadata endpoint rejected Service Principal request. Verify that the Service Principal is assigned Admin/Member/Contributor role on the workspace, that 'Service principals can use Fabric APIs' is enabled in the Fabric Admin Portal, or configure 'powerbi_endpoint' / FABRIC_POWERBI_ENDPOINT directly.)"
+	}
+
+	opDesc := "powerbi metadata operation"
+	if e.Operation != "" {
+		opDesc = e.Operation
+	}
+
+	return fmt.Sprintf("powerbi API error during %s (HTTP %d): [%s]%s", opDesc, e.StatusCode, strings.Join(parts, ", "), hint)
+}
+
+func (c *FabricClient) formatPowerBIHTTPError(resp *http.Response, bodyBytes []byte, operation string, posture credentials.TokenPosture) error {
+	var xPowerBIError, reqID, actID string
+	if resp != nil && resp.Header != nil {
+		xPowerBIError = resp.Header.Get("X-PowerBI-Error-Info")
+		reqID = resp.Header.Get("RequestId")
+		if reqID == "" {
+			reqID = resp.Header.Get("requestid")
+		}
+		actID = resp.Header.Get("activityid")
+		if actID == "" {
+			actID = resp.Header.Get("ActivityId")
+		}
+		if actID == "" {
+			actID = resp.Header.Get("X-PowerBI-ActivityId")
+		}
+	}
+
+	status := 0
+	if resp != nil {
+		status = resp.StatusCode
+	}
+
+	faultClass := "PowerBIHTTPError"
+	if status == http.StatusUnauthorized || status == http.StatusForbidden {
+		switch {
+		case posture.HasTenantRoles:
+			faultClass = "ServicePrincipalTenantRoleConflict"
+		case posture.TokenType == "app-only":
+			faultClass = "ServicePrincipalMetadataAccessRejected"
+		default:
+			faultClass = "AdminAPIAccessDenied"
+		}
+	}
+
+	c.clusterURIMu.RLock()
+	clusterSource := c.cachedClusterSource
+	c.clusterURIMu.RUnlock()
+
+	return &PowerBIHTTPError{
+		StatusCode:    status,
+		FaultClass:    faultClass,
+		Operation:     operation,
+		XPowerBIError: xPowerBIError,
+		RequestID:     reqID,
+		ActivityID:    actID,
+		ClusterSource: clusterSource,
+		CallerPosture: posture.Format(),
+		ResponseBody:  scrubAndCapBody(bodyBytes),
+	}
+}
+
 // GetItemDirectPermissions reads direct item-level permissions for a principal on a Fabric item.
 func (c *FabricClient) GetItemDirectPermissions(ctx context.Context, workspaceID, itemID, itemType, principalID string) (*ItemDirectShare, error) {
-	cluster, err := c.DiscoverClusterURI(ctx)
+	cluster, err := c.discoverClusterURI(ctx, workspaceID)
 	if err != nil {
 		return nil, fmt.Errorf("discovering cluster uri: %w", err)
 	}
@@ -634,6 +954,7 @@ func (c *FabricClient) GetItemDirectPermissions(ctx context.Context, workspaceID
 	if err != nil {
 		return nil, fmt.Errorf("acquiring power bi token: %w", err)
 	}
+	posture := credentials.InspectTokenPosture(tok, c.getPowerBIAuthSource())
 
 	reqURL := fmt.Sprintf("%s/metadata/access/artifacts/%s", cluster, itemID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
@@ -662,12 +983,17 @@ func (c *FabricClient) GetItemDirectPermissions(ctx context.Context, workspaceID
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("powerbi API error (HTTP %d): %s", resp.StatusCode, scrubAndCapBody(body))
+		return nil, c.formatPowerBIHTTPError(resp, body, "get artifact access", posture)
 	}
 
 	var rawResp rawArtifactAccessResponse
 	if err := json.Unmarshal(body, &rawResp); err != nil {
 		return nil, fmt.Errorf("unmarshaling artifact access response: %w", err)
+	}
+
+	artifactID := rawResp.ID
+	if artifactID == 0 && len(rawResp.ArtifactAccessEntities) > 0 {
+		artifactID = rawResp.ArtifactAccessEntities[0].ID
 	}
 
 	details := rawResp.Detail
@@ -696,11 +1022,12 @@ func (c *FabricClient) GetItemDirectPermissions(ctx context.Context, workspaceID
 				matchedDirect = &ItemDirectShare{
 					PrincipalID:            principalID,
 					PrincipalType:          pType,
+					InternalArtifactID:     artifactID,
 					RawPermissions:         detail.Permissions,
 					RawArtifactPermissions: detail.ArtifactPermissions,
 					InternalUserID:         detail.UserID,
 					InternalGroupID:        detail.GroupID,
-					IsServicePrincipal:     detail.IsServicePrincipal,
+					IsServicePrincipal:     detail.IsServicePrincipal || detail.AADAppID != "",
 				}
 			} else {
 				matchedDirect.RawPermissions |= detail.Permissions
@@ -711,8 +1038,11 @@ func (c *FabricClient) GetItemDirectPermissions(ctx context.Context, workspaceID
 				if detail.GroupID != 0 {
 					matchedDirect.InternalGroupID = detail.GroupID
 				}
-				if detail.IsServicePrincipal {
+				if detail.IsServicePrincipal || detail.AADAppID != "" {
 					matchedDirect.IsServicePrincipal = true
+				}
+				if matchedDirect.InternalArtifactID == 0 && artifactID != 0 {
+					matchedDirect.InternalArtifactID = artifactID
 				}
 			}
 		}
@@ -736,7 +1066,7 @@ func (c *FabricClient) UpsertItemDirectPermissions(ctx context.Context, workspac
 	lock.Lock()
 	defer lock.Unlock()
 
-	cluster, err := c.DiscoverClusterURI(ctx)
+	cluster, err := c.discoverClusterURI(ctx, workspaceID)
 	if err != nil {
 		return fmt.Errorf("discovering cluster uri: %w", err)
 	}
@@ -768,8 +1098,12 @@ func (c *FabricClient) UpsertItemDirectPermissions(ctx context.Context, workspac
 	// If updating an existing grant with notify=true and permissions changed, first execute PUT /metadata/access
 	// to ensure exact bitmask assignment without additive bit accumulation on revocation/downgrade.
 	if existing != nil && share.Notify && (existing.RawPermissions != coreBitmask || existing.RawArtifactPermissions != artifactBitmask) {
+		targetArtifactID := 1
+		if existing.InternalArtifactID != 0 {
+			targetArtifactID = existing.InternalArtifactID
+		}
 		putEntry := artifactGrantEntry{
-			ID:                  1,
+			ID:                  targetArtifactID,
 			ArtifactObjectID:    itemID,
 			Permissions:         coreBitmask,
 			ArtifactPermissions: artifactBitmask,
@@ -817,15 +1151,21 @@ func (c *FabricClient) UpsertItemDirectPermissions(ctx context.Context, workspac
 		if err != nil {
 			return fmt.Errorf("executing put access update: %w", err)
 		}
-		_ = putResp.Body.Close()
+		defer func() { _ = putResp.Body.Close() }()
 		if putResp.StatusCode < 200 || putResp.StatusCode >= 300 {
-			return fmt.Errorf("powerbi API put access update failed (HTTP %d)", putResp.StatusCode)
+			putBody, _ := io.ReadAll(io.LimitReader(putResp.Body, 4096+1))
+			posture := credentials.InspectTokenPosture(tok, c.getPowerBIAuthSource())
+			return c.formatPowerBIHTTPError(putResp, putBody, "put access update", posture)
 		}
 	}
 
 	method := http.MethodPost
+	targetArtifactID := 1
+	if existing != nil && existing.InternalArtifactID != 0 {
+		targetArtifactID = existing.InternalArtifactID
+	}
 	entry := artifactGrantEntry{
-		ID:                  1,
+		ID:                  targetArtifactID,
 		ArtifactObjectID:    itemID,
 		Permissions:         coreBitmask,
 		ArtifactPermissions: artifactBitmask,
@@ -919,7 +1259,8 @@ func (c *FabricClient) UpsertItemDirectPermissions(ctx context.Context, workspac
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096+1))
-		return fmt.Errorf("powerbi API access grant failed (HTTP %d): %s", resp.StatusCode, scrubAndCapBody(body))
+		posture := credentials.InspectTokenPosture(tok, c.getPowerBIAuthSource())
+		return c.formatPowerBIHTTPError(resp, body, fmt.Sprintf("access grant (%s)", method), posture)
 	}
 
 	// Read-back verification loop (up to 10 seconds, accelerated in test environments)
@@ -985,13 +1326,17 @@ func (c *FabricClient) RevokeItemDirectPermissions(ctx context.Context, workspac
 		return nil // Already absent
 	}
 
-	cluster, err := c.DiscoverClusterURI(ctx)
+	cluster, err := c.discoverClusterURI(ctx, workspaceID)
 	if err != nil {
 		return fmt.Errorf("discovering cluster uri: %w", err)
 	}
 
+	targetArtifactID := 1
+	if existing.InternalArtifactID != 0 {
+		targetArtifactID = existing.InternalArtifactID
+	}
 	entry := artifactGrantEntry{
-		ID:                  1,
+		ID:                  targetArtifactID,
 		ArtifactObjectID:    itemID,
 		Permissions:         0,
 		ArtifactPermissions: 0,
@@ -1063,7 +1408,8 @@ func (c *FabricClient) RevokeItemDirectPermissions(ctx context.Context, workspac
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096+1))
-		return fmt.Errorf("powerbi API revocation failed (HTTP %d): %s", resp.StatusCode, scrubAndCapBody(body))
+		posture := credentials.InspectTokenPosture(tok, c.getPowerBIAuthSource())
+		return c.formatPowerBIHTTPError(resp, body, "revocation update", posture)
 	}
 
 	// Read-back verification loop (up to 5 seconds, accelerated in test environments)

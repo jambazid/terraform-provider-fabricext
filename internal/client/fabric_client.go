@@ -167,15 +167,45 @@ func (e *UnsupportedItemTypeError) Error() string {
 
 // AdminAPIAccessDeniedError indicates that the caller does not have sufficient Fabric Administrator or tenant-level permissions to access the Admin API.
 type AdminAPIAccessDeniedError struct {
-	WorkspaceID string
-	ItemID      string
-	Message     string
+	WorkspaceID   string
+	ItemID        string
+	StatusCode    int
+	FaultClass    string // "ServicePrincipalTenantRoleConflict" or "AdminAPIAccessDenied"
+	XPowerBIError string
+	RequestID     string
+	ActivityID    string
+	CallerPosture string
+	Message       string
 }
 
 func (e *AdminAPIAccessDeniedError) Error() string {
+	var parts []string
+	if e.FaultClass != "" {
+		parts = append(parts, fmt.Sprintf("fault_class=%s", e.FaultClass))
+	}
+	if e.StatusCode != 0 {
+		parts = append(parts, fmt.Sprintf("status_code=%d", e.StatusCode))
+	}
+	if e.XPowerBIError != "" {
+		parts = append(parts, fmt.Sprintf("x_powerbi_error=%s", e.XPowerBIError))
+	}
+	if e.RequestID != "" {
+		parts = append(parts, fmt.Sprintf("request_id=%s", e.RequestID))
+	}
+	if e.ActivityID != "" {
+		parts = append(parts, fmt.Sprintf("activity_id=%s", e.ActivityID))
+	}
+	if e.CallerPosture != "" {
+		parts = append(parts, fmt.Sprintf("caller_posture=[%s]", e.CallerPosture))
+	}
+
 	base := fmt.Sprintf("access denied to Fabric Admin APIs for item %q in workspace %q: caller must be a Fabric Administrator or a service principal enrolled in the tenant setting 'Service principals can access read-only admin APIs' with scope Tenant.Read.All or Tenant.ReadWrite.All", e.ItemID, e.WorkspaceID)
 	if e.Message != "" {
-		return fmt.Sprintf("%s (upstream error: %s)", base, e.Message)
+		base = fmt.Sprintf("%s (upstream error: %s)", base, e.Message)
+	}
+
+	if len(parts) > 0 {
+		return fmt.Sprintf("%s [%s]", base, strings.Join(parts, ", "))
 	}
 	return base
 }
@@ -258,11 +288,14 @@ func (e *SilentPermissionDropError) Error() string {
 type Config struct {
 	Endpoint             string
 	PowerBIEndpoint      string
+	PowerBIAPIBaseURL    string
 	Environment          string
 	HTTPClient           *http.Client
 	CredentialChain      *credentials.Chain
 	TokenProvider        func(ctx context.Context) (string, error)
 	PowerBITokenProvider func(ctx context.Context) (string, error)
+	FabricAuthSource     string
+	PowerBIAuthSource    string
 	MaxRetries           int
 	MaxETagRetries       int
 	BaseBackoff          time.Duration
@@ -277,21 +310,62 @@ type itemCacheKey struct {
 type FabricClient struct {
 	baseURL              string
 	powerBIEndpoint      string
+	powerBIAPIBaseURL    string
 	environment          string
 	httpClient           *http.Client
 	tokenProvider        func(ctx context.Context) (string, error)
 	powerBITokenProvider func(ctx context.Context) (string, error)
+	authMu               sync.RWMutex
+	fabricAuthSource     string
+	powerBIAuthSource    string
 	maxRetries           int
 	maxETagRetries       int
 	baseBackoff          time.Duration
 
-	cacheMu          sync.Mutex
-	itemCache        map[itemCacheKey]map[string]string
-	lakehouseLocks   sync.Map // map[string]*sync.Mutex keyed by workspaceID + "/" + lakehouseID
-	adminMu          sync.Mutex
-	itemAccessLocks  sync.Map // map[string]*sync.Mutex keyed by workspaceID + "/" + itemID
-	clusterURIMu     sync.RWMutex
-	cachedClusterURI string
+	cacheMu               sync.Mutex
+	itemCache             map[itemCacheKey]map[string]string
+	lakehouseLocks        sync.Map // map[string]*sync.Mutex keyed by workspaceID + "/" + lakehouseID
+	adminMu               sync.Mutex
+	itemAccessLocks       sync.Map // map[string]*sync.Mutex keyed by workspaceID + "/" + itemID
+	clusterURIMu          sync.RWMutex
+	discoveryMu           sync.Mutex
+	cachedClusterURI      string
+	cachedClusterSource   string
+	passiveHomeClusterURI string
+}
+
+func (c *FabricClient) setFabricAuthSource(src string) {
+	if src == "" {
+		return
+	}
+	c.authMu.Lock()
+	if c.fabricAuthSource == "" {
+		c.fabricAuthSource = src
+	}
+	c.authMu.Unlock()
+}
+
+func (c *FabricClient) getFabricAuthSource() string {
+	c.authMu.RLock()
+	defer c.authMu.RUnlock()
+	return c.fabricAuthSource
+}
+
+func (c *FabricClient) setPowerBIAuthSource(src string) {
+	if src == "" {
+		return
+	}
+	c.authMu.Lock()
+	if c.powerBIAuthSource == "" {
+		c.powerBIAuthSource = src
+	}
+	c.authMu.Unlock()
+}
+
+func (c *FabricClient) getPowerBIAuthSource() string {
+	c.authMu.RLock()
+	defer c.authMu.RUnlock()
+	return c.powerBIAuthSource
 }
 
 // NewFabricClient creates a new FabricClient with normalized endpoint and retry defaults.
@@ -306,10 +380,26 @@ func NewFabricClient(cfg Config) (*FabricClient, error) {
 	powerBIEndpoint := strings.TrimSpace(cfg.PowerBIEndpoint)
 	powerBIEndpoint = strings.TrimRight(powerBIEndpoint, "/")
 
+	powerBIAPIBaseURL := strings.TrimSpace(cfg.PowerBIAPIBaseURL)
+	if powerBIAPIBaseURL == "" {
+		if u, err := url.Parse(powerBIEndpoint); err == nil && isLoopback(u.Hostname()) {
+			powerBIAPIBaseURL = powerBIEndpoint
+		} else if u, err := url.Parse(endpoint); err == nil && isLoopback(u.Hostname()) {
+			powerBIAPIBaseURL = endpoint
+		} else {
+			powerBIAPIBaseURL = credentials.ResolvePowerBIAPIBaseURL(cfg.Environment)
+		}
+	}
+	powerBIAPIBaseURL = strings.TrimRight(powerBIAPIBaseURL, "/")
+
 	httpClient := cfg.HTTPClient
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: defaultTimeout}
 	}
+
+	var clientRef *FabricClient
+	fabricAuthSource := strings.TrimSpace(cfg.FabricAuthSource)
+	powerBIAuthSource := strings.TrimSpace(cfg.PowerBIAuthSource)
 
 	tokenProvider := cfg.TokenProvider
 	if tokenProvider == nil && cfg.CredentialChain != nil {
@@ -318,6 +408,9 @@ func NewFabricClient(cfg Config) (*FabricClient, error) {
 			creds, err := chain.Resolve(ctx)
 			if err != nil {
 				return "", err
+			}
+			if clientRef != nil {
+				clientRef.setFabricAuthSource(creds.Source)
 			}
 			return creds.AccessToken, nil
 		}
@@ -334,6 +427,9 @@ func NewFabricClient(cfg Config) (*FabricClient, error) {
 			creds, err := chain.ResolveForScope(ctx, pbiScope)
 			if err != nil {
 				return "", err
+			}
+			if clientRef != nil {
+				clientRef.setPowerBIAuthSource(creds.Source)
 			}
 			return creds.AccessToken, nil
 		}
@@ -352,18 +448,23 @@ func NewFabricClient(cfg Config) (*FabricClient, error) {
 		baseBackoff = defaultBaseBackoff
 	}
 
-	return &FabricClient{
+	client := &FabricClient{
 		baseURL:              endpoint,
 		powerBIEndpoint:      powerBIEndpoint,
+		powerBIAPIBaseURL:    powerBIAPIBaseURL,
 		environment:          cfg.Environment,
 		httpClient:           httpClient,
 		tokenProvider:        tokenProvider,
 		powerBITokenProvider: pbiTokenProvider,
+		fabricAuthSource:     fabricAuthSource,
+		powerBIAuthSource:    powerBIAuthSource,
 		maxRetries:           maxRetries,
 		maxETagRetries:       maxETagRetries,
 		baseBackoff:          baseBackoff,
 		itemCache:            make(map[itemCacheKey]map[string]string),
-	}, nil
+	}
+	clientRef = client
+	return client, nil
 }
 
 // BaseBackoff returns the configured base backoff duration for the client.
@@ -1090,17 +1191,38 @@ func (c *FabricClient) ListItemAccessDetails(ctx context.Context, workspaceID, i
 	}
 
 	var resp ItemAccessDetailsResponse
-	if _, err := c.doJSON(ctx, http.MethodGet, path, nil, nil, &resp); err != nil {
+	headers, err := c.doJSON(ctx, http.MethodGet, path, nil, nil, &resp)
+	if err != nil {
 		var apiErr *APIError
-		if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusForbidden {
-			var msg string
-			if apiErr.Message != "" {
-				msg = apiErr.Message
+		if errors.As(err, &apiErr) && (apiErr.StatusCode == http.StatusForbidden || apiErr.StatusCode == http.StatusUnauthorized) {
+			tok, _ := c.tokenProvider(ctx)
+			posture := credentials.InspectTokenPosture(tok, c.getFabricAuthSource())
+
+			faultClass := "AdminAPIAccessDenied"
+			if posture.HasTenantRoles {
+				faultClass = "ServicePrincipalTenantRoleConflict"
 			}
+
+			var xPowerBIError, reqID, actID string
+			if headers != nil {
+				xPowerBIError = headers.Get("X-PowerBI-Error-Info")
+				reqID = headers.Get("RequestId")
+				actID = headers.Get("activityid")
+			}
+			if reqID == "" && apiErr.RequestID != "" {
+				reqID = apiErr.RequestID
+			}
+
 			return nil, &AdminAPIAccessDeniedError{
-				WorkspaceID: workspaceID,
-				ItemID:      itemID,
-				Message:     msg,
+				WorkspaceID:   workspaceID,
+				ItemID:        itemID,
+				StatusCode:    apiErr.StatusCode,
+				FaultClass:    faultClass,
+				XPowerBIError: xPowerBIError,
+				RequestID:     reqID,
+				ActivityID:    actID,
+				CallerPosture: posture.Format(),
+				Message:       apiErr.Message,
 			}
 		}
 		if IsNotFound(err) {
@@ -1114,6 +1236,19 @@ func (c *FabricClient) ListItemAccessDetails(ctx context.Context, workspaceID, i
 	}
 
 	return &resp, nil
+}
+
+func (c *FabricClient) recordPassiveHomeClusterURI(uri string) {
+	clean := strings.TrimRight(strings.TrimSpace(uri), "/")
+	if err := validateBackendClusterURI(clean, ""); err == nil {
+		c.clusterURIMu.Lock()
+		c.passiveHomeClusterURI = clean
+		if c.cachedClusterURI == "" {
+			c.cachedClusterURI = clean
+			c.cachedClusterSource = "passive-fabric-header"
+		}
+		c.clusterURIMu.Unlock()
+	}
 }
 
 func (c *FabricClient) doJSON(ctx context.Context, method, path string, headers http.Header, reqBody any, respOut any) (http.Header, error) {
@@ -1171,6 +1306,9 @@ func (c *FabricClient) doJSON(ctx context.Context, method, path string, headers 
 				if err := json.Unmarshal(respBytes, respOut); err != nil {
 					return nil, fmt.Errorf("decode response JSON from %s %s: %w", method, path, err)
 				}
+			}
+			if hcu := resp.Header.Get("home-cluster-uri"); hcu != "" && c.powerBIEndpoint == "" {
+				c.recordPassiveHomeClusterURI(hcu)
 			}
 			return resp.Header, nil
 		}
