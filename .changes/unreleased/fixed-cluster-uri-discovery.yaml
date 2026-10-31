@@ -1,7 +1,0 @@
-kind: fixed
-body: >-
-  Align Power BI ClusterUri discovery with upstream runtime behavior via redirect cookie tracking
-  and upfront token resolution; add native GitHub Actions OIDC (ACTIONS_ID_TOKEN_REQUEST_URL),
-  FABRIC_POWERBI_ENDPOINT fast-path, Execute core permission bitmask (64), explicit null JSON
-  fields, and reduce initial item share gate backoff to 5s.
-time: 2026-10-31T08:00:00.000000000+00:00

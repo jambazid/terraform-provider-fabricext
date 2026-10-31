@@ -2,7 +2,7 @@
 
 > **Provider Notice:** `terraform-provider-fabricext` (`registry.terraform.io/jambazid/fabricext`) is a purpose-built Terraform Plugin Framework (Protocol v6) provider for declaratively managing Microsoft Fabric Lakehouse OneLake Data Access Roles, security lifecycles, and advanced governance extensions (`fabricext_*`). For standard workspace and item provisioning, see Microsoft's official [`microsoft/fabric` Terraform provider](https://github.com/microsoft/terraform-provider-fabric).
 >
-> **Pre-Alpha Stability Notice:** This provider is currently in **pre-alpha** (`v0.x`) and is **not stable**. Resource schemas, API contracts, and state representations may change without backwards compatibility prior to `v1.0.0`. Consumers must pin provider versions (`~> 0.7.0`) in `required_providers`.
+> **Pre-Alpha Stability Notice:** This provider is currently in **pre-alpha** (`v0.x`) and is **not stable**. Resource schemas, API contracts, and state representations may change without backwards compatibility prior to `v1.0.0`. Consumers must pin provider versions (`~> 0.7.1`) in `required_providers`.
 
 ---
 
