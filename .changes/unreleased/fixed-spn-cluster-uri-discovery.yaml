@@ -1,8 +1,0 @@
-kind: fixed
-body: >-
-  Add conditional Power BI cluster URI discovery routing based on token posture (routing
-  app-only Service Principal and Managed Identity tokens via GET /v1.0/myorg/groups
-  home-cluster-uri response headers to avoid portal 403 Forbidden errors), provide rich
-  balanced default diagnostic error summaries on authentication failures, include root
-  integer id on PUT /metadata/access, and map detail.AADAppID to IsServicePrincipal.
-time: 2026-10-31T11:15:00.000000000+00:00

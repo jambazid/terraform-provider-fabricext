@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## v0.7.2 - October 31, 2026
+
+### 🪲 Fixed
+
+* Add conditional Power BI cluster URI discovery routing based on token posture (routing app-only Service Principal and Managed Identity tokens via GET /v1.0/myorg/groups home-cluster-uri response headers to avoid portal 403 Forbidden errors), provide rich balanced default diagnostic error summaries on authentication failures, include root integer id on PUT /metadata/access, and map detail.AADAppID to IsServicePrincipal.
+
 ## v0.7.1 - October 31, 2026
 
 ### 🪲 Fixed
