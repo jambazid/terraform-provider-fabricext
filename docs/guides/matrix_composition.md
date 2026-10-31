@@ -151,7 +151,7 @@ Provisions standard Lakehouse storage paths using simple mode:
 
 ```hcl
 module "workspace_permissions" {
-  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=v0.7.1"
+  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=v0.7.2"
 
   fabric_permissions_matrix = {
     workspace_id = "00000000-0000-0000-0000-000000000001"
@@ -178,7 +178,7 @@ Restricts Lakehouse queries to authorized rows using T-SQL Boolean predicates in
 
 ```hcl
 module "workspace_permissions" {
-  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=v0.7.1"
+  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=v0.7.2"
 
   fabric_permissions_matrix = {
     workspace_id = "00000000-0000-0000-0000-000000000001"
@@ -220,7 +220,7 @@ Limits Lakehouse column access using an explicit allowlist in `column_constraint
 
 ```hcl
 module "workspace_permissions" {
-  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=v0.7.1"
+  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=v0.7.2"
 
   fabric_permissions_matrix = {
     workspace_id = "00000000-0000-0000-0000-000000000001"
@@ -264,7 +264,7 @@ In simple mode, roles require uniform principal types. In advanced mode (`entra_
 
 ```hcl
 module "workspace_permissions" {
-  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=v0.7.1"
+  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=v0.7.2"
 
   fabric_permissions_matrix = {
     workspace_id = "00000000-0000-0000-0000-000000000001"
@@ -311,7 +311,7 @@ Dynamically derives role membership from users holding item permissions on anoth
 
 ```hcl
 module "workspace_permissions" {
-  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=v0.7.1"
+  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=v0.7.2"
 
   fabric_permissions_matrix = {
     workspace_id = "00000000-0000-0000-0000-000000000001"
@@ -353,7 +353,7 @@ You can configure this behavior or opt out via matrix flags:
 
 ```hcl
 module "workspace_permissions" {
-  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=v0.7.1"
+  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=v0.7.2"
 
   fabric_permissions_matrix = {
     workspace_id = "00000000-0000-0000-0000-000000000001"
@@ -384,7 +384,7 @@ Item-level permissions across Warehouses, SQL Databases, and Lakehouses can be d
 
 ```hcl
 module "workspace_permissions" {
-  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=v0.7.1"
+  source = "github.com/jambazid/terraform-provider-fabricext//modules/permissions?ref=v0.7.2"
 
   fabric_permissions_matrix = {
     workspace_id = "00000000-0000-0000-0000-000000000001"
