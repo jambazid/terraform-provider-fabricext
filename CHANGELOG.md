@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## v0.7.3 - November 03, 2026
+
+### 🪲 Fixed
+
+* Support numeric userType (0/1) and nullable userId/groupId on Power BI metadata responses, add POWERBI_ACCESS_TOKEN environment variable aliases, refine app-only metadata diagnostics to AppOnlyMetadataAccessUnsupported, enforce plan-time item identifier validation, propagate RequiresReplaceIfConfigured uniformly across Lakehouse roles and security, harden HTTP connection pooling during cluster discovery, and update pbimock contract fidelity.
+
 ## v0.7.2 - October 31, 2026
 
 ### 🪲 Fixed
