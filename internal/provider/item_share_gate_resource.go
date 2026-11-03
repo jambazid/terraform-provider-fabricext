@@ -124,7 +124,7 @@ func (r *ItemShareGateResource) Schema(_ context.Context, _ resource.SchemaReque
 			"principal_type": schema.StringAttribute{
 				Optional:            true,
 				Computed:            true,
-				MarkdownDescription: "Optional principal type filter (`User`, `Group`, `ServicePrincipal`, `ServicePrincipalProfile`, `EntireTenant`).",
+				MarkdownDescription: "Optional principal type filter (`User`, `Group`, `ServicePrincipal`, `ManagedIdentity`, `ServicePrincipalProfile`, `EntireTenant`).",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 					stringplanmodifier.UseStateForUnknown(),

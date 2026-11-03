@@ -1254,7 +1254,7 @@ func fetchOIDCAssertion(ctx context.Context, requestURL, requestToken string, tr
 		_ = resp.Body.Close()
 	}()
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return "", fmt.Errorf("reading OIDC assertion response: %w", err)
 	}

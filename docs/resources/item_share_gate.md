@@ -46,7 +46,7 @@ resource "fabricext_item_share_gate" "warehouse_connect" {
 ### Optional
 
 - `match_type` (String) Matching strategy: `subset` asserts that the principal holds at least the expected permissions (default); `exact` asserts an exact match of permissions.
-- `principal_type` (String) Optional principal type filter (`User`, `Group`, `ServicePrincipal`, `ServicePrincipalProfile`, `EntireTenant`).
+- `principal_type` (String) Optional principal type filter (`User`, `Group`, `ServicePrincipal`, `ManagedIdentity`, `ServicePrincipalProfile`, `EntireTenant`).
 - `timeouts` (Block, Optional) Timeout configuration for verification operations. (see [below for nested schema](#nestedblock--timeouts))
 - `type` (String) Optional item type for route disambiguation (e.g., `Warehouse`, `Lakehouse`, `SQLDatabase`, `SQLEndpoint`, `Report`).
 

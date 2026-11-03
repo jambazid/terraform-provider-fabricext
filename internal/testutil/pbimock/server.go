@@ -422,11 +422,12 @@ func (s *Server) handleAccess(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	callback := s.OnMutation
 	s.mu.Unlock()
 
-	for _, ev := range events {
-		if s.OnMutation != nil {
-			s.OnMutation(ev.action, ev.itemID, ev.principalID, ev.perms)
+	if callback != nil {
+		for _, ev := range events {
+			callback(ev.action, ev.itemID, ev.principalID, ev.perms)
 		}
 	}
 

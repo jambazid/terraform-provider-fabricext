@@ -645,7 +645,7 @@ Item-level permissions across Fabric Warehouses, Lakehouses, and SQL Databases a
 2. **Managed-Bit Mask Check on `PUT`**: When updating existing grants via `PUT /metadata/access`, read-back verifies `(stored & managedMask) == (sent & managedMask)`, ensuring configured bits match while ignoring unmanaged system flags.
 3. **Standalone `"Read"` Validation**: Standalone resources (`fabricext_warehouse_permission`, `fabricext_sql_database_permission`, `fabricext_lakehouse_permission`) enforce that `"Read"` is included in `permissions` during `ValidateConfig`, preventing perpetual plan drift.
 
-### 15.5 Share Gate Sanity Lever & Backoff
+### 15.5 Share Gate & Backoff
 
 Every `fabricext_*_permission` inside `modules/permissions` chains directly to a post-grant `fabricext_item_share_gate` Admin API verification resource:
 

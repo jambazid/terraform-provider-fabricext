@@ -63,8 +63,11 @@ func normalizePrincipalType(itemType, pt string) (string, error) {
 		return "", fmt.Errorf("invalid principal_type %q: must be one of User, Group, ServicePrincipal, ManagedIdentity, ServicePrincipalProfile", pt)
 	}
 
-	if strings.EqualFold(strings.TrimSpace(itemType), "lakehouse") && norm == "ServicePrincipalProfile" {
-		return "", fmt.Errorf("invalid principal_type %q for lakehouse: must be one of User, Group, ServicePrincipal, ManagedIdentity", pt)
+	switch strings.ToLower(strings.TrimSpace(itemType)) {
+	case "warehouse", "sqldatabase", "lakehouse":
+		if norm == "ServicePrincipalProfile" {
+			return "", fmt.Errorf("invalid principal_type %q for %s: must be one of User, Group, ServicePrincipal, ManagedIdentity", pt, strings.ToLower(itemType))
+		}
 	}
 	return norm, nil
 }
@@ -481,7 +484,9 @@ func (p *FabricProvider) Configure(ctx context.Context, req provider.ConfigureRe
 	skipValidation := config.SkipCredentialsValidation.ValueBool() ||
 		strings.EqualFold(os.Getenv("FABRIC_SKIP_CREDENTIALS_VALIDATION"), "true")
 	if !skipValidation {
-		if _, err := chain.Resolve(ctx); err != nil {
+		valCtx, cancel := context.WithTimeout(ctx, requestTimeout)
+		defer cancel()
+		if _, err := chain.Resolve(valCtx); err != nil {
 			resp.Diagnostics.AddError("Eager Credential Validation Failed", err.Error())
 			return
 		}

@@ -594,11 +594,11 @@ func TestProvider_NormalizePrincipalType(t *testing.T) {
 	}{
 		{name: "warehouse user lowercase", itemType: "Warehouse", input: "user", want: "User"},
 		{name: "warehouse group whitespace", itemType: "Warehouse", input: " Group ", want: "Group"},
-		{name: "warehouse service principal", itemType: "Warehouse", input: "serviceprincipal", want: "ServicePrincipal"},
-		{name: "warehouse service principal profile", itemType: "Warehouse", input: "ServicePrincipalProfile", want: "ServicePrincipalProfile"},
+		{name: "warehouse sp profile rejected", itemType: "Warehouse", input: "ServicePrincipalProfile", expectErr: true},
 		{name: "warehouse managed identity allowed", itemType: "Warehouse", input: "ManagedIdentity", want: "ManagedIdentity"},
 		{name: "sql managed identity allowed", itemType: "SQLDatabase", input: "ManagedIdentity", want: "ManagedIdentity"},
 		{name: "sql user", itemType: "SQLDatabase", input: "User", want: "User"},
+		{name: "sql sp profile rejected", itemType: "SQLDatabase", input: "ServicePrincipalProfile", expectErr: true},
 		{name: "lakehouse user", itemType: "Lakehouse", input: "user", want: "User"},
 		{name: "lakehouse managed identity allowed", itemType: "Lakehouse", input: "managedidentity", want: "ManagedIdentity"},
 		{name: "lakehouse sp profile rejected", itemType: "Lakehouse", input: "ServicePrincipalProfile", expectErr: true},

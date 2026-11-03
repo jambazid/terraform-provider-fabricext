@@ -441,6 +441,18 @@ module "workspace_permissions" {
 
 ---
 
+## Module Inputs
+
+The permissions wrapper module (`modules/permissions`) exposes three input variables:
+
+| Variable | Type | Required | Default | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `fabric_permissions_matrix` | `object` | yes | - | Declarative permission matrix mapping Microsoft Fabric items to Entra ID principals. |
+| `notify` | `bool` | no | `false` | Optional module-level flag to send email notifications for item shares across all workloads. |
+| `message` | `string` | no | `null` | Optional module-level custom email notification message sent when `notify = true`. |
+
+---
+
 ## Matrix Object Geometry
 
 The `fabric_permissions_matrix` variable accepts a structured object with the following schema hierarchy:
@@ -458,8 +470,6 @@ The `fabric_permissions_matrix` variable accepts a structured object with the fo
 | `share_gate_timeout` | `string` | no | `"5m"` | Maximum timeout duration for share gate verification polling (e.g. `"5m"`). |
 | `manage_lakehouse_security` | `bool` | no | `true` | Automatically provisions `fabricext_lakehouse_onelake_security` per Lakehouse when roles are configured. |
 | `remove_lakehouse_default_reader_role` | `bool` | no | `true` | Purges the open `DefaultReader` role created by Fabric upon enabling OneLake security. |
-| `notify` | `bool` | no | `false` | Optional flag to send email notifications for item shares across all workloads. |
-| `message` | `string` | no | `null` | Optional custom email notification message sent when notify is true. |
 
 ### Permissions Object Schema
 

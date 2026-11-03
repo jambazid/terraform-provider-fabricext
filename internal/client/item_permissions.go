@@ -180,6 +180,7 @@ type cookieCollectorTransport struct {
 func (t *cookieCollectorTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	host := strings.ToLower(req.URL.Hostname())
 	if host == strings.ToLower(t.initialHost) || (t.customHost != "" && host == strings.ToLower(t.customHost)) {
+		req = req.Clone(req.Context())
 		req.Header.Set("Authorization", "Bearer "+t.token)
 	}
 
@@ -1232,12 +1233,14 @@ func (c *FabricClient) UpsertItemDirectPermissions(ctx context.Context, workspac
 		if err != nil {
 			return fmt.Errorf("executing put access update: %w", err)
 		}
-		defer func() { _ = putResp.Body.Close() }()
 		if putResp.StatusCode < 200 || putResp.StatusCode >= 300 {
 			putBody, _ := io.ReadAll(io.LimitReader(putResp.Body, 4096+1))
+			_ = putResp.Body.Close()
 			posture := credentials.InspectTokenPosture(tok, c.getPowerBIAuthSource())
 			return c.formatPowerBIHTTPError(putResp, putBody, "put access update", posture)
 		}
+		_, _ = io.Copy(io.Discard, putResp.Body)
+		_ = putResp.Body.Close()
 	}
 
 	method := http.MethodPost
@@ -1336,13 +1339,15 @@ func (c *FabricClient) UpsertItemDirectPermissions(ctx context.Context, workspac
 	if err != nil {
 		return fmt.Errorf("executing access request (%s): %w", method, err)
 	}
-	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096+1))
+		_ = resp.Body.Close()
 		posture := credentials.InspectTokenPosture(tok, c.getPowerBIAuthSource())
 		return c.formatPowerBIHTTPError(resp, body, fmt.Sprintf("access grant (%s)", method), posture)
 	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	_ = resp.Body.Close()
 
 	// Read-back verification loop (up to 10 seconds, accelerated in test environments)
 	verificationTimeout := 10 * time.Second
@@ -1353,13 +1358,16 @@ func (c *FabricClient) UpsertItemDirectPermissions(ctx context.Context, workspac
 	}
 	deadline := time.Now().Add(verificationTimeout)
 	var lastCore, lastArtifact int64
+	var lastErr error
 	for time.Now().Before(deadline) {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 
 		check, checkErr := c.GetItemDirectPermissions(ctx, workspaceID, itemID, itemType, share.PrincipalID)
-		if checkErr == nil && check != nil {
+		if checkErr != nil {
+			lastErr = checkErr
+		} else if check != nil {
 			lastCore = check.RawPermissions
 			lastArtifact = check.RawArtifactPermissions
 			if method == http.MethodPost || share.Notify {
@@ -1378,6 +1386,11 @@ func (c *FabricClient) UpsertItemDirectPermissions(ctx context.Context, workspac
 		}
 	}
 
+	lastErrMsg := ""
+	if lastErr != nil {
+		lastErrMsg = lastErr.Error()
+	}
+
 	return &SilentPermissionDropError{
 		WorkspaceID:      workspaceID,
 		ItemID:           itemID,
@@ -1387,6 +1400,7 @@ func (c *FabricClient) UpsertItemDirectPermissions(ctx context.Context, workspac
 		ExpectedArtifact: artifactBitmask,
 		ActualCore:       lastCore,
 		ActualArtifact:   lastArtifact,
+		LastError:        lastErrMsg,
 	}
 }
 
@@ -1485,13 +1499,15 @@ func (c *FabricClient) RevokeItemDirectPermissions(ctx context.Context, workspac
 	if err != nil {
 		return fmt.Errorf("executing revocation request: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096+1))
+		_ = resp.Body.Close()
 		posture := credentials.InspectTokenPosture(tok, c.getPowerBIAuthSource())
 		return c.formatPowerBIHTTPError(resp, body, "revocation update", posture)
 	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	_ = resp.Body.Close()
 
 	// Read-back verification loop (up to 5 seconds, accelerated in test environments)
 	verificationTimeout := 5 * time.Second
@@ -1502,13 +1518,16 @@ func (c *FabricClient) RevokeItemDirectPermissions(ctx context.Context, workspac
 	}
 	deadline := time.Now().Add(verificationTimeout)
 	var lastCore, lastArtifact int64
+	var lastErr error
 	for time.Now().Before(deadline) {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 
 		check, checkErr := c.GetItemDirectPermissions(ctx, workspaceID, itemID, itemType, principalID)
-		if checkErr == nil {
+		if checkErr != nil {
+			lastErr = checkErr
+		} else {
 			if check == nil || (check.RawPermissions == 0 && check.RawArtifactPermissions == 0) {
 				return nil
 			}
@@ -1521,6 +1540,11 @@ func (c *FabricClient) RevokeItemDirectPermissions(ctx context.Context, workspac
 		}
 	}
 
+	lastErrMsg := ""
+	if lastErr != nil {
+		lastErrMsg = lastErr.Error()
+	}
+
 	return &SilentPermissionDropError{
 		WorkspaceID:      workspaceID,
 		ItemID:           itemID,
@@ -1530,12 +1554,15 @@ func (c *FabricClient) RevokeItemDirectPermissions(ctx context.Context, workspac
 		ExpectedArtifact: 0,
 		ActualCore:       lastCore,
 		ActualArtifact:   lastArtifact,
+		LastError:        lastErrMsg,
 	}
 }
 
-// InvalidateClusterURI clears the cached regional cluster URI.
+// InvalidateClusterURI clears the cached regional cluster URI and passive fallback state.
 func (c *FabricClient) InvalidateClusterURI() {
 	c.clusterURIMu.Lock()
 	defer c.clusterURIMu.Unlock()
 	c.cachedClusterURI = ""
+	c.cachedClusterSource = ""
+	c.passiveHomeClusterURI = ""
 }

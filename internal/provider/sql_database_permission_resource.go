@@ -162,6 +162,18 @@ func (r *SQLDatabasePermissionResource) ValidateConfig(ctx context.Context, req 
 		return
 	}
 
+	if !config.SQLDatabaseName.IsUnknown() && !config.SQLDatabaseID.IsUnknown() {
+		hasName := !config.SQLDatabaseName.IsNull() && strings.TrimSpace(config.SQLDatabaseName.ValueString()) != ""
+		hasID := !config.SQLDatabaseID.IsNull() && strings.TrimSpace(config.SQLDatabaseID.ValueString()) != ""
+		if !hasName && !hasID {
+			resp.Diagnostics.AddAttributeError(
+				path.Root("sql_database_name"),
+				"Missing Required SQL Database Identifier",
+				"At least one of 'sql_database_name' or 'sql_database_id' must be configured.",
+			)
+		}
+	}
+
 	if !config.Permissions.IsNull() && !config.Permissions.IsUnknown() {
 		var perms []string
 		resp.Diagnostics.Append(config.Permissions.ElementsAs(ctx, &perms, false)...)

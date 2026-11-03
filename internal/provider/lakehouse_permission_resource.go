@@ -162,6 +162,18 @@ func (r *LakehousePermissionResource) ValidateConfig(ctx context.Context, req re
 		return
 	}
 
+	if !config.LakehouseName.IsUnknown() && !config.LakehouseID.IsUnknown() {
+		hasName := !config.LakehouseName.IsNull() && strings.TrimSpace(config.LakehouseName.ValueString()) != ""
+		hasID := !config.LakehouseID.IsNull() && strings.TrimSpace(config.LakehouseID.ValueString()) != ""
+		if !hasName && !hasID {
+			resp.Diagnostics.AddAttributeError(
+				path.Root("lakehouse_name"),
+				"Missing Required Lakehouse Identifier",
+				"At least one of 'lakehouse_name' or 'lakehouse_id' must be configured.",
+			)
+		}
+	}
+
 	if !config.Permissions.IsNull() && !config.Permissions.IsUnknown() {
 		var perms []string
 		resp.Diagnostics.Append(config.Permissions.ElementsAs(ctx, &perms, false)...)

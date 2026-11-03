@@ -56,7 +56,7 @@ resource "fabricext_sql_database_permission" "test" {
 					resource.TestCheckResourceAttr("fabricext_sql_database_permission.test", "permissions.#", "2"),
 				),
 			},
-			// 2. Update permissions in-place (expand to Execute, Reshare)
+			// 2. Update permissions in-place (expand to Write, Execute, Reshare)
 			{
 				Config: testAccProviderConfigWithPBI(fabricSrv, pbiSrv) + fmt.Sprintf(`
 resource "fabricext_sql_database_permission" "test" {
@@ -64,11 +64,11 @@ resource "fabricext_sql_database_permission" "test" {
   sql_database_id   = %q
   principal_id      = %q
   principal_type    = "User"
-  permissions       = ["Read", "ReadData", "Execute", "Reshare"]
+  permissions       = ["Read", "Write", "ReadData", "Execute", "Reshare"]
 }
 `, wsID, dbID, principalID),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("fabricext_sql_database_permission.test", "permissions.#", "4"),
+					resource.TestCheckResourceAttr("fabricext_sql_database_permission.test", "permissions.#", "5"),
 				),
 			},
 			// 3. ImportState verification
