@@ -633,7 +633,7 @@ Item-level permissions across Fabric Warehouses, Lakehouses, and SQL Databases a
 4. **Backend Cluster Validation & Sovereign Clouds**: `validateBackendClusterURI` ensures that frontend portal URLs (`app.powerbi.*`) and REST gateways (`api.powerbi.*`) are never cached as regional backend clusters, while allowing sovereign regional clusters (`.analysis.windows.net`, `.analysis.usgovcloudapi.net`, `.analysis.chinacloudapi.cn`).
 5. **Structured Default Error Diagnostics**: Non-2xx responses across Power BI metadata, cluster discovery, and Fabric Admin calls format actionable diagnostics directly into default Terraform `Error:` output (zero `TF_LOG` required, zero warnings on `2xx` success), reporting `fault_class` (`ServicePrincipalTenantRoleConflict`, `ServicePrincipalMetadataAccessRejected`, `AdminAPIAccessDenied`, `ClusterDiscoveryExhausted`), `x_powerbi_error`, `request_id`, `activity_id`, `cluster_source`, `caller_posture`, and token-scrubbed `response_body`.
 
-### 15.3 Principal XOR & Payload Fidelity
+### 15.3 Principal XOR Fidelity
 
 1. **Principal XOR Rule**: Every mutation payload to `/metadata/access` sets either internal Power BI IDs (`userId`/`groupId` on existing shares) XOR Entra Object IDs (`userObjectId` for Users and Service Principals/Managed Identities, XOR `groupObjectId` for Groups), never both.
 2. **Explicit `null` JSON Serialization**: In accordance with `grant.py:228-238`, unused principal fields (`userId`, `groupId`, `userObjectId`, `groupObjectId`) are serialized as explicit JSON `null` values rather than being omitted via `omitempty`.
@@ -663,7 +663,7 @@ Item permissions support optional recipient notification and custom message deli
 2. **Schema Validation Invariant**: `message` strictly requires `notify = true`. Configuring `message` without enabling `notify` fails configuration validation with an actionable diagnostic.
 3. **Module Composition**: `modules/permissions` exposes top-level inputs `variable "notify"` and `variable "message"` providing module-level defaults, with optional per-principal overrides in the permission matrix (`coalesce(p.notify, var.notify)` and `coalesce(p.message, var.message)`).
 
-### 15.7 Dual-Plane Authentication & Response Unmarshaling
+### 15.7 Dual-Plane Authentication Separation
 
 1. **Dual-Plane Authentication Separation**:
    - **Fabric Control Plane (`api.fabric.microsoft.com`)**: Powers OneLake Data Access Roles (`fabricext_lakehouse_data_access_role`), OneLake security enablement (`fabricext_lakehouse_onelake_security`), and item share verification gates (`fabricext_item_share_gate`). Supports Service Principals and Managed Identities (`app-only` tokens) natively without restrictions.

@@ -335,6 +335,13 @@ func (s *Server) handleAccess(w http.ResponseWriter, r *http.Request) {
 			var kept []map[string]any
 			for _, existing := range s.entries[itemObjID] {
 				if matchPrincipal(existing, a) {
+					if principalID == "" {
+						if uOID, ok := existing["userObjectId"].(string); ok && uOID != "" {
+							principalID = uOID
+						} else if gOID, ok := existing["groupObjectId"].(string); ok && gOID != "" {
+							principalID = gOID
+						}
+					}
 					continue
 				}
 				kept = append(kept, existing)
@@ -352,6 +359,13 @@ func (s *Server) handleAccess(w http.ResponseWriter, r *http.Request) {
 			found := false
 			for i, existing := range s.entries[itemObjID] {
 				if matchPrincipal(existing, a) {
+					if principalID == "" {
+						if uOID, ok := existing["userObjectId"].(string); ok && uOID != "" {
+							principalID = uOID
+						} else if gOID, ok := existing["groupObjectId"].(string); ok && gOID != "" {
+							principalID = gOID
+						}
+					}
 					if r.Method == http.MethodPut {
 						existing["permissions"] = int(p)
 						existing["artifactPermissions"] = int(ap)

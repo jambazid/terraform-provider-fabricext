@@ -1365,9 +1365,8 @@ func (c *FabricClient) UpsertItemDirectPermissions(ctx context.Context, workspac
 		}
 
 		check, checkErr := c.GetItemDirectPermissions(ctx, workspaceID, itemID, itemType, share.PrincipalID)
-		if checkErr != nil {
-			lastErr = checkErr
-		} else if check != nil {
+		lastErr = checkErr
+		if checkErr == nil && check != nil {
 			lastCore = check.RawPermissions
 			lastArtifact = check.RawArtifactPermissions
 			if method == http.MethodPost || share.Notify {
@@ -1525,9 +1524,8 @@ func (c *FabricClient) RevokeItemDirectPermissions(ctx context.Context, workspac
 		}
 
 		check, checkErr := c.GetItemDirectPermissions(ctx, workspaceID, itemID, itemType, principalID)
-		if checkErr != nil {
-			lastErr = checkErr
-		} else {
+		lastErr = checkErr
+		if checkErr == nil {
 			if check == nil || (check.RawPermissions == 0 && check.RawArtifactPermissions == 0) {
 				return nil
 			}
