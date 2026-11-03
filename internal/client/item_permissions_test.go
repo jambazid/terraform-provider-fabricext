@@ -2255,7 +2255,24 @@ func TestItemPermissions_NonUserDataPlaneRejection(t *testing.T) {
 				t.Errorf("expected Operation to contain notification, got %q", pbiErr.Operation)
 			}
 
-			// 5. PUT /metadata/access (revoke) fails with 403 AppOnlyMetadataAccessUnsupported at mutation phase
+			// 5. PUT /metadata/access (silent in-place update) fails with 403 AppOnlyMetadataAccessUnsupported at mutation phase
+			err = c.UpsertItemDirectPermissions(ctx, wsID, itemID, "Lakehouse", client.ItemDirectShare{
+				PrincipalID:   existingPrincipalID,
+				PrincipalType: "User",
+				Permissions:   []string{"Read", "ReadData"},
+				Notify:        false,
+			})
+			if err == nil {
+				t.Fatalf("expected UpsertItemDirectPermissions(update) to fail with 403 for %s, got nil", tc.name)
+			}
+			if !errors.As(err, &pbiErr) || pbiErr.StatusCode != 403 || pbiErr.FaultClass != "AppOnlyMetadataAccessUnsupported" {
+				t.Fatalf("expected 403 AppOnlyMetadataAccessUnsupported for PUT update, got %v", err)
+			}
+			if !strings.Contains(pbiErr.Operation, "update") {
+				t.Errorf("expected Operation to contain 'update', got %q", pbiErr.Operation)
+			}
+
+			// 6. PUT /metadata/access (revoke) fails with 403 AppOnlyMetadataAccessUnsupported at mutation phase
 			err = c.RevokeItemDirectPermissions(ctx, wsID, itemID, "Lakehouse", existingPrincipalID)
 			if err == nil {
 				t.Fatalf("expected RevokeItemDirectPermissions to fail with 403 for %s, got nil", tc.name)
@@ -2267,7 +2284,7 @@ func TestItemPermissions_NonUserDataPlaneRejection(t *testing.T) {
 				t.Errorf("expected Operation to contain revocation, got %q", pbiErr.Operation)
 			}
 
-			// 6. Assert mock server state is completely unchanged after all failed mutations
+			// 7. Assert mock server state is completely unchanged after all failed mutations
 			currentEntries := srv.DirectAccessEntries(itemID)
 			if len(currentEntries) != len(initialEntries) {
 				t.Fatalf("expected %d entries to remain after rejections, got %d", len(initialEntries), len(currentEntries))

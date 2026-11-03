@@ -169,7 +169,7 @@ In Microsoft Fabric, creating a `Lakehouse` or `SQLDatabase` named `analytics_go
 - **Rate Limiting (`429 Too Many Requests`)**: Parses the `Retry-After` response header (seconds) and waits for the specified duration (or exponential backoff with jitter starting at `BaseBackoff` (`100ms` default) if `Retry-After` is absent), respecting `ctx.Done()`.
 - **Transient Server Errors (`502`, `503`, `504`)**: Retries up to `MaxRetries` (default `5`) with exponential backoff (`BaseBackoff * 2^attempt`) plus bounded jitter, respecting `ctx.Done()`.
 
-### 5.3 Item Permissions Concurrency & Lifecycle
+### 5.3 Item Permissions Concurrency
 
 Direct item-level sharing on Warehouses, SQL Databases, and Lakehouses is managed via Power BI metadata access endpoints (`/metadata/access` and `/metadata/access/notify`) discovered from the regional cluster cookie (`ClusterUri`). Because multiple resources or configurations may mutate permissions on the same item concurrently, mutations are synchronized using an in-memory per-item mutex (`getItemAccessLock(workspaceID, itemID)`).
 

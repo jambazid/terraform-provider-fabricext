@@ -383,6 +383,7 @@ func (c *FabricClient) discoverViaPortalCookie(ctx context.Context, tok string, 
 	var lastStatus int
 	if resp != nil {
 		lastStatus = resp.StatusCode
+		_, _ = io.Copy(io.Discard, resp.Body)
 		_ = resp.Body.Close()
 	}
 	if err != nil {
@@ -489,7 +490,10 @@ func (c *FabricClient) discoverViaHomeClusterHeader(ctx context.Context, workspa
 		req.Header.Set("Accept", "application/json")
 		pbiResp, pbiDoErr := c.httpClient.Do(req)
 		if pbiDoErr == nil {
-			defer func() { _ = pbiResp.Body.Close() }()
+			defer func() {
+				_, _ = io.Copy(io.Discard, pbiResp.Body)
+				_ = pbiResp.Body.Close()
+			}()
 			if hcu := pbiResp.Header.Get("home-cluster-uri"); hcu != "" {
 				clean := strings.TrimRight(strings.TrimSpace(hcu), "/")
 				if err := validateBackendClusterURI(clean, customHost); err == nil {
@@ -869,6 +873,7 @@ func (c *FabricClient) doPowerBIRequest(ctx context.Context, req *http.Request) 
 		if shouldRetryStatus(resp.StatusCode) {
 			if attempt < maxRetries {
 				delay := c.retryDelay(resp.Header.Get("Retry-After"), attempt)
+				_, _ = io.Copy(io.Discard, resp.Body)
 				_ = resp.Body.Close()
 				if sleepErr := sleepWithContext(ctx, delay); sleepErr != nil {
 					return nil, sleepErr
@@ -1043,6 +1048,7 @@ func (c *FabricClient) GetItemDirectPermissions(ctx context.Context, workspaceID
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusNotFound {
+		_, _ = io.Copy(io.Discard, resp.Body)
 		return nil, &NotFoundError{
 			ResourceType: itemType,
 			ResourceID:   itemID,
@@ -1051,6 +1057,7 @@ func (c *FabricClient) GetItemDirectPermissions(ctx context.Context, workspaceID
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
+	_, _ = io.Copy(io.Discard, resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("reading artifact access response: %w", err)
 	}
@@ -1235,6 +1242,7 @@ func (c *FabricClient) UpsertItemDirectPermissions(ctx context.Context, workspac
 		}
 		if putResp.StatusCode < 200 || putResp.StatusCode >= 300 {
 			putBody, _ := io.ReadAll(io.LimitReader(putResp.Body, 4096+1))
+			_, _ = io.Copy(io.Discard, putResp.Body)
 			_ = putResp.Body.Close()
 			posture := credentials.InspectTokenPosture(tok, c.getPowerBIAuthSource())
 			return c.formatPowerBIHTTPError(putResp, putBody, "put access update", posture)
@@ -1342,11 +1350,14 @@ func (c *FabricClient) UpsertItemDirectPermissions(ctx context.Context, workspac
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096+1))
+		_, _ = io.Copy(io.Discard, resp.Body)
 		_ = resp.Body.Close()
 		posture := credentials.InspectTokenPosture(tok, c.getPowerBIAuthSource())
 		op := fmt.Sprintf("access grant (%s)", method)
 		if share.Notify {
 			op = "access grant with notification (POST)"
+		} else if method == http.MethodPut {
+			op = "access update (PUT)"
 		}
 		return c.formatPowerBIHTTPError(resp, body, op, posture)
 	}
@@ -1505,6 +1516,7 @@ func (c *FabricClient) RevokeItemDirectPermissions(ctx context.Context, workspac
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096+1))
+		_, _ = io.Copy(io.Discard, resp.Body)
 		_ = resp.Body.Close()
 		posture := credentials.InspectTokenPosture(tok, c.getPowerBIAuthSource())
 		return c.formatPowerBIHTTPError(resp, body, "revocation update", posture)

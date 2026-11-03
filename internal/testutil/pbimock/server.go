@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -104,11 +105,40 @@ func (s *Server) Close() {
 	}
 }
 
+// deepCopyMap creates a recursive clone of a JSON map structure.
+func deepCopyMap(m map[string]any) map[string]any {
+	if m == nil {
+		return nil
+	}
+	cp := make(map[string]any, len(m))
+	for k, v := range m {
+		switch val := v.(type) {
+		case map[string]any:
+			cp[k] = deepCopyMap(val)
+		case []any:
+			sl := make([]any, len(val))
+			for i, elem := range val {
+				if elemMap, ok := elem.(map[string]any); ok {
+					sl[i] = deepCopyMap(elemMap)
+				} else {
+					sl[i] = elem
+				}
+			}
+			cp[k] = sl
+		default:
+			cp[k] = v
+		}
+	}
+	return cp
+}
+
 // SeedDirectAccess adds direct access entries for an item.
 func (s *Server) SeedDirectAccess(itemID string, entries ...map[string]any) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.entries[itemID] = append(s.entries[itemID], entries...)
+	for _, e := range entries {
+		s.entries[itemID] = append(s.entries[itemID], deepCopyMap(e))
+	}
 }
 
 // DeleteArtifact marks an artifact as deleted, causing GET /metadata/access/artifacts/{itemId} to return 404.
@@ -120,6 +150,7 @@ func (s *Server) DeleteArtifact(itemID string) {
 	}
 	s.deletedItems[itemID] = true
 	delete(s.entries, itemID)
+	delete(s.rawResponses, itemID)
 }
 
 // SetPortalForbidden sets whether GET / returns HTTP 403.
@@ -182,7 +213,7 @@ func (s *Server) LastArtifacts() []map[string]any {
 	return out
 }
 
-// DirectAccessEntries returns a copy of the direct access entries for an item.
+// DirectAccessEntries returns a deep copy of the direct access entries for an item.
 func (s *Server) DirectAccessEntries(itemID string) []map[string]any {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -192,11 +223,7 @@ func (s *Server) DirectAccessEntries(itemID string) []map[string]any {
 	}
 	out := make([]map[string]any, len(raw))
 	for i, e := range raw {
-		copied := make(map[string]any, len(e))
-		for k, v := range e {
-			copied[k] = v
-		}
-		out[i] = copied
+		out[i] = deepCopyMap(e)
 	}
 	return out
 }
@@ -342,7 +369,14 @@ func (s *Server) handleAccess(w http.ResponseWriter, r *http.Request) {
 		Artifacts []map[string]any `json:"artifacts"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error": map[string]string{
+				"code":    "BadArgumentException",
+				"message": err.Error(),
+			},
+		})
 		return
 	}
 
@@ -528,7 +562,7 @@ func (s *Server) handleGroups(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleArtifactAccess(w http.ResponseWriter, r *http.Request) {
-	itemID := filepath.Base(r.URL.Path)
+	itemID := path.Base(strings.TrimRight(r.URL.Path, "/"))
 	s.mu.RLock()
 	authStatus := s.accessAuthStatus
 	authErr := s.accessAuthError
@@ -547,11 +581,7 @@ func (s *Server) handleArtifactAccess(w http.ResponseWriter, r *http.Request) {
 	if raw := s.entries[itemID]; raw != nil {
 		entries = make([]map[string]any, len(raw))
 		for i, e := range raw {
-			copied := make(map[string]any, len(e))
-			for k, v := range e {
-				copied[k] = v
-			}
-			entries[i] = copied
+			entries[i] = deepCopyMap(e)
 		}
 	} else {
 		entries = []map[string]any{}
@@ -587,13 +617,6 @@ func (s *Server) handleArtifactAccess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if rawJSON != "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(rawJSON))
-		return
-	}
-
 	if deleted {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
@@ -603,6 +626,13 @@ func (s *Server) handleArtifactAccess(w http.ResponseWriter, r *http.Request) {
 				"message": fmt.Sprintf("Item %s not found", itemID),
 			},
 		})
+		return
+	}
+
+	if rawJSON != "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(rawJSON))
 		return
 	}
 
