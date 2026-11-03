@@ -665,9 +665,9 @@ func (c *Chain) ResolveForScope(ctx context.Context, scope string) (Credentials,
 	var scopeHint string
 	if strings.Contains(strings.ToLower(scope), "powerbi") {
 		hasFabricToken := strings.TrimSpace(c.cfg.AccessToken) != "" || c.cfg.firstEnv("FABRIC_ACCESS_TOKEN") != ""
-		hasPBIToken := strings.TrimSpace(c.cfg.PowerBIAccessToken) != "" || c.cfg.firstEnv("FABRIC_POWERBI_ACCESS_TOKEN") != ""
+		hasPBIToken := strings.TrimSpace(c.cfg.PowerBIAccessToken) != "" || c.cfg.firstEnv("FABRIC_POWERBI_ACCESS_TOKEN", "POWERBI_ACCESS_TOKEN", "ARM_POWERBI_ACCESS_TOKEN", "AZURE_POWERBI_ACCESS_TOKEN") != ""
 		if hasFabricToken && !hasPBIToken {
-			scopeHint = "hint: a static Fabric access token (FABRIC_ACCESS_TOKEN) was configured but Power BI metadata operations require a separate Power BI token (FABRIC_POWERBI_ACCESS_TOKEN) or a dynamic credential modality (OIDC, SPN, MSI, CLI)"
+			scopeHint = "hint: a static Fabric access token (FABRIC_ACCESS_TOKEN) was configured but Power BI metadata operations require a separate Power BI token (FABRIC_POWERBI_ACCESS_TOKEN or aliases POWERBI_ACCESS_TOKEN, ARM_POWERBI_ACCESS_TOKEN, AZURE_POWERBI_ACCESS_TOKEN) or a dynamic credential modality (OIDC, SPN, MSI, CLI)"
 		}
 	}
 
@@ -709,7 +709,7 @@ func (p *staticProvider) ResolveForScope(_ context.Context, scope string) (Crede
 	if isPBI {
 		tok := strings.TrimSpace(p.cfg.PowerBIAccessToken)
 		if tok == "" {
-			tok = p.cfg.firstEnv("FABRIC_POWERBI_ACCESS_TOKEN")
+			tok = p.cfg.firstEnv("FABRIC_POWERBI_ACCESS_TOKEN", "POWERBI_ACCESS_TOKEN", "ARM_POWERBI_ACCESS_TOKEN", "AZURE_POWERBI_ACCESS_TOKEN")
 		}
 		if tok != "" {
 			return Credentials{
@@ -717,7 +717,7 @@ func (p *staticProvider) ResolveForScope(_ context.Context, scope string) (Crede
 				Source:      SourceStaticPowerBI,
 			}, false, nil
 		}
-		return Credentials{}, true, errors.New("neither powerbi_access_token attribute nor FABRIC_POWERBI_ACCESS_TOKEN env var is set")
+		return Credentials{}, true, errors.New("neither powerbi_access_token attribute nor FABRIC_POWERBI_ACCESS_TOKEN/POWERBI_ACCESS_TOKEN env var is set")
 	}
 
 	tok := strings.TrimSpace(p.cfg.AccessToken)

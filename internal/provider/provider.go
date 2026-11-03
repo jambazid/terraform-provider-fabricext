@@ -256,7 +256,7 @@ func (p *FabricProvider) Schema(_ context.Context, _ provider.SchemaRequest, res
 			"powerbi_access_token": schema.StringAttribute{
 				Optional:            true,
 				Sensitive:           true,
-				MarkdownDescription: "Static Microsoft Entra ID bearer token scoped to Power BI (`https://analysis.windows.net/powerbi/api/.default`). Can also be sourced from `FABRIC_POWERBI_ACCESS_TOKEN`.",
+				MarkdownDescription: "Static Microsoft Entra ID bearer token scoped to Power BI (`https://analysis.windows.net/powerbi/api/.default`). Can also be sourced from `FABRIC_POWERBI_ACCESS_TOKEN`, `POWERBI_ACCESS_TOKEN`, `ARM_POWERBI_ACCESS_TOKEN`, or `AZURE_POWERBI_ACCESS_TOKEN`. Required for item-level permissions (`fabricext_*_permission`) in automated CI/CD when running under Service Principals or Managed Identities.",
 			},
 		},
 	}
@@ -409,7 +409,13 @@ func (p *FabricProvider) Configure(ctx context.Context, req provider.ConfigureRe
 		powerBIEndpoint = strings.TrimSpace(config.PowerBIEndpoint.ValueString())
 	}
 
-	powerBIAccessToken := strings.TrimSpace(os.Getenv("FABRIC_POWERBI_ACCESS_TOKEN"))
+	powerBIAccessToken := ""
+	for _, envKey := range []string{"FABRIC_POWERBI_ACCESS_TOKEN", "POWERBI_ACCESS_TOKEN", "ARM_POWERBI_ACCESS_TOKEN", "AZURE_POWERBI_ACCESS_TOKEN"} {
+		if val := strings.TrimSpace(os.Getenv(envKey)); val != "" {
+			powerBIAccessToken = val
+			break
+		}
+	}
 	if !config.PowerBIAccessToken.IsNull() && strings.TrimSpace(config.PowerBIAccessToken.ValueString()) != "" {
 		powerBIAccessToken = strings.TrimSpace(config.PowerBIAccessToken.ValueString())
 	}

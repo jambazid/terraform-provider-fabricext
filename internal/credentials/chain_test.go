@@ -1498,3 +1498,37 @@ func TestInspectTokenPosture_ClassificationAndRedaction(t *testing.T) {
 		}
 	})
 }
+
+func TestChain_ResolvePowerBIAliases(t *testing.T) {
+	t.Parallel()
+
+	aliases := []string{
+		"FABRIC_POWERBI_ACCESS_TOKEN",
+		"POWERBI_ACCESS_TOKEN",
+		"ARM_POWERBI_ACCESS_TOKEN",
+		"AZURE_POWERBI_ACCESS_TOKEN",
+	}
+
+	for _, alias := range aliases {
+		t.Run(alias, func(t *testing.T) {
+			t.Parallel()
+			env := map[string]string{
+				alias: "synthetic-pbi-token-for-" + alias,
+			}
+			cfg := Config{
+				Getenv: func(k string) string { return env[k] },
+			}
+			chain := NewChain(cfg)
+			creds, err := chain.ResolveForScope(context.Background(), PowerBIScopePublic)
+			if err != nil {
+				t.Fatalf("failed to resolve for scope using %s: %v", alias, err)
+			}
+			if creds.AccessToken != "synthetic-pbi-token-for-"+alias {
+				t.Fatalf("expected token for %s, got %s", alias, creds.AccessToken)
+			}
+			if creds.Source != SourceStaticPowerBI {
+				t.Fatalf("expected source %s, got %s", SourceStaticPowerBI, creds.Source)
+			}
+		})
+	}
+}

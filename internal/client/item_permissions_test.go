@@ -6,6 +6,7 @@ package client_test
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -1773,17 +1774,17 @@ func TestItemPermissions_InternalArtifactIDAndAADAppID(t *testing.T) {
 		"userId":              99,
 	})
 
-	spnToken := createSyntheticJWT(`{"idtyp":"app","appid":"app-spn","oid":"spn-oid","tid":"tenant-1"}`)
+	userToken := createSyntheticJWT(`{"idtyp":"user","oid":"admin-user-oid","tid":"tenant-1","scp":"user_impersonation"}`)
 	c, err := client.NewFabricClient(client.Config{
 		Endpoint:        srv.URL,
 		PowerBIEndpoint: srv.URL,
 		TokenProvider: func(_ context.Context) (string, error) {
-			return spnToken, nil
+			return userToken, nil
 		},
 		PowerBITokenProvider: func(_ context.Context) (string, error) {
-			return spnToken, nil
+			return userToken, nil
 		},
-		PowerBIAuthSource: "oidc",
+		PowerBIAuthSource: "cli",
 		BaseBackoff:       5 * time.Millisecond,
 	})
 	if err != nil {
@@ -1889,8 +1890,8 @@ func TestItemPermissions_RichAuthErrorDiagnostics(t *testing.T) {
 		if !errors.As(err, &pbiErr) {
 			t.Fatalf("expected *client.PowerBIHTTPError, got %T: %v", err, err)
 		}
-		if pbiErr.FaultClass != "ServicePrincipalTenantRoleConflict" {
-			t.Errorf("expected FaultClass ServicePrincipalTenantRoleConflict, got %q", pbiErr.FaultClass)
+		if pbiErr.FaultClass != "AppOnlyMetadataAccessUnsupported" {
+			t.Errorf("expected FaultClass AppOnlyMetadataAccessUnsupported, got %q", pbiErr.FaultClass)
 		}
 		if pbiErr.StatusCode != 401 {
 			t.Errorf("expected StatusCode 401, got %d", pbiErr.StatusCode)
@@ -1911,12 +1912,15 @@ func TestItemPermissions_RichAuthErrorDiagnostics(t *testing.T) {
 			t.Errorf("expected CallerPosture to contain tid=tenant-999, got: %s", pbiErr.CallerPosture)
 		}
 		errStr := pbiErr.Error()
-		if !strings.Contains(errStr, "ServicePrincipalTenantRoleConflict") {
+		if !strings.Contains(errStr, "AppOnlyMetadataAccessUnsupported") {
 			t.Errorf("expected Error() to contain fault class, got: %s", errStr)
+		}
+		if !strings.Contains(errStr, "POWERBI_ACCESS_TOKEN") {
+			t.Errorf("expected Error() to contain POWERBI_ACCESS_TOKEN alias, got: %s", errStr)
 		}
 	})
 
-	// Subtest 2: App-only token without Tenant.* roles receives 403 -> ServicePrincipalMetadataAccessRejected
+	// Subtest 2: App-only token without Tenant.* roles receives 403 -> AppOnlyMetadataAccessUnsupported
 	t.Run("MetadataAccessRejected403", func(t *testing.T) {
 		t.Parallel()
 		srv, err := pbimock.NewServer()
@@ -1956,8 +1960,8 @@ func TestItemPermissions_RichAuthErrorDiagnostics(t *testing.T) {
 		if !errors.As(err, &pbiErr) {
 			t.Fatalf("expected *client.PowerBIHTTPError, got %T: %v", err, err)
 		}
-		if pbiErr.FaultClass != "ServicePrincipalMetadataAccessRejected" {
-			t.Errorf("expected FaultClass ServicePrincipalMetadataAccessRejected, got %q", pbiErr.FaultClass)
+		if pbiErr.FaultClass != "AppOnlyMetadataAccessUnsupported" {
+			t.Errorf("expected FaultClass AppOnlyMetadataAccessUnsupported, got %q", pbiErr.FaultClass)
 		}
 		if pbiErr.StatusCode != 403 {
 			t.Errorf("expected StatusCode 403, got %d", pbiErr.StatusCode)
@@ -2011,4 +2015,350 @@ func TestItemPermissions_RichAuthErrorDiagnostics(t *testing.T) {
 			t.Errorf("expected [REDACTED] in ResponseBody: %s", pbiErr.ResponseBody)
 		}
 	})
+
+	// Subtest 4: Delegated user token receives 403 -> DelegatedUserMetadataAccessDenied
+	t.Run("DelegatedUserDenied403", func(t *testing.T) {
+		t.Parallel()
+		srv, err := pbimock.NewServer()
+		if err != nil {
+			t.Fatalf("failed to create pbimock server: %v", err)
+		}
+		defer srv.Close()
+		srv.SetAccessAuthError(http.StatusForbidden, "PowerBINotAuthorizedException")
+
+		userToken := createSyntheticJWT(`{"idtyp":"user","oid":"user-oid-111","tid":"tenant-111","scp":"user_impersonation"}`)
+		c, err := client.NewFabricClient(client.Config{
+			Endpoint:        srv.URL,
+			PowerBIEndpoint: srv.URL,
+			TokenProvider: func(_ context.Context) (string, error) {
+				return userToken, nil
+			},
+			PowerBITokenProvider: func(_ context.Context) (string, error) {
+				return userToken, nil
+			},
+			PowerBIAuthSource: "cli",
+			BaseBackoff:       5 * time.Millisecond,
+		})
+		if err != nil {
+			t.Fatalf("failed to create client: %v", err)
+		}
+
+		ctx := context.Background()
+		testItemID := "22222222-2222-2222-2222-222222222222"
+		testWsID := "11111111-1111-1111-1111-111111111111"
+		testUserID := "33333333-3333-3333-3333-333333333333"
+		_, err = c.GetItemDirectPermissions(ctx, testWsID, testItemID, "Lakehouse", testUserID)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+
+		var pbiErr *client.PowerBIHTTPError
+		if !errors.As(err, &pbiErr) {
+			t.Fatalf("expected *client.PowerBIHTTPError, got %T: %v", err, err)
+		}
+		if pbiErr.FaultClass != "DelegatedUserMetadataAccessDenied" {
+			t.Errorf("expected FaultClass DelegatedUserMetadataAccessDenied, got %q", pbiErr.FaultClass)
+		}
+		if pbiErr.StatusCode != 403 {
+			t.Errorf("expected StatusCode 403, got %d", pbiErr.StatusCode)
+		}
+	})
+}
+
+func TestItemPermissions_FlexibleUserTypeUnmarshaling(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name     string
+		input    string
+		expVal   client.FlexibleUserType
+		expError bool
+	}{
+		{name: "integer zero member", input: `0`, expVal: 0},
+		{name: "integer one guest", input: `1`, expVal: 1},
+		{name: "string zero", input: `"0"`, expVal: 0},
+		{name: "string one", input: `"1"`, expVal: 1},
+		{name: "string member lowercase", input: `"member"`, expVal: 0},
+		{name: "string Member titlecase", input: `"Member"`, expVal: 0},
+		{name: "string guest lowercase", input: `"guest"`, expVal: 1},
+		{name: "string Guest titlecase", input: `"Guest"`, expVal: 1},
+		{name: "string admin lowercase", input: `"admin"`, expVal: 2},
+		{name: "null literal", input: `null`, expVal: 0},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var got client.FlexibleUserType
+			err := json.Unmarshal([]byte(tc.input), &got)
+			if tc.expError && err == nil {
+				t.Fatalf("expected error, got nil")
+			}
+			if !tc.expError && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tc.expVal {
+				t.Fatalf("expected %d, got %d", tc.expVal, got)
+			}
+		})
+	}
+
+	t.Run("EmbeddedInObject", func(t *testing.T) {
+		t.Parallel()
+		raw := `{"userType": 0, "userId": 100, "groupId": null}`
+		var obj struct {
+			UserType *client.FlexibleUserType `json:"userType"`
+			UserID   *int                     `json:"userId"`
+			GroupID  *int                     `json:"groupId"`
+		}
+		if err := json.Unmarshal([]byte(raw), &obj); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if obj.UserType == nil || *obj.UserType != 0 {
+			t.Fatalf("expected UserType 0, got %v", obj.UserType)
+		}
+		if obj.UserID == nil || *obj.UserID != 100 {
+			t.Fatalf("expected UserID 100, got %v", obj.UserID)
+		}
+		if obj.GroupID != nil {
+			t.Fatalf("expected GroupID nil, got %v", obj.GroupID)
+		}
+	})
+}
+
+func TestItemPermissions_NonUserDataPlaneRejection(t *testing.T) {
+	t.Parallel()
+
+	tokenCases := []struct {
+		name       string
+		claims     string
+		authSource string
+	}{
+		{
+			name:       "SPNWithTenantRoles",
+			claims:     `{"idtyp":"app","appid":"00000000-0000-0000-0000-000000000001","oid":"00000000-0000-0000-0000-000000000002","tid":"00000000-0000-0000-0000-000000000003","roles":["Tenant.ReadWrite.All"]}`,
+			authSource: "oidc",
+		},
+		{
+			name:       "SPNRoleFree",
+			claims:     `{"idtyp":"app","appid":"00000000-0000-0000-0000-000000000001","oid":"00000000-0000-0000-0000-000000000002","tid":"00000000-0000-0000-0000-000000000003","roles":[]}`,
+			authSource: "client_secret",
+		},
+		{
+			name:       "ManagedIdentity",
+			claims:     `{"idtyp":"app","appid":"00000000-0000-0000-0000-000000000001","oid":"00000000-0000-0000-0000-000000000002","tid":"00000000-0000-0000-0000-000000000003"}`,
+			authSource: "msi",
+		},
+	}
+
+	for _, tc := range tokenCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			srv, err := pbimock.NewServer()
+			if err != nil {
+				t.Fatalf("failed to create pbimock server: %v", err)
+			}
+			defer srv.Close()
+
+			token := createSyntheticJWT(tc.claims)
+			c, err := client.NewFabricClient(client.Config{
+				Endpoint:        srv.URL,
+				PowerBIEndpoint: srv.URL,
+				TokenProvider: func(_ context.Context) (string, error) {
+					return token, nil
+				},
+				PowerBITokenProvider: func(_ context.Context) (string, error) {
+					return token, nil
+				},
+				PowerBIAuthSource: tc.authSource,
+				BaseBackoff:       5 * time.Millisecond,
+			})
+			if err != nil {
+				t.Fatalf("failed to create client: %v", err)
+			}
+
+			ctx := context.Background()
+			wsID := "11111111-1111-1111-1111-111111111111"
+			itemID := "22222222-2222-2222-2222-222222222222"
+			principalID := "33333333-3333-3333-3333-333333333333"
+
+			// 1. DiscoverClusterURI succeeds via GET /v1.0/myorg/groups
+			clusterURI, err := c.DiscoverClusterURI(ctx)
+			if err != nil {
+				t.Fatalf("expected DiscoverClusterURI to succeed for %s, got: %v", tc.name, err)
+			}
+			if clusterURI == "" {
+				t.Fatalf("expected non-empty clusterURI for %s", tc.name)
+			}
+
+			// 2. GET /metadata/access/artifacts/{itemId} fails with 403 AppOnlyMetadataAccessUnsupported
+			_, err = c.GetItemDirectPermissions(ctx, wsID, itemID, "Lakehouse", principalID)
+			if err == nil {
+				t.Fatalf("expected GetItemDirectPermissions to fail with 403 for %s, got nil", tc.name)
+			}
+			var pbiErr *client.PowerBIHTTPError
+			if !errors.As(err, &pbiErr) {
+				t.Fatalf("expected *client.PowerBIHTTPError, got %T: %v", err, err)
+			}
+			if pbiErr.StatusCode != 403 || pbiErr.FaultClass != "AppOnlyMetadataAccessUnsupported" {
+				t.Fatalf("expected 403 AppOnlyMetadataAccessUnsupported, got %d %s", pbiErr.StatusCode, pbiErr.FaultClass)
+			}
+
+			// 3. POST /metadata/access (silent grant) fails with 403 AppOnlyMetadataAccessUnsupported
+			err = c.UpsertItemDirectPermissions(ctx, wsID, itemID, "Lakehouse", client.ItemDirectShare{
+				PrincipalID:   principalID,
+				PrincipalType: "User",
+				Permissions:   []string{"Read", "ReadData"},
+				Notify:        false,
+			})
+			if err == nil {
+				t.Fatalf("expected UpsertItemDirectPermissions(notify=false) to fail with 403 for %s, got nil", tc.name)
+			}
+			if !errors.As(err, &pbiErr) || pbiErr.StatusCode != 403 || pbiErr.FaultClass != "AppOnlyMetadataAccessUnsupported" {
+				t.Fatalf("expected 403 AppOnlyMetadataAccessUnsupported for POST, got %v", err)
+			}
+
+			// 4. POST /metadata/access/notify fails with 403 AppOnlyMetadataAccessUnsupported
+			err = c.UpsertItemDirectPermissions(ctx, wsID, itemID, "Lakehouse", client.ItemDirectShare{
+				PrincipalID:         principalID,
+				PrincipalType:       "User",
+				Permissions:         []string{"Read", "ReadData"},
+				Notify:              true,
+				NotificationMessage: "Welcome",
+			})
+			if err == nil {
+				t.Fatalf("expected UpsertItemDirectPermissions(notify=true) to fail with 403 for %s, got nil", tc.name)
+			}
+			if !errors.As(err, &pbiErr) || pbiErr.StatusCode != 403 || pbiErr.FaultClass != "AppOnlyMetadataAccessUnsupported" {
+				t.Fatalf("expected 403 AppOnlyMetadataAccessUnsupported for POST notify, got %v", err)
+			}
+
+			// 5. PUT /metadata/access (revoke/update) fails with 403 AppOnlyMetadataAccessUnsupported
+			err = c.RevokeItemDirectPermissions(ctx, wsID, itemID, "Lakehouse", principalID)
+			if err == nil {
+				t.Fatalf("expected RevokeItemDirectPermissions to fail with 403 for %s, got nil", tc.name)
+			}
+			if !errors.As(err, &pbiErr) || pbiErr.StatusCode != 403 || pbiErr.FaultClass != "AppOnlyMetadataAccessUnsupported" {
+				t.Fatalf("expected 403 AppOnlyMetadataAccessUnsupported for PUT, got %v", err)
+			}
+		})
+	}
+}
+
+func TestItemPermissions_FullAclWireCapture(t *testing.T) {
+	t.Parallel()
+
+	sanitizedWireJSON := `{
+		"id": 414960,
+		"displayName": "silver",
+		"objectId": "00000000-0000-0000-0000-000000000001",
+		"permissions": 263,
+		"artifactPermissions": 255,
+		"relatedDashboardIds": [],
+		"relatedReportIds": [],
+		"relatedPaginatedReportIds": [],
+		"relatedWorkbookIds": [],
+		"relatedModelIds": [],
+		"relatedPackageIds": [],
+		"relatedResourcePackageIds": [],
+		"relatedContentProviderIds": [],
+		"sharedWithCount": 0,
+		"detail": [
+			{
+				"id": 414960,
+				"userId": 1336111,
+				"groupId": null,
+				"permissions": 263,
+				"artifactPermissions": 255,
+				"givenName": "app-automation",
+				"aadAppId": "00000000-0000-0000-0000-000000000002",
+				"objectId": "00000000-0000-0000-0000-000000000002",
+				"isServicePrincipal": true,
+				"accessSource": {
+					"id": 5,
+					"folderRoleId": 5,
+					"folderRole": { "id": 5, "name": "Administrator" }
+				}
+			},
+			{
+				"id": 414960,
+				"userId": null,
+				"groupId": 108588,
+				"permissions": 263,
+				"artifactPermissions": 255,
+				"groupObjectId": "00000000-0000-0000-0000-000000000003",
+				"objectId": "00000000-0000-0000-0000-000000000003",
+				"accessSource": {
+					"id": 5,
+					"folderRoleId": 5,
+					"folderRole": { "id": 5, "name": "Administrator" }
+				}
+			},
+			{
+				"id": 414960,
+				"userId": 1337449,
+				"groupId": null,
+				"permissions": 5,
+				"artifactPermissions": 47,
+				"givenName": "Jane",
+				"familyName": "Doe",
+				"emailAddress": "user@example.com",
+				"userPrincipalName": "user@example.com",
+				"objectId": "00000000-0000-0000-0000-000000000010",
+				"userObjectId": "00000000-0000-0000-0000-000000000010",
+				"userType": 0,
+				"accessSource": null
+			}
+		]
+	}`
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(sanitizedWireJSON))
+	}))
+	defer ts.Close()
+
+	c, err := client.NewFabricClient(client.Config{
+		Endpoint:        ts.URL,
+		PowerBIEndpoint: ts.URL,
+		TokenProvider: func(_ context.Context) (string, error) {
+			return "tok", nil
+		},
+		PowerBITokenProvider: func(_ context.Context) (string, error) {
+			return "tok", nil
+		},
+		BaseBackoff: 5 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	ctx := context.Background()
+	wsID := "11111111-1111-1111-1111-111111111111"
+	itemID := "00000000-0000-0000-0000-000000000001"
+	userPrincipalID := "00000000-0000-0000-0000-000000000010"
+
+	share, err := c.GetItemDirectPermissions(ctx, wsID, itemID, "Warehouse", userPrincipalID)
+	if err != nil {
+		t.Fatalf("unexpected error reading direct permissions from wire capture: %v", err)
+	}
+	if share == nil {
+		t.Fatal("expected non-nil ItemDirectShare")
+	}
+	if share.PrincipalType != "User" {
+		t.Errorf("expected PrincipalType User, got %s", share.PrincipalType)
+	}
+	if share.InternalArtifactID != 414960 {
+		t.Errorf("expected InternalArtifactID 414960, got %d", share.InternalArtifactID)
+	}
+	if share.InternalUserID != 1337449 {
+		t.Errorf("expected InternalUserID 1337449, got %d", share.InternalUserID)
+	}
+	if share.RawPermissions != 5 {
+		t.Errorf("expected RawPermissions 5, got %d", share.RawPermissions)
+	}
+	if share.RawArtifactPermissions != 47 {
+		t.Errorf("expected RawArtifactPermissions 47, got %d", share.RawArtifactPermissions)
+	}
 }

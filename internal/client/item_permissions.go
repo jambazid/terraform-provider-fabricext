@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -88,20 +89,65 @@ type rawArtifactAccessResponse struct {
 	} `json:"artifactAccessEntities"`
 }
 
+// FlexibleUserType unmarshals userType from an integer (0=member, 1=guest), string ("0", "Member", "Guest"), or null without error.
+type FlexibleUserType int
+
+// UnmarshalJSON implements json.Unmarshaler with defensive nil guards and string mapping.
+func (f *FlexibleUserType) UnmarshalJSON(data []byte) error {
+	if f == nil {
+		return errors.New("FlexibleUserType: UnmarshalJSON on nil pointer")
+	}
+	trimmed := strings.TrimSpace(string(data))
+	if trimmed == "" || trimmed == "null" {
+		*f = 0
+		return nil
+	}
+	var n int
+	if err := json.Unmarshal(data, &n); err == nil {
+		*f = FlexibleUserType(n)
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		if val, err := strconv.Atoi(s); err == nil {
+			*f = FlexibleUserType(val)
+			return nil
+		}
+		switch strings.ToLower(strings.TrimSpace(s)) {
+		case "member":
+			*f = 0
+			return nil
+		case "guest":
+			*f = 1
+			return nil
+		case "admin":
+			*f = 2
+			return nil
+		}
+	}
+	*f = 0
+	return nil
+}
+
 type accessDetailEntry struct {
-	User                string          `json:"user"`
-	UserType            string          `json:"userType"`
-	UserID              int             `json:"userId"`
-	GroupID             int             `json:"groupId"`
-	AADAppID            string          `json:"aadAppId"`
-	ObjectID            string          `json:"objectId"`
-	UserObjectID        string          `json:"userObjectId"`
-	GroupObjectID       string          `json:"groupObjectId"`
-	GroupType           string          `json:"groupType"`
-	IsServicePrincipal  bool            `json:"isServicePrincipal"`
-	Permissions         int64           `json:"permissions"`
-	ArtifactPermissions int64           `json:"artifactPermissions"`
-	AccessSource        json.RawMessage `json:"accessSource"` // null for direct item grants, object for inherited
+	ID                  int               `json:"id"`
+	User                string            `json:"user"`
+	UserType            *FlexibleUserType `json:"userType"`
+	UserID              *int              `json:"userId"`
+	GroupID             *int              `json:"groupId"`
+	GivenName           string            `json:"givenName"`
+	FamilyName          string            `json:"familyName"`
+	EmailAddress        string            `json:"emailAddress"`
+	UserPrincipalName   string            `json:"userPrincipalName"`
+	AADAppID            string            `json:"aadAppId"`
+	ObjectID            string            `json:"objectId"`
+	UserObjectID        string            `json:"userObjectId"`
+	GroupObjectID       string            `json:"groupObjectId"`
+	GroupType           string            `json:"groupType"`
+	IsServicePrincipal  bool              `json:"isServicePrincipal"`
+	Permissions         int64             `json:"permissions"`
+	ArtifactPermissions int64             `json:"artifactPermissions"`
+	AccessSource        json.RawMessage   `json:"accessSource"` // null for direct item grants, object for inherited
 }
 
 func (c *FabricClient) getItemAccessLock(workspaceID, itemID string) *sync.Mutex {
@@ -878,6 +924,12 @@ func (e *PowerBIHTTPError) Error() string {
 
 	hint := ""
 	switch e.FaultClass {
+	case "AppOnlyMetadataAccessUnsupported":
+		hint = " (hint: The Power BI metadata plane ('/metadata/access/*') strictly rejects app-only tokens (Service Principals / Managed Identities) with HTTP 403 'API is not accessible for application'. Item-level direct permissions (fabricext_*_permission) require a delegated user token. Authenticate with 'az login' locally, or inject a pre-acquired delegated user token in CI/CD via 'powerbi_access_token' or FABRIC_POWERBI_ACCESS_TOKEN (or its aliases POWERBI_ACCESS_TOKEN, ARM_POWERBI_ACCESS_TOKEN, AZURE_POWERBI_ACCESS_TOKEN).)"
+	case "DelegatedUserMetadataAccessDenied":
+		hint = " (hint: The delegated user token was rejected by the Power BI metadata plane (HTTP 403). Ensure the authenticated user has Admin or Member permissions on the target workspace and is authorized to manage item permissions.)"
+	case "MetadataAccessDenied":
+		hint = fmt.Sprintf(" (hint: Access to the Power BI metadata plane ('/metadata/access/*') was denied (HTTP %d). If authenticating with a Service Principal or Managed Identity, note that '/metadata/access/*' strictly requires a delegated user token supplied via 'powerbi_access_token' or FABRIC_POWERBI_ACCESS_TOKEN (or its aliases).)", e.StatusCode)
 	case "ServicePrincipalTenantRoleConflict":
 		hint = " (hint: The Service Principal has Power BI tenant-scoped application permissions ('Tenant.ReadWrite.All' or 'Tenant.Read.All'). Microsoft Power BI Admin APIs paradoxically reject SPNs bearing Tenant.* app roles with HTTP 401 PowerBINotAuthorizedException when 'Allow service principals to use Fabric APIs' tenant setting is enabled. Workarounds: (1) Use an SPN without Tenant.* app roles for Fabric/PowerBI metadata operations, or (2) Configure 'powerbi_endpoint' / FABRIC_POWERBI_ENDPOINT directly.)"
 	case "ServicePrincipalMetadataAccessRejected":
@@ -916,13 +968,29 @@ func (c *FabricClient) formatPowerBIHTTPError(resp *http.Response, bodyBytes []b
 
 	faultClass := "PowerBIHTTPError"
 	if status == http.StatusUnauthorized || status == http.StatusForbidden {
-		switch {
-		case posture.HasTenantRoles:
-			faultClass = "ServicePrincipalTenantRoleConflict"
-		case posture.TokenType == "app-only":
-			faultClass = "ServicePrincipalMetadataAccessRejected"
-		default:
-			faultClass = "AdminAPIAccessDenied"
+		isMetadataAccessOp := strings.Contains(operation, "artifact access") ||
+			strings.Contains(operation, "access grant") ||
+			strings.Contains(operation, "access update") ||
+			strings.Contains(operation, "revocation")
+
+		if isMetadataAccessOp {
+			switch posture.TokenType {
+			case "app-only":
+				faultClass = "AppOnlyMetadataAccessUnsupported"
+			case "delegated-user":
+				faultClass = "DelegatedUserMetadataAccessDenied"
+			default:
+				faultClass = "MetadataAccessDenied"
+			}
+		} else {
+			switch {
+			case posture.HasTenantRoles:
+				faultClass = "ServicePrincipalTenantRoleConflict"
+			case posture.TokenType == "app-only":
+				faultClass = "ServicePrincipalMetadataAccessRejected"
+			default:
+				faultClass = "AdminAPIAccessDenied"
+			}
 		}
 	}
 
@@ -945,6 +1013,10 @@ func (c *FabricClient) formatPowerBIHTTPError(resp *http.Response, bodyBytes []b
 
 // GetItemDirectPermissions reads direct item-level permissions for a principal on a Fabric item.
 func (c *FabricClient) GetItemDirectPermissions(ctx context.Context, workspaceID, itemID, itemType, principalID string) (*ItemDirectShare, error) {
+	if strings.TrimSpace(principalID) == "" {
+		return nil, errors.New("principalID cannot be empty")
+	}
+
 	cluster, err := c.discoverClusterURI(ctx, workspaceID)
 	if err != nil {
 		return nil, fmt.Errorf("discovering cluster uri: %w", err)
@@ -1012,9 +1084,18 @@ func (c *FabricClient) GetItemDirectPermissions(ctx context.Context, workspaceID
 			strings.EqualFold(detail.AADAppID, principalID)
 
 		if matched {
+			internalUserID := 0
+			if detail.UserID != nil {
+				internalUserID = *detail.UserID
+			}
+			internalGroupID := 0
+			if detail.GroupID != nil {
+				internalGroupID = *detail.GroupID
+			}
+
 			if matchedDirect == nil {
 				pType := "User"
-				if detail.GroupObjectID != "" || detail.GroupID != 0 {
+				if detail.GroupObjectID != "" || internalGroupID != 0 {
 					pType = "Group"
 				} else if detail.IsServicePrincipal || detail.AADAppID != "" {
 					pType = "ServicePrincipal"
@@ -1025,18 +1106,18 @@ func (c *FabricClient) GetItemDirectPermissions(ctx context.Context, workspaceID
 					InternalArtifactID:     artifactID,
 					RawPermissions:         detail.Permissions,
 					RawArtifactPermissions: detail.ArtifactPermissions,
-					InternalUserID:         detail.UserID,
-					InternalGroupID:        detail.GroupID,
+					InternalUserID:         internalUserID,
+					InternalGroupID:        internalGroupID,
 					IsServicePrincipal:     detail.IsServicePrincipal || detail.AADAppID != "",
 				}
 			} else {
 				matchedDirect.RawPermissions |= detail.Permissions
 				matchedDirect.RawArtifactPermissions |= detail.ArtifactPermissions
-				if detail.UserID != 0 {
-					matchedDirect.InternalUserID = detail.UserID
+				if internalUserID != 0 {
+					matchedDirect.InternalUserID = internalUserID
 				}
-				if detail.GroupID != 0 {
-					matchedDirect.InternalGroupID = detail.GroupID
+				if internalGroupID != 0 {
+					matchedDirect.InternalGroupID = internalGroupID
 				}
 				if detail.IsServicePrincipal || detail.AADAppID != "" {
 					matchedDirect.IsServicePrincipal = true

@@ -94,6 +94,45 @@ provider "fabricext" {
 
 ---
 
+## Delegated Token Requirement
+
+Item-level permission management involves two distinct Microsoft architectural planes with different authentication requirements:
+
+### Dual-Plane Architecture
+
+1. **Fabric Control Plane (`api.fabric.microsoft.com`)**:
+   - Manages OneLake Data Access Roles (`fabricext_lakehouse_data_access_role`), OneLake security enablement (`fabricext_lakehouse_onelake_security`), and item share verification gates (`fabricext_item_share_gate`).
+   - Natively supports Service Principals and Managed Identities (`app-only` tokens) with tenant or workspace administrative permissions.
+2. **Power BI Metadata Plane (`/metadata/access/*`)**:
+   - Manages direct item-level sharing permissions (`fabricext_warehouse_permission`, `fabricext_sql_database_permission`, `fabricext_lakehouse_permission`).
+   - Strictly requires a **delegated user token**. Microsoft's internal metadata endpoint unconditionally rejects app-only tokens (Service Principals and Managed Identities) with HTTP 403 `PowerBINotAuthorizedException: API is not accessible for application`, regardless of tenant admin roles or workspace membership.
+
+### Workstation Local Execution
+
+For local development, interactive Azure CLI authentication (`az login`) works out of the box without manual token injection. The provider automatically acquires a delegated user token scoped to Power BI (`https://analysis.windows.net/powerbi/api/.default`).
+
+### CI/CD Headless Pipelines
+
+In automated CI/CD pipelines running under a Service Principal or Managed Identity, manage item-level direct permissions by injecting a pre-acquired delegated user token:
+
+- Supply the token via the `powerbi_access_token` provider attribute or one of the supported environment variables:
+  - `FABRIC_POWERBI_ACCESS_TOKEN`
+  - `POWERBI_ACCESS_TOKEN`
+  - `ARM_POWERBI_ACCESS_TOKEN`
+  - `AZURE_POWERBI_ACCESS_TOKEN`
+- Recommended automated patterns:
+  - **JIT Token Brokering**: Mint short-lived delegated tokens on demand via HashiCorp Vault, Azure Key Vault, or an internal identity broker.
+  - **Pipeline Export**: Pre-acquire a delegated token before running Terraform:
+    ```bash
+    export FABRIC_POWERBI_ACCESS_TOKEN=$(az account get-access-token \
+      --resource https://analysis.windows.net/powerbi/api \
+      --query accessToken -o tsv)
+    ```
+- Token lifetime: Standard Microsoft Entra ID access tokens carry a 60–90 minute TTL. Ensure automated CI/CD pipeline steps complete within the token validity window.
+- Security boundary: Avoid storing long-lived user refresh tokens or embedding user credentials in repository source code; treat delegated tokens as sensitive bearer credentials.
+
+---
+
 ## Automated CI/CD Authentication
 
 For automated execution in CI/CD pipelines, we strongly recommend passwordless OpenID Connect (Workload Identity Federation) or Managed Identity over static credentials.

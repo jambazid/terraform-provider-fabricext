@@ -43,7 +43,17 @@ Comparative architecture analysis between Microsoft's official Terraform provide
 
 ### Declarative Item Sharing USP
 
-Microsoft Fabric workspace roles (Admin, Member, Contributor, Viewer) grant broad access across every item in a workspace. For enterprise least-privilege architectures, organizations require granular item-level sharing:
+Microsoft Fabric workspace roles (Admin, Member, Contributor, Viewer) grant broad access across every item in a workspace. For enterprise least-privilege architectures, organizations require granular item-level sharing.
+
+Managing item permissions declaratively via `fabricext` provides compelling operational advantages over manual portal sharing:
+
+| Dimension | Manual Fabric Portal UI | Declarative `fabricext` Provider |
+| :--- | :--- | :--- |
+| **Scalability & Effort** | Hundreds of manual clicks per workspace; error-prone at scale | Single declarative HCL matrix (`modules/permissions` or `for_each`) applied in seconds |
+| **Auditability & GitOps** | Ephemeral, untracked UI actions without review history | Peer-reviewed Git pull requests, versioned commit history, and auditable Terraform plans |
+| **Drift Self-Healing** | Silent privilege creep; unauthorized portal grants persist indefinitely | Continuous stateful drift detection; automatically converges out-of-band portal changes back to code |
+| **Least-Privilege Precision** | Admin fatigue often leads to granting overly permissive workspace roles | Precise granular item-level tokens (`Read`, `ReadData`, `ReadAll`, `Reshare`, `Execute`) without workspace access |
+| **Cross-Plane Verification** | Manual spot-checking through individual item share dialogs | Automated verification gates (`fabricext_item_share_gate`) enforcing Fabric Admin API effective ACLs |
 
 1. **Declarative Item Permissions**: `jambazid/fabricext` provides `fabricext_warehouse_permission`, `fabricext_sql_database_permission`, and `fabricext_lakehouse_permission` to grant non-member principals direct access (such as `["Read"]`, `["Read", "ReadData"]`, or `["Read", "ReadData", "Execute"]`) to specific items without workspace membership.
 2. **Stateful Drift Self-Healing**: When item permissions are modified out-of-band in the Fabric portal, `fabricext` detects the drift during refresh and converges back to the declared configuration in place.
@@ -97,7 +107,7 @@ Practitioners frequently run `microsoft/fabric` (to provision workspaces and ite
 | `use_msi` | `FABRIC_USE_MSI` | `AZURE_USE_MSI`, `ARM_USE_MSI`, `FABRIC_USE_MSI` | Uses `azidentity.NewManagedIdentityCredential`. |
 | `use_cli` | `FABRIC_USE_CLI` | `AZURE_USE_CLI`, `ARM_USE_CLI`, `FABRIC_USE_CLI` | Uses `azidentity.NewAzureCLICredential`. |
 | `access_token` | *(Not supported)* | `FABRIC_ACCESS_TOKEN` | Static bearer token override; enables zero-network `TF_ACC=1` testing. |
-| `powerbi_access_token`| *(Not supported)* | `FABRIC_POWERBI_ACCESS_TOKEN` | Dedicated static Power BI bearer token override; isolated from `access_token`. |
+| `powerbi_access_token`| *(Not supported)* | `FABRIC_POWERBI_ACCESS_TOKEN`, `POWERBI_ACCESS_TOKEN`, `ARM_POWERBI_ACCESS_TOKEN`, `AZURE_POWERBI_ACCESS_TOKEN` | Dedicated static Power BI bearer token override; isolated from `access_token`. Required for item-level permissions in CI/CD under Service Principals. |
 | `timeout` / `request_timeout` | `FABRIC_TIMEOUT` | `FABRIC_TIMEOUT`, `FABRIC_REQUEST_TIMEOUT` | HTTP request timeout duration. |
 | `skip_credentials_validation` | *(Not supported)* | `FABRIC_SKIP_CREDENTIALS_VALIDATION` | Skips eager token validation in `Configure()` when set to `true`. |
 

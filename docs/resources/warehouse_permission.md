@@ -12,6 +12,8 @@ description: |-
 
 ~> **Note:** Item-level permission resources call internal Power BI service endpoints because Microsoft Fabric does not yet offer a v1 REST write API for item sharing. Endpoint behavior may change without notice; pin provider versions and validate upgrades in non-production workspaces first.
 
+~> **Authentication Requirement:** Item-level direct permissions evaluate against the Power BI metadata plane, which requires a delegated user token. In automated CI/CD pipelines running under a Service Principal or Managed Identity, supply a pre-acquired delegated token via `powerbi_access_token` or `FABRIC_POWERBI_ACCESS_TOKEN`.
+
 ~> **Note:** For end-to-end guidance and real-world multi-persona security configurations, see the [Access Control Playbook](../guides/access_control_playbook.md).
 
 Manages direct item-level permissions on a Microsoft Fabric **Warehouse** for Microsoft Entra users, groups, service principals, or managed identities.

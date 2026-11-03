@@ -289,12 +289,13 @@ func TestAccWarehousePermissionResource_SPNClusterDiscoveryCleanCRUD(t *testing.
 	})
 
 	spnToken := createSyntheticAccJWT(`{"idtyp":"app","appid":"app-spn-acc","oid":"spn-oid-acc","tid":"tenant-acc","roles":["Tenant.ReadWrite.All"]}`)
+	userToken := createSyntheticAccJWT(`{"idtyp":"user","oid":"user-oid-acc","tid":"tenant-acc","scp":"user_impersonation"}`)
 
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config: testAccProviderConfigWithTokens(fabricSrv, pbiSrv, spnToken, spnToken) + fmt.Sprintf(`
+				Config: testAccProviderConfigWithTokens(fabricSrv, pbiSrv, spnToken, userToken) + fmt.Sprintf(`
 resource "fabricext_warehouse_permission" "test" {
   workspace_id   = %q
   warehouse_id   = %q
@@ -308,8 +309,8 @@ resource "fabricext_warehouse_permission" "test" {
 					resource.TestCheckResourceAttr("fabricext_warehouse_permission.test", "warehouse_id", whID),
 					resource.TestCheckResourceAttr("fabricext_warehouse_permission.test", "permissions.#", "2"),
 					func(_ *terraform.State) error {
-						if pbiSrv.PortalRequestCount() != 0 {
-							return fmt.Errorf("expected 0 portal requests for app-only SPN token, got %d", pbiSrv.PortalRequestCount())
+						if pbiSrv.PortalRequestCount() == 0 {
+							return fmt.Errorf("expected portal attempt with fallback for delegated user token, got 0")
 						}
 						return nil
 					},
@@ -356,7 +357,7 @@ resource "fabricext_warehouse_permission" "test" {
   permissions    = ["Read", "ReadData"]
 }
 `, wsID, whID, principalID),
-				ExpectError: regexp.MustCompile(`(?s)fault_class=ServicePrincipalTenantRoleConflict.*x_powerbi_error=PowerBINotAuthorizedException.*caller_posture=\[.*appid=app-spn-acc.*roles=\[Tenant\.ReadWrite\.All\].*\]`),
+				ExpectError: regexp.MustCompile(`(?s)fault_class=AppOnlyMetadataAccessUnsupported.*x_powerbi_error=PowerBINotAuthorizedException.*caller_posture=\[.*appid=app-spn-acc.*roles=\[Tenant\.ReadWrite\.All\].*\]`),
 			},
 		},
 	})

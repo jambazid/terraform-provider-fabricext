@@ -15,12 +15,14 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/getkin/kin-openapi/openapi3filter"
 	"github.com/getkin/kin-openapi/routers"
 	"github.com/getkin/kin-openapi/routers/gorillamux"
+	"github.com/jambazid/terraform-provider-fabricext/internal/credentials"
 )
 
 // Server represents a stateful in-memory mock Power BI metadata server.
@@ -253,7 +255,48 @@ func (s *Server) handleDefinitions(w http.ResponseWriter, _ *http.Request) {
 	_ = json.NewEncoder(w).Encode(defs)
 }
 
+func isAppOnlyToken(authHeader string) bool {
+	token := strings.TrimPrefix(authHeader, "Bearer ")
+	token = strings.TrimSpace(token)
+	posture := credentials.InspectTokenPosture(token, "")
+	return posture.TokenType == "app-only"
+}
+
 func (s *Server) handleAccess(w http.ResponseWriter, r *http.Request) {
+	s.mu.RLock()
+	authStatus := s.accessAuthStatus
+	authErr := s.accessAuthError
+	s.mu.RUnlock()
+
+	if authStatus != 0 {
+		w.Header().Set("Content-Type", "application/json")
+		if authErr != "" {
+			w.Header().Set("X-PowerBI-Error-Info", authErr)
+		}
+		w.Header().Set("RequestId", "test-request-id-1234")
+		w.WriteHeader(authStatus)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error": map[string]string{
+				"code":    "PowerBINotAuthorizedException",
+				"message": "User is not authorized to access Power BI metadata",
+			},
+		})
+		return
+	}
+
+	if isAppOnlyToken(r.Header.Get("Authorization")) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("RequestId", "test-request-id-1234")
+		w.WriteHeader(http.StatusForbidden)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error": map[string]string{
+				"code":    "PowerBINotAuthorizedException",
+				"message": "API is not accessible for application",
+			},
+		})
+		return
+	}
+
 	var payload struct {
 		Artifacts []map[string]any `json:"artifacts"`
 	}
@@ -285,8 +328,6 @@ func (s *Server) handleAccess(w http.ResponseWriter, r *http.Request) {
 			principalID = uOID
 		} else if gOID, ok := a["groupObjectId"].(string); ok && gOID != "" {
 			principalID = gOID
-		} else if sOID, ok := a["servicePrincipalObjectId"].(string); ok && sOID != "" {
-			principalID = sOID
 		}
 
 		if int(p) == 0 && int(ap) == 0 {
@@ -335,6 +376,11 @@ func (s *Server) handleAccess(w http.ResponseWriter, r *http.Request) {
 				if uOID, ok := a["userObjectId"].(string); ok && uOID != "" {
 					newEntry["userObjectId"] = uOID
 					newEntry["userId"] = s.nextUserID
+					newEntry["userType"] = 0
+					newEntry["givenName"] = "Jane"
+					newEntry["familyName"] = "Doe"
+					newEntry["emailAddress"] = "user@example.com"
+					newEntry["userPrincipalName"] = "user@example.com"
 					s.nextUserID++
 				}
 				if gOID, ok := a["groupObjectId"].(string); ok && gOID != "" {
@@ -431,10 +477,23 @@ func (s *Server) handleArtifactAccess(w http.ResponseWriter, r *http.Request) {
 	authStatus := s.accessAuthStatus
 	authErr := s.accessAuthError
 	deleted := s.deletedItems != nil && s.deletedItems[itemID]
-	entries := s.entries[itemID]
 	rootID := s.artifactID
 	if rootID == 0 {
 		rootID = 1
+	}
+
+	var entries []map[string]any
+	if raw := s.entries[itemID]; raw != nil {
+		entries = make([]map[string]any, len(raw))
+		for i, e := range raw {
+			copied := make(map[string]any, len(e))
+			for k, v := range e {
+				copied[k] = v
+			}
+			entries[i] = copied
+		}
+	} else {
+		entries = []map[string]any{}
 	}
 	s.mu.RUnlock()
 
@@ -454,6 +513,19 @@ func (s *Server) handleArtifactAccess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if isAppOnlyToken(r.Header.Get("Authorization")) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("RequestId", "test-request-id-1234")
+		w.WriteHeader(http.StatusForbidden)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error": map[string]string{
+				"code":    "PowerBINotAuthorizedException",
+				"message": "API is not accessible for application",
+			},
+		})
+		return
+	}
+
 	if deleted {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
@@ -464,10 +536,6 @@ func (s *Server) handleArtifactAccess(w http.ResponseWriter, r *http.Request) {
 			},
 		})
 		return
-	}
-
-	if entries == nil {
-		entries = []map[string]any{}
 	}
 
 	resp := map[string]any{

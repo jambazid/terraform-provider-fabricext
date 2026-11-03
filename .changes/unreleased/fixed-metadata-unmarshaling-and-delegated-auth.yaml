@@ -1,0 +1,5 @@
+kind: fixed
+body: >-
+  Support numeric userType (0/1) and nullable userId/groupId on Power BI metadata responses,
+  add POWERBI_ACCESS_TOKEN environment variable aliases, and refine app-only metadata
+  diagnostics to AppOnlyMetadataAccessUnsupported.

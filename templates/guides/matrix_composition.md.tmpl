@@ -61,6 +61,8 @@ Choose the deployment pattern that matches your organization's operating model:
 
 ~> **Important:** **Share Verification Privileges**: The default `verify_item_shares = true` setting chains `fabricext_item_share_gate` to query effective permissions via the Microsoft Fabric Admin API (`GET /v1/admin/workspaces/{workspaceId}/items/{itemId}/users`). Calling the Admin API strictly requires the executing identity to hold the **Fabric Administrator** tenant role or be a Service Principal enrolled in the tenant setting *"Service principals can use Fabric admin APIs"* (or *"read-only admin APIs"*) with application permission `Tenant.Read.All` or `Tenant.ReadWrite.All`. If a Service Principal has `Tenant.ReadWrite.All` but the tenant only permits read-only admin APIs, Fabric returns HTTP 401/403 `PowerBINotAuthorizedException`. For environments without tenant admin permissions, set `verify_item_shares = false`. Item-level sharing resources (`fabricext_*_permission`) and OneLake Data Access Roles only require workspace **Admin** or **Member** roles.
 
+~> **Important:** **Dual-Plane Authentication Requirements**: Managing `lakehouses.*.data_access_roles` and OneLake security enablement evaluates on the Fabric control plane (`api.fabric.microsoft.com`), which natively supports Service Principals and Managed Identities. However, declaring `warehouses`, `sql_databases`, or `lakehouses.*.permissions` evaluates on the Power BI metadata plane, which strictly requires a delegated user token (injected in automated CI/CD via `powerbi_access_token` or `FABRIC_POWERBI_ACCESS_TOKEN` / aliases). When `verify_item_shares = true`, the verification gate calls the Fabric Admin API on the control plane and does not require a delegated token.
+
 ---
 
 ## Lifecycle & Key Invariants
@@ -396,8 +398,8 @@ module "workspace_permissions" {
       analytics_wh = {
         permissions = {
           "11111111-1111-1111-1111-111111111111" = {
-            permissions    = ["Read"]
-            principal_type = "Group"
+            permissions = ["Read"]
+            type        = "Group"
           }
         }
       }
@@ -407,8 +409,8 @@ module "workspace_permissions" {
       orders_db = {
         permissions = {
           "22222222-2222-2222-2222-222222222222" = {
-            permissions    = ["Read", "Write"]
-            principal_type = "ServicePrincipal"
+            permissions = ["Read", "Write"]
+            type        = "ServicePrincipal"
           }
         }
       }
@@ -418,8 +420,8 @@ module "workspace_permissions" {
       curated_lh = {
         permissions = {
           "11111111-1111-1111-1111-111111111111" = {
-            permissions    = ["Read"]
-            principal_type = "Group"
+            permissions = ["Read"]
+            type        = "Group"
           }
         }
 
@@ -452,6 +454,8 @@ The `fabric_permissions_matrix` variable accepts a structured object with the fo
 | `sql_databases` | `map(object)` | no | `{}` | Map of SQL Database identifiers (names or UUIDs) to item configuration with `permissions` map keyed by principal UUID. |
 | `lakehouses` | `map(object)` | no | `{}` | Unified map of Lakehouse identifiers (names or UUIDs) configuring `permissions`, `data_access_roles`, and per-item `manage_onelake_security`. |
 | `verify_item_shares` | `bool` | no | `true` | Validates applied item permissions through `fabricext_item_share_gate` before outputs complete. |
+| `share_gate_match_type` | `string` | no | `"subset"` | Verification match type: `"subset"` (actual shares must be a superset of desired) or `"exact"` (exact match). |
+| `share_gate_timeout` | `string` | no | `"5m"` | Maximum timeout duration for share gate verification polling (e.g. `"5m"`). |
 | `manage_lakehouse_security` | `bool` | no | `true` | Automatically provisions `fabricext_lakehouse_onelake_security` per Lakehouse when roles are configured. |
 | `remove_lakehouse_default_reader_role` | `bool` | no | `true` | Purges the open `DefaultReader` role created by Fabric upon enabling OneLake security. |
 | `notify` | `bool` | no | `false` | Optional flag to send email notifications for item shares across all workloads. |
@@ -464,7 +468,7 @@ Each principal entry in `warehouses`, `sql_databases`, and `lakehouses.*.permiss
 | Field | Type | Required | Default | Description |
 | :--- | :--- | :--- | :--- | :--- |
 | `permissions` | `set(string)` | yes | - | Direct item access permissions: must include `"Read"`; allowed: `"Read"`, `"Write"`, `"ReadData"`, `"ReadAll"`, `"Reshare"`, `"Execute"`. |
-| `principal_type` | `string` | no | `"Group"` | Entra ID principal type: `User`, `Group`, `ServicePrincipal`, or `ManagedIdentity`. |
+| `type` | `string` | no | `"Group"` | Entra ID principal type: `User`, `Group`, `ServicePrincipal`, or `ManagedIdentity`. |
 | `notify` | `bool` | no | `null` | Optional per-grant override for sending email notifications (inherits top-level `var.notify`). |
 | `message` | `string` | no | `null` | Optional per-grant custom email notification message when effective `notify` is true. |
 

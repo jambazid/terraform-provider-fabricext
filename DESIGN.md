@@ -267,7 +267,7 @@ sequenceDiagram
 | `endpoint` | `String` | Optional | `FABRIC_ENDPOINT` | Base URL for the Microsoft Fabric REST API. Defaults to `"https://api.fabric.microsoft.com"`. |
 | `access_token` | `String` (`Sensitive`) | Optional | `FABRIC_ACCESS_TOKEN` | Static Microsoft Entra ID bearer token for the Fabric API (`FabricScope`). |
 | `powerbi_endpoint` | `String` | Optional | `FABRIC_POWERBI_ENDPOINT` | Regional Power BI cluster endpoint (e.g. `"https://wabi-west-europe-redirect.analysis.windows.net"`), bypassing bootstrap portal discovery. |
-| `powerbi_access_token` | `String` (`Sensitive`) | Optional | `FABRIC_POWERBI_ACCESS_TOKEN` | Static Microsoft Entra ID bearer token for the Power BI metadata API (`PowerBIScope`). |
+| `powerbi_access_token` | `String` (`Sensitive`) | Optional | `FABRIC_POWERBI_ACCESS_TOKEN`, `POWERBI_ACCESS_TOKEN`, `ARM_POWERBI_ACCESS_TOKEN`, `AZURE_POWERBI_ACCESS_TOKEN` | Static Microsoft Entra ID bearer token for the Power BI metadata API (`PowerBIScope`). Required for item-level permissions in CI/CD under Service Principals. |
 | `tenant_id` | `String` | Optional | `AZURE_TENANT_ID`, `ARM_TENANT_ID`, `FABRIC_TENANT_ID` | Microsoft Entra ID tenant UUID. |
 | `tenant_id_file_path` | `String` | Optional | `FABRIC_TENANT_ID_FILE_PATH`, `AZURE_TENANT_ID_FILE_PATH`, `ARM_TENANT_ID_FILE_PATH` | Path to file containing Microsoft Entra ID tenant UUID. |
 | `client_id` | `String` | Optional | `AZURE_CLIENT_ID`, `ARM_CLIENT_ID`, `FABRIC_CLIENT_ID` | Service Principal or Managed Identity client UUID. |
@@ -662,3 +662,16 @@ Item permissions support optional recipient notification and custom message deli
    - When `notify = false` (default): Grants execute silently via `POST /metadata/access` (new grant) or `PUT /metadata/access` (update) with `accessRequestBody`.
 2. **Schema Validation Invariant**: `message` strictly requires `notify = true`. Configuring `message` without enabling `notify` fails configuration validation with an actionable diagnostic.
 3. **Module Composition**: `modules/permissions` exposes top-level inputs `variable "notify"` and `variable "message"` providing module-level defaults, with optional per-principal overrides in the permission matrix (`coalesce(p.notify, var.notify)` and `coalesce(p.message, var.message)`).
+
+### 15.7 Dual-Plane Authentication & Response Unmarshaling
+
+1. **Dual-Plane Authentication Separation**:
+   - **Fabric Control Plane (`api.fabric.microsoft.com`)**: Powers OneLake Data Access Roles (`fabricext_lakehouse_data_access_role`), OneLake security enablement (`fabricext_lakehouse_onelake_security`), and item share verification gates (`fabricext_item_share_gate`). Supports Service Principals and Managed Identities (`app-only` tokens) natively without restrictions.
+   - **Power BI Metadata Plane (`/metadata/access/*`)**: Powers direct item-level sharing permissions (`fabricext_warehouse_permission`, `fabricext_sql_database_permission`, `fabricext_lakehouse_permission`). Strictly requires a delegated user token. The Microsoft backend unconditionally rejects app-only tokens (Service Principals / Managed Identities) with HTTP 403 `PowerBINotAuthorizedException: API is not accessible for application`, prioritizing fault class `AppOnlyMetadataAccessUnsupported` in default error diagnostics.
+2. **Workstation Parity & Headless CI/CD**:
+   - **Workstations (`az login`)**: Automatically acquires delegated user tokens for both Fabric and Power BI scopes without manual token injection.
+   - **CI/CD Pipelines**: In automated headless runs under a Service Principal or Managed Identity, supply a pre-acquired delegated user token via `powerbi_access_token` or `FABRIC_POWERBI_ACCESS_TOKEN` (or aliases `POWERBI_ACCESS_TOKEN`, `ARM_POWERBI_ACCESS_TOKEN`, `AZURE_POWERBI_ACCESS_TOKEN`).
+3. **Response Unmarshaling Hardening**:
+   - **`FlexibleUserType`**: Custom unmarshaler deserializing `userType` from integer (`0` for member, `1` for guest), string (`"0"`, `"Member"`, `"Guest"`), null, or omitted values without unmarshaling crashes.
+   - **Pointer Integers (`*int`)**: Models `userId` and `groupId` as nullable pointer integers to preserve wire fidelity and avoid unmarshal errors when values are omitted or null.
+   - **Sibling Attribute Parity**: Models `id` (internal artifact ID), `givenName`, `familyName`, `emailAddress`, `userPrincipalName`, and `aadAppId` to capture complete ACL detail across user, group, and service principal grants.
