@@ -201,7 +201,7 @@ func (s *Server) SetAllowAppOnlyArtifactRead(allowed bool) {
 	s.allowAppOnlyArtifactRead = allowed
 }
 
-// LastArtifacts returns the artifacts list from the last POST or PUT to /metadata/access.
+// LastArtifacts returns a deep copy of the artifacts list from the last POST or PUT to /metadata/access.
 func (s *Server) LastArtifacts() []map[string]any {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -209,7 +209,9 @@ func (s *Server) LastArtifacts() []map[string]any {
 		return nil
 	}
 	out := make([]map[string]any, len(s.lastArtifacts))
-	copy(out, s.lastArtifacts)
+	for i, a := range s.lastArtifacts {
+		out[i] = deepCopyMap(a)
+	}
 	return out
 }
 
@@ -651,23 +653,23 @@ func (s *Server) handleArtifactAccess(w http.ResponseWriter, r *http.Request) {
 
 func matchPrincipal(a, b map[string]any) bool {
 	if aObj, ok := a["objectId"].(string); ok && aObj != "" {
-		if bObj, ok := b["objectId"].(string); ok && bObj == aObj {
+		if bObj, ok := b["objectId"].(string); ok && strings.EqualFold(bObj, aObj) {
 			return true
 		}
-		if bU, ok := b["userObjectId"].(string); ok && bU == aObj {
+		if bU, ok := b["userObjectId"].(string); ok && strings.EqualFold(bU, aObj) {
 			return true
 		}
-		if bG, ok := b["groupObjectId"].(string); ok && bG == aObj {
+		if bG, ok := b["groupObjectId"].(string); ok && strings.EqualFold(bG, aObj) {
 			return true
 		}
 	}
 	if aU, ok := a["userObjectId"].(string); ok && aU != "" {
-		if bU, ok := b["userObjectId"].(string); ok && bU == aU {
+		if bU, ok := b["userObjectId"].(string); ok && strings.EqualFold(bU, aU) {
 			return true
 		}
 	}
 	if aG, ok := a["groupObjectId"].(string); ok && aG != "" {
-		if bG, ok := b["groupObjectId"].(string); ok && bG == aG {
+		if bG, ok := b["groupObjectId"].(string); ok && strings.EqualFold(bG, aG) {
 			return true
 		}
 	}

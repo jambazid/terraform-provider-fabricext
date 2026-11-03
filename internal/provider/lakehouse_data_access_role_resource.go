@@ -175,7 +175,7 @@ func (r *LakehouseDataAccessRoleResource) Schema(_ context.Context, _ resource.S
 				Computed:            true,
 				MarkdownDescription: "Display name of the target Microsoft Fabric Lakehouse. At least one of `lakehouse_name` or `lakehouse_id` must be specified.",
 				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.RequiresReplace(),
+					RequiresReplaceIfConfigured(),
 					stringplanmodifier.UseStateForUnknown(),
 				},
 				Validators: []validator.String{
@@ -187,7 +187,7 @@ func (r *LakehouseDataAccessRoleResource) Schema(_ context.Context, _ resource.S
 				Computed:            true,
 				MarkdownDescription: "Resolved or explicitly specified UUID of the Microsoft Fabric Lakehouse. At least one of `lakehouse_name` or `lakehouse_id` must be specified.",
 				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.RequiresReplace(),
+					RequiresReplaceIfConfigured(),
 					stringplanmodifier.UseStateForUnknown(),
 				},
 				Validators: []validator.String{

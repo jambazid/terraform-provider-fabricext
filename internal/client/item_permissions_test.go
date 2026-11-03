@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -105,6 +106,37 @@ func TestItemPermissions_BitmaskBijection(t *testing.T) {
 				t.Fatalf("expected decoded %v, got %v", tc.expDecoded, decoded)
 			}
 		})
+	}
+}
+
+func TestDecodePermissions_ArtifactBitmaskExecute(t *testing.T) {
+	t.Parallel()
+
+	// 1. Lakehouse with Execute only in artifactBitmask (bit 64)
+	decodedLH, err := client.DecodePermissions("Lakehouse", 1, 64)
+	if err != nil {
+		t.Fatalf("unexpected error decoding Lakehouse permissions: %v", err)
+	}
+	if !slices.Contains(decodedLH, "Execute") || !slices.Contains(decodedLH, "Read") {
+		t.Fatalf("expected Lakehouse to decode Read and Execute, got %v", decodedLH)
+	}
+
+	// 2. SQLDatabase with Execute in artifactBitmask (bit 64)
+	decodedSQL, err := client.DecodePermissions("SQLDatabase", 1, 64)
+	if err != nil {
+		t.Fatalf("unexpected error decoding SQLDatabase permissions: %v", err)
+	}
+	if !slices.Contains(decodedSQL, "Execute") || !slices.Contains(decodedSQL, "Read") {
+		t.Fatalf("expected SQLDatabase to decode Read and Execute, got %v", decodedSQL)
+	}
+
+	// 3. Warehouse ignores Execute even if bit 64 is set in core or artifact
+	decodedWH, err := client.DecodePermissions("Warehouse", 65, 64)
+	if err != nil {
+		t.Fatalf("unexpected error decoding Warehouse permissions: %v", err)
+	}
+	if slices.Contains(decodedWH, "Execute") {
+		t.Fatalf("expected Warehouse to ignore Execute bit, got %v", decodedWH)
 	}
 }
 

@@ -756,3 +756,60 @@ resource "fabricext_lakehouse_data_access_role" "test" {
 		},
 	})
 }
+
+func TestAccLakehouseDataAccessRoleResource_RenameInvariance(t *testing.T) {
+	t.Parallel()
+
+	srv := fabricmock.NewServer(t)
+	wsID := "11111111-1111-1111-1111-111111111111"
+	lhID := "22222222-2222-2222-2222-222222222222"
+	principalID := "77777777-7777-7777-7777-777777777771"
+
+	srv.UpsertItem(fabricmock.Item{
+		ID:          lhID,
+		WorkspaceID: wsID,
+		DisplayName: "lakehouse_initial",
+		Type:        "Lakehouse",
+	})
+	srv.EnableLakehouseSecurity(wsID, lhID)
+
+	cfg := testAccProviderConfig(srv) + fmt.Sprintf(`
+resource "fabricext_lakehouse_data_access_role" "test" {
+  workspace_id  = %q
+  lakehouse_id  = %q
+  role_name     = "Role1"
+  paths         = ["/Tables/sales"]
+  principal_ids = [%q]
+}
+`, wsID, lhID, principalID)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: cfg,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("fabricext_lakehouse_data_access_role.test", "lakehouse_id", lhID),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_data_access_role.test", "lakehouse_name", "lakehouse_initial"),
+					func(_ *terraform.State) error {
+						// Rename item upstream in Fabric portal
+						srv.UpsertItem(fabricmock.Item{
+							ID:          lhID,
+							WorkspaceID: wsID,
+							DisplayName: "lakehouse_renamed",
+							Type:        "Lakehouse",
+						})
+						return nil
+					},
+				),
+			},
+			{
+				Config: cfg,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("fabricext_lakehouse_data_access_role.test", "lakehouse_id", lhID),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_data_access_role.test", "lakehouse_name", "lakehouse_renamed"),
+				),
+			},
+		},
+	})
+}

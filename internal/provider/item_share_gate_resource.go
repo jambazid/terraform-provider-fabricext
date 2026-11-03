@@ -36,6 +36,32 @@ type ItemShareGateResource struct {
 	client *client.FabricClient
 }
 
+type shareGatePrincipalTypeModifier struct{}
+
+func (m shareGatePrincipalTypeModifier) Description(_ context.Context) string {
+	return "Requires replacement if principal_type changes, treating ServicePrincipal and ManagedIdentity as semantically equivalent."
+}
+
+func (m shareGatePrincipalTypeModifier) MarkdownDescription(ctx context.Context) string {
+	return m.Description(ctx)
+}
+
+func (m shareGatePrincipalTypeModifier) PlanModifyString(_ context.Context, req planmodifier.StringRequest, resp *planmodifier.StringResponse) {
+	if req.ConfigValue.IsNull() || req.StateValue.IsNull() {
+		return
+	}
+	if req.PlanValue.Equal(req.StateValue) {
+		return
+	}
+	isPlanSP := strings.EqualFold(req.PlanValue.ValueString(), "ServicePrincipal") || strings.EqualFold(req.PlanValue.ValueString(), "ManagedIdentity")
+	isStateSP := strings.EqualFold(req.StateValue.ValueString(), "ServicePrincipal") || strings.EqualFold(req.StateValue.ValueString(), "ManagedIdentity")
+	if isPlanSP && isStateSP {
+		resp.PlanValue = req.StateValue
+		return
+	}
+	resp.RequiresReplace = true
+}
+
 // ItemShareGateTimeoutsModel holds optional timeout duration strings.
 type ItemShareGateTimeoutsModel struct {
 	Create types.String `tfsdk:"create"`
@@ -126,7 +152,7 @@ func (r *ItemShareGateResource) Schema(_ context.Context, _ resource.SchemaReque
 				Computed:            true,
 				MarkdownDescription: "Optional principal type filter (`User`, `Group`, `ServicePrincipal`, `ManagedIdentity`, `ServicePrincipalProfile`, `EntireTenant`).",
 				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.RequiresReplace(),
+					shareGatePrincipalTypeModifier{},
 					stringplanmodifier.UseStateForUnknown(),
 				},
 				Validators: []validator.String{

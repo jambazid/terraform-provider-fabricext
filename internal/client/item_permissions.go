@@ -276,6 +276,7 @@ func (c *FabricClient) discoverClusterURI(ctx context.Context, workspaceID strin
 			req.Header.Set("Authorization", "Bearer "+tok)
 			resp, doErr := c.httpClient.Do(req)
 			if doErr == nil {
+				_, _ = io.Copy(io.Discard, resp.Body)
 				_ = resp.Body.Close()
 				for _, sc := range resp.Header.Values("Set-Cookie") {
 					if cluster := extractClusterURIFromCookie(sc); cluster != "" {
@@ -792,7 +793,7 @@ func DecodePermissions(itemType string, coreBitmask, artifactBitmask int64) ([]s
 	if (coreBitmask&4 != 0) || (artifactBitmask&8 != 0) {
 		permSet["Reshare"] = true
 	}
-	if normType != "Warehouse" && (coreBitmask&64 != 0) {
+	if normType != "Warehouse" && ((coreBitmask&64 != 0) || (artifactBitmask&64 != 0)) {
 		permSet["Execute"] = true
 	}
 
@@ -1384,7 +1385,7 @@ func (c *FabricClient) UpsertItemDirectPermissions(ctx context.Context, workspac
 		if checkErr == nil && check != nil {
 			lastCore = check.RawPermissions
 			lastArtifact = check.RawArtifactPermissions
-			if method == http.MethodPost || share.Notify {
+			if existing == nil && (method == http.MethodPost || share.Notify) {
 				if (check.RawPermissions&coreBitmask == coreBitmask) && (check.RawArtifactPermissions&artifactBitmask == artifactBitmask) {
 					return nil
 				}

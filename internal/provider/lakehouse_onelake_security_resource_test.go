@@ -552,3 +552,56 @@ resource "fabricext_lakehouse_onelake_security" "test" {
 		},
 	})
 }
+
+func TestAccLakehouseOnelakeSecurity_RenameInvariance(t *testing.T) {
+	t.Parallel()
+
+	srv := fabricmock.NewServer(t)
+	wsID := "11111111-1111-1111-1111-111111111111"
+	lhID := "66666666-6666-6666-6666-666666666666"
+
+	srv.UpsertItem(fabricmock.Item{
+		ID:          lhID,
+		WorkspaceID: wsID,
+		DisplayName: "initial_lh",
+		Type:        "Lakehouse",
+	})
+	srv.EnableLakehouseSecurity(wsID, lhID)
+
+	cfg := testAccProviderConfig(srv) + fmt.Sprintf(`
+resource "fabricext_lakehouse_onelake_security" "test" {
+  workspace_id = %q
+  lakehouse_id = %q
+}
+`, wsID, lhID)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: cfg,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("fabricext_lakehouse_onelake_security.test", "lakehouse_id", lhID),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_onelake_security.test", "lakehouse_name", "initial_lh"),
+					func(_ *terraform.State) error {
+						// Rename item upstream in Fabric portal
+						srv.UpsertItem(fabricmock.Item{
+							ID:          lhID,
+							WorkspaceID: wsID,
+							DisplayName: "renamed_lh",
+							Type:        "Lakehouse",
+						})
+						return nil
+					},
+				),
+			},
+			{
+				Config: cfg,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("fabricext_lakehouse_onelake_security.test", "lakehouse_id", lhID),
+					resource.TestCheckResourceAttr("fabricext_lakehouse_onelake_security.test", "lakehouse_name", "renamed_lh"),
+				),
+			},
+		},
+	})
+}

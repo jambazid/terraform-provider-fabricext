@@ -1479,7 +1479,7 @@ func TestInspectTokenPosture_ClassificationAndRedaction(t *testing.T) {
 		}
 
 		formatted := posture.Format()
-		if strings.Contains(formatted, "practitioner@contoso.com") {
+		if strings.Contains(formatted, "user@example.com") {
 			t.Errorf("human UPN/email must be redacted, found in: %s", formatted)
 		}
 		if !strings.Contains(formatted, "token_type=delegated-user") {

@@ -315,8 +315,8 @@ See the embedded Terraform Registry guide [`docs/guides/official_provider_compar
   - **Core Identifiers**:
     - `id` (`String`, `Computed`, `UseStateForUnknown`)
     - `workspace_id` (`String`, `Required`, `RequiresReplace`, UUID validator)
-    - `lakehouse_name` (`String`, `Optional` + `Computed`, `RequiresReplace`, non-empty validator)
-    - `lakehouse_id` (`String`, `Optional` + `Computed`, `RequiresReplace`, UUID validator; at least one of `lakehouse_name` or `lakehouse_id` must be provided)
+    - `lakehouse_name` (`String`, `Optional` + `Computed`, `RequiresReplaceIfConfigured`, non-empty validator)
+    - `lakehouse_id` (`String`, `Optional` + `Computed`, `RequiresReplaceIfConfigured`, UUID validator; at least one of `lakehouse_name` or `lakehouse_id` must be provided)
     - `role_name` (`String`, `Required`, `RequiresReplace`, `^[a-zA-Z][a-zA-Z0-9_]*$` validator)
     - `kind` (`String`, `Optional` + `Computed`, default `"Policy"`, `OneOf("Policy")`)
   - **Simple Flat Mode (100% Backward Compatible)**:
@@ -341,8 +341,8 @@ See the embedded Terraform Registry guide [`docs/guides/official_provider_compar
 - **Attributes**:
   - `id` (`String`, `Computed`, `UseStateForUnknown`): Composite key `{workspace_id}/{lakehouse_id}`.
   - `workspace_id` (`String`, `Required`, `RequiresReplace`, UUID validator): Target Fabric workspace UUID.
-  - `lakehouse_id` (`String`, `Optional` + `Computed`, `RequiresReplace`, UUID validator; at least one of `lakehouse_name` or `lakehouse_id` must be provided).
-  - `lakehouse_name` (`String`, `Optional` + `Computed`, `RequiresReplace`, 1-256 chars; at least one of `lakehouse_name` or `lakehouse_id` must be provided).
+  - `lakehouse_id` (`String`, `Optional` + `Computed`, `RequiresReplaceIfConfigured`, UUID validator; at least one of `lakehouse_name` or `lakehouse_id` must be provided).
+  - `lakehouse_name` (`String`, `Optional` + `Computed`, `RequiresReplaceIfConfigured`, 1-256 chars; at least one of `lakehouse_name` or `lakehouse_id` must be provided).
   - `remove_default_reader_role` (`Bool`, `Optional` + `Computed`, default `true`): Whether to purge the built-in `DefaultReader` role during create/apply. `ModifyPlan` blocks reverting from `true` to `false` because Fabric provides no API to restore deleted `DefaultReader` roles.
   - `default_reader_role_exists` (`Bool`, `Computed`): Reflects remote presence of `DefaultReader` in Fabric for drift observability.
   - `enabled` (`Bool`, `Computed`): Reflects verified OneLake security enablement status.

@@ -64,8 +64,9 @@ resource "fabricext_lakehouse_data_access_role" "advanced" {
 
 ## Schema, Plan Modifiers & Validators
 
-- `workspace_id`, `lakehouse_name`, `lakehouse_id`, and `role_name` carry `RequiresReplace()` plan modifiers; `id`, `lakehouse_name`, and `lakehouse_id` carry `UseStateForUnknown()`
+- `workspace_id` and `role_name` carry `RequiresReplace()` plan modifiers; `lakehouse_name` and `lakehouse_id` carry `RequiresReplaceIfConfigured()` plan modifiers; `id`, `lakehouse_name`, and `lakehouse_id` carry `UseStateForUnknown()`
   `[@test] ../internal/provider/lakehouse_data_access_role_resource_test.go::TestAccLakehouseDataAccessRoleResource_CRUDAndImport`
+  `[@test] ../internal/provider/lakehouse_data_access_role_resource_test.go::TestAccLakehouseDataAccessRoleResource_RenameInvariance`
 - `lakehouse_name` and `lakehouse_id` are optional attributes where at least one must be specified; if `lakehouse_id` is supplied, `lakehouse_name` is resolved automatically via `GetItemByID`, and if `lakehouse_name` is supplied, `lakehouse_id` is resolved via `GetItemByName`; if both are configured, `Create` validates that `lakehouse_name` matches the fetched display name; on replacement, `ModifyPlan` clears the unconfigured counterpart so stale state values from `UseStateForUnknown` do not cause replacement failures
   `[@test] ../internal/provider/lakehouse_data_access_role_resource_test.go::TestAccLakehouseDataAccessRoleResource_MismatchedIdentifiers`
 - `fabricext_lakehouse_data_access_role` provides a dual-mode schema: simple flat mode (`paths`, `actions`, `principal_ids`, `principal_type`) for uniform path access, and advanced structured mode (`decision_rule` with optional `row_constraint` and `column_constraint`, `entra_member` set, and `fabric_item_member` set) for fine-grained OneLake Data Access Security; `role_name` enforces length $\le 128$ characters; `actions` validates `OneOf("Read", "Write", "ReadWrite")` and emits a value-level deprecation warning for `Write` in favor of `ReadWrite`

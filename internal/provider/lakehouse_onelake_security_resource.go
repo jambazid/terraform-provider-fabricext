@@ -86,7 +86,7 @@ func (r *LakehouseOnelakeSecurityResource) Schema(_ context.Context, _ resource.
 				Computed:            true,
 				MarkdownDescription: "UUID of the Microsoft Fabric Lakehouse. At least one of `lakehouse_id` or `lakehouse_name` must be configured.",
 				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.RequiresReplace(),
+					RequiresReplaceIfConfigured(),
 					stringplanmodifier.UseStateForUnknown(),
 				},
 				Validators: []validator.String{
@@ -98,7 +98,7 @@ func (r *LakehouseOnelakeSecurityResource) Schema(_ context.Context, _ resource.
 				Computed:            true,
 				MarkdownDescription: "Display name of the Microsoft Fabric Lakehouse. At least one of `lakehouse_id` or `lakehouse_name` must be configured.",
 				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.RequiresReplace(),
+					RequiresReplaceIfConfigured(),
 					stringplanmodifier.UseStateForUnknown(),
 				},
 				Validators: []validator.String{
