@@ -128,8 +128,9 @@ func (p TokenPosture) Format() string
   `[@test] ../internal/credentials/chain_test.go::TestTokenCachingAndNearExpiryRefresh`
 - Isolates in-memory token caches across Entra ID audience scopes (`Chain.ResolveForScope`), ensuring Fabric and Power BI tokens are cached and refreshed independently without cross-scope leakage or cache collisions under concurrent access
   `[@test] ../internal/credentials/chain_test.go::TestChain_ScopeIsolationAndPowerBIScope`
-- Resolves static Power BI tokens (`powerbi_access_token` / `FABRIC_POWERBI_ACCESS_TOKEN`) with `SourceStaticPowerBI`, skipping `staticProvider` and falling through to dynamic providers when unset, maintaining strict scope isolation between Fabric and Power BI tokens
+- Resolves static Power BI tokens (`powerbi_access_token` / `FABRIC_POWERBI_ACCESS_TOKEN` or its aliases `POWERBI_ACCESS_TOKEN`, `ARM_POWERBI_ACCESS_TOKEN`, `AZURE_POWERBI_ACCESS_TOKEN`) with `SourceStaticPowerBI`, skipping `staticProvider` and falling through to dynamic providers when unset, maintaining strict scope isolation between Fabric and Power BI tokens
   `[@test] ../internal/credentials/chain_test.go::TestStaticProvider_PowerBIScope`
+  `[@test] ../internal/credentials/chain_test.go::TestChain_ResolvePowerBIAliases`
 - `Credentials.String()` and `Credentials.GoString()` redact `AccessToken` as `"[REDACTED]"` so raw bearer tokens never leak via `%s`, `%v`, `%+v`, or `%#v` formatting
   `[@test] ../internal/credentials/chain_test.go::TestCredentialsRedaction`
 - `InspectTokenPosture` classifies Entra tokens in memory into `app-only` (Service Principal OIDC/Secret/Cert or Managed Identity), `delegated-user` (Azure CLI / interactive user), or `opaque`, extracting non-secret directory identifiers (`tid`, `appid`/`azp`, `oid`, `aud`, sorted `roles`, `scp_present`) matching official `fabric`/`azurerm`/`azuread`/`azapi` redaction boundaries while never retaining raw JWT strings, cryptographic signatures, or human `upn`/`email` claims

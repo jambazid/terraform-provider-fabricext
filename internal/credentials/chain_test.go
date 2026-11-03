@@ -546,11 +546,18 @@ func TestCredentialsRedaction(t *testing.T) {
 	}
 
 	cfg := Config{
-		ClientSecret:      "raw-client-secret",
-		ClientCertificate: "raw-certificate-base64",
+		ClientSecret:       "raw-client-secret",
+		ClientCertificate:  "raw-certificate-base64",
+		PowerBIAccessToken: "raw-powerbi-token",
 	}
 	if strings.Contains(cfg.String(), "raw-client-secret") || strings.Contains(cfg.GoString(), "raw-client-secret") {
 		t.Fatalf("Config leaked secret in String/GoString: %s", cfg.String())
+	}
+	if strings.Contains(cfg.String(), "raw-powerbi-token") || strings.Contains(cfg.GoString(), "raw-powerbi-token") {
+		t.Fatalf("Config leaked powerbi token in String/GoString: %s", cfg.String())
+	}
+	if !strings.Contains(cfg.String(), "HasPowerBIToken:true") {
+		t.Errorf("expected HasPowerBIToken:true in Config.String, got %s", cfg.String())
 	}
 }
 
@@ -1408,7 +1415,7 @@ func TestInspectTokenPosture_ClassificationAndRedaction(t *testing.T) {
 		t.Parallel()
 		rawToken := buildJWT(map[string]any{
 			"idtyp": "app",
-			"tid":   "72f988bf-86f1-41af-91ab-2d7cd011db47",
+			"tid":   "00000000-0000-0000-0000-000000000001",
 			"appid": "11111111-2222-3333-4444-555555555555",
 			"oid":   "66666666-7777-8888-9999-000000000000",
 			"aud":   "https://analysis.windows.net/powerbi/api",
@@ -1419,7 +1426,7 @@ func TestInspectTokenPosture_ClassificationAndRedaction(t *testing.T) {
 		if posture.TokenType != "app-only" {
 			t.Errorf("expected token_type=app-only, got %s", posture.TokenType)
 		}
-		if posture.TenantID != "72f988bf-86f1-41af-91ab-2d7cd011db47" {
+		if posture.TenantID != "00000000-0000-0000-0000-000000000001" {
 			t.Errorf("unexpected tenant id: %s", posture.TenantID)
 		}
 		if posture.AppID != "11111111-2222-3333-4444-555555555555" {
@@ -1437,7 +1444,7 @@ func TestInspectTokenPosture_ClassificationAndRedaction(t *testing.T) {
 
 		formatted := posture.Format()
 		if !strings.Contains(formatted, "token_type=app-only") ||
-			!strings.Contains(formatted, "tid=72f988bf-86f1-41af-91ab-2d7cd011db47") ||
+			!strings.Contains(formatted, "tid=00000000-0000-0000-0000-000000000001") ||
 			!strings.Contains(formatted, "appid=11111111-2222-3333-4444-555555555555") ||
 			!strings.Contains(formatted, "roles=[Item.Read.All, Tenant.ReadWrite.All]") {
 			t.Errorf("unexpected formatted posture: %s", formatted)
@@ -1451,12 +1458,12 @@ func TestInspectTokenPosture_ClassificationAndRedaction(t *testing.T) {
 		t.Parallel()
 		rawToken := buildJWT(map[string]any{
 			"idtyp":       "user",
-			"tid":         "72f988bf-86f1-41af-91ab-2d7cd011db47",
-			"oid":         "user-oid-123",
+			"tid":         "00000000-0000-0000-0000-000000000001",
+			"oid":         "00000000-0000-0000-0000-000000000002",
 			"scp":         "user_impersonation",
-			"upn":         "practitioner@contoso.com",
-			"unique_name": "practitioner@contoso.com",
-			"email":       "practitioner@contoso.com",
+			"upn":         "user@example.com",
+			"unique_name": "user@example.com",
+			"email":       "user@example.com",
 			"aud":         []any{"https://analysis.windows.net/powerbi/api"},
 		})
 
@@ -1472,7 +1479,7 @@ func TestInspectTokenPosture_ClassificationAndRedaction(t *testing.T) {
 		}
 
 		formatted := posture.Format()
-		if strings.Contains(formatted, "practitioner@contoso.com") {
+		if strings.Contains(formatted, "user@example.com") {
 			t.Errorf("human UPN/email must be redacted, found in: %s", formatted)
 		}
 		if !strings.Contains(formatted, "token_type=delegated-user") {
@@ -1497,4 +1504,38 @@ func TestInspectTokenPosture_ClassificationAndRedaction(t *testing.T) {
 			t.Errorf("expected custom fallback to opaque, got %s", p3.TokenType)
 		}
 	})
+}
+
+func TestChain_ResolvePowerBIAliases(t *testing.T) {
+	t.Parallel()
+
+	aliases := []string{
+		"FABRIC_POWERBI_ACCESS_TOKEN",
+		"POWERBI_ACCESS_TOKEN",
+		"ARM_POWERBI_ACCESS_TOKEN",
+		"AZURE_POWERBI_ACCESS_TOKEN",
+	}
+
+	for _, alias := range aliases {
+		t.Run(alias, func(t *testing.T) {
+			t.Parallel()
+			env := map[string]string{
+				alias: "synthetic-pbi-token-for-" + alias,
+			}
+			cfg := Config{
+				Getenv: func(k string) string { return env[k] },
+			}
+			chain := NewChain(cfg)
+			creds, err := chain.ResolveForScope(context.Background(), PowerBIScopePublic)
+			if err != nil {
+				t.Fatalf("failed to resolve for scope using %s: %v", alias, err)
+			}
+			if creds.AccessToken != "synthetic-pbi-token-for-"+alias {
+				t.Fatalf("expected token for %s, got %s", alias, creds.AccessToken)
+			}
+			if creds.Source != SourceStaticPowerBI {
+				t.Fatalf("expected source %s, got %s", SourceStaticPowerBI, creds.Source)
+			}
+		})
+	}
 }

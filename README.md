@@ -20,7 +20,8 @@
 | `fabricext_lakehouse_onelake_security` | `Lakehouse` | Validates OneLake security enablement and manages the `DefaultReader` role lifecycle. | Active |
 | `data.fabricext_item` | `Warehouse`, `Lakehouse`, `SQLDatabase`, `SQLEndpoint`, `SemanticModel` | Resolves `(workspace_id, display_name, type)` to canonical item UUIDs (`id`) using a paginated, type-isolated lookup cache. | Active |
 
-~> **Note:** Item-level permissions (`fabricext_{warehouse,sql_database,lakehouse}_permission`) configure direct item shares via Power BI metadata access endpoints. Permissions drift is detected and reconciled in-place. For tenant-wide verification, `fabricext_item_share_gate` verifies applied permissions through the official Fabric Admin REST API.
+> [!NOTE]
+> Item-level permissions (`fabricext_{warehouse,sql_database,lakehouse}_permission`) configure direct item shares via Power BI metadata access endpoints. Permissions drift is detected and reconciled in-place. For tenant-wide verification, `fabricext_item_share_gate` verifies applied permissions through the official Fabric Admin REST API.
 
 ## Quick Start
 

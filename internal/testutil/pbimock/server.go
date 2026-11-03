@@ -13,34 +13,39 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/getkin/kin-openapi/openapi3filter"
 	"github.com/getkin/kin-openapi/routers"
 	"github.com/getkin/kin-openapi/routers/gorillamux"
+	"github.com/jambazid/terraform-provider-fabricext/internal/credentials"
 )
 
 // Server represents a stateful in-memory mock Power BI metadata server.
 type Server struct {
-	URL                string
-	Server             *httptest.Server
-	mu                 sync.RWMutex
-	router             routers.Router
-	doc                *openapi3.T
-	entries            map[string][]map[string]any // itemId -> entries
-	deletedItems       map[string]bool             // itemId -> deleted (returns 404)
-	portalForbidden    bool
-	portalRequestCount int
-	accessAuthStatus   int
-	accessAuthError    string
-	artifactID         int
-	lastArtifacts      []map[string]any
-	nextUserID         int
-	nextGroupID        int
-	OnMutation         func(action string, itemId string, principalId string, permissions []string)
+	URL                      string
+	Server                   *httptest.Server
+	mu                       sync.RWMutex
+	router                   routers.Router
+	doc                      *openapi3.T
+	entries                  map[string][]map[string]any // itemId -> entries
+	deletedItems             map[string]bool             // itemId -> deleted (returns 404)
+	portalForbidden          bool
+	portalRequestCount       int
+	accessAuthStatus         int
+	accessAuthError          string
+	artifactID               int
+	lastArtifacts            []map[string]any
+	allowAppOnlyArtifactRead bool
+	rawResponses             map[string]string // itemId -> raw response JSON (contract-validated)
+	nextUserID               int
+	nextGroupID              int
+	OnMutation               func(action string, itemId string, principalId string, permissions []string)
 }
 
 // NewServer creates a new stateful mock Power BI metadata server.
@@ -75,6 +80,7 @@ func NewServer() (*Server, error) {
 		doc:          doc,
 		entries:      make(map[string][]map[string]any),
 		deletedItems: make(map[string]bool),
+		rawResponses: make(map[string]string),
 		nextUserID:   1001,
 		nextGroupID:  2001,
 	}
@@ -99,11 +105,40 @@ func (s *Server) Close() {
 	}
 }
 
+// deepCopyMap creates a recursive clone of a JSON map structure.
+func deepCopyMap(m map[string]any) map[string]any {
+	if m == nil {
+		return nil
+	}
+	cp := make(map[string]any, len(m))
+	for k, v := range m {
+		switch val := v.(type) {
+		case map[string]any:
+			cp[k] = deepCopyMap(val)
+		case []any:
+			sl := make([]any, len(val))
+			for i, elem := range val {
+				if elemMap, ok := elem.(map[string]any); ok {
+					sl[i] = deepCopyMap(elemMap)
+				} else {
+					sl[i] = elem
+				}
+			}
+			cp[k] = sl
+		default:
+			cp[k] = v
+		}
+	}
+	return cp
+}
+
 // SeedDirectAccess adds direct access entries for an item.
 func (s *Server) SeedDirectAccess(itemID string, entries ...map[string]any) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.entries[itemID] = append(s.entries[itemID], entries...)
+	for _, e := range entries {
+		s.entries[itemID] = append(s.entries[itemID], deepCopyMap(e))
+	}
 }
 
 // DeleteArtifact marks an artifact as deleted, causing GET /metadata/access/artifacts/{itemId} to return 404.
@@ -115,6 +150,7 @@ func (s *Server) DeleteArtifact(itemID string) {
 	}
 	s.deletedItems[itemID] = true
 	delete(s.entries, itemID)
+	delete(s.rawResponses, itemID)
 }
 
 // SetPortalForbidden sets whether GET / returns HTTP 403.
@@ -146,7 +182,26 @@ func (s *Server) SetArtifactID(id int) {
 	s.artifactID = id
 }
 
-// LastArtifacts returns the artifacts list from the last POST or PUT to /metadata/access.
+// SetRawArtifactAccessResponse sets an explicit JSON response for GET /metadata/access/artifacts/{itemId}.
+// The response is validated at runtime against specs/powerbi/metadata/openapi.json via openapi3filter.
+func (s *Server) SetRawArtifactAccessResponse(itemID, rawJSON string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.rawResponses == nil {
+		s.rawResponses = make(map[string]string)
+	}
+	s.rawResponses[itemID] = rawJSON
+}
+
+// SetAllowAppOnlyArtifactRead controls whether GET /metadata/access/artifacts/{itemId} allows
+// app-only tokens, enabling test suites to reach and validate rejection on POST and PUT mutation endpoints.
+func (s *Server) SetAllowAppOnlyArtifactRead(allowed bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.allowAppOnlyArtifactRead = allowed
+}
+
+// LastArtifacts returns a deep copy of the artifacts list from the last POST or PUT to /metadata/access.
 func (s *Server) LastArtifacts() []map[string]any {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -154,7 +209,24 @@ func (s *Server) LastArtifacts() []map[string]any {
 		return nil
 	}
 	out := make([]map[string]any, len(s.lastArtifacts))
-	copy(out, s.lastArtifacts)
+	for i, a := range s.lastArtifacts {
+		out[i] = deepCopyMap(a)
+	}
+	return out
+}
+
+// DirectAccessEntries returns a deep copy of the direct access entries for an item.
+func (s *Server) DirectAccessEntries(itemID string) []map[string]any {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	raw := s.entries[itemID]
+	if raw == nil {
+		return nil
+	}
+	out := make([]map[string]any, len(raw))
+	for i, e := range raw {
+		out[i] = deepCopyMap(e)
+	}
 	return out
 }
 
@@ -253,12 +325,60 @@ func (s *Server) handleDefinitions(w http.ResponseWriter, _ *http.Request) {
 	_ = json.NewEncoder(w).Encode(defs)
 }
 
+func isAppOnlyToken(authHeader string) bool {
+	token := strings.TrimPrefix(authHeader, "Bearer ")
+	token = strings.TrimSpace(token)
+	posture := credentials.InspectTokenPosture(token, "")
+	return posture.TokenType == "app-only"
+}
+
 func (s *Server) handleAccess(w http.ResponseWriter, r *http.Request) {
+	s.mu.RLock()
+	authStatus := s.accessAuthStatus
+	authErr := s.accessAuthError
+	s.mu.RUnlock()
+
+	if authStatus != 0 {
+		w.Header().Set("Content-Type", "application/json")
+		if authErr != "" {
+			w.Header().Set("X-PowerBI-Error-Info", authErr)
+		}
+		w.Header().Set("RequestId", "test-request-id-1234")
+		w.WriteHeader(authStatus)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error": map[string]string{
+				"code":    "PowerBINotAuthorizedException",
+				"message": "User is not authorized to access Power BI metadata",
+			},
+		})
+		return
+	}
+
+	if isAppOnlyToken(r.Header.Get("Authorization")) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("RequestId", "test-request-id-1234")
+		w.WriteHeader(http.StatusForbidden)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error": map[string]string{
+				"code":    "PowerBINotAuthorizedException",
+				"message": "API is not accessible for application",
+			},
+		})
+		return
+	}
+
 	var payload struct {
 		Artifacts []map[string]any `json:"artifacts"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error": map[string]string{
+				"code":    "BadArgumentException",
+				"message": err.Error(),
+			},
+		})
 		return
 	}
 
@@ -285,8 +405,6 @@ func (s *Server) handleAccess(w http.ResponseWriter, r *http.Request) {
 			principalID = uOID
 		} else if gOID, ok := a["groupObjectId"].(string); ok && gOID != "" {
 			principalID = gOID
-		} else if sOID, ok := a["servicePrincipalObjectId"].(string); ok && sOID != "" {
-			principalID = sOID
 		}
 
 		if int(p) == 0 && int(ap) == 0 {
@@ -294,6 +412,13 @@ func (s *Server) handleAccess(w http.ResponseWriter, r *http.Request) {
 			var kept []map[string]any
 			for _, existing := range s.entries[itemObjID] {
 				if matchPrincipal(existing, a) {
+					if principalID == "" {
+						if uOID, ok := existing["userObjectId"].(string); ok && uOID != "" {
+							principalID = uOID
+						} else if gOID, ok := existing["groupObjectId"].(string); ok && gOID != "" {
+							principalID = gOID
+						}
+					}
 					continue
 				}
 				kept = append(kept, existing)
@@ -311,6 +436,13 @@ func (s *Server) handleAccess(w http.ResponseWriter, r *http.Request) {
 			found := false
 			for i, existing := range s.entries[itemObjID] {
 				if matchPrincipal(existing, a) {
+					if principalID == "" {
+						if uOID, ok := existing["userObjectId"].(string); ok && uOID != "" {
+							principalID = uOID
+						} else if gOID, ok := existing["groupObjectId"].(string); ok && gOID != "" {
+							principalID = gOID
+						}
+					}
 					if r.Method == http.MethodPut {
 						existing["permissions"] = int(p)
 						existing["artifactPermissions"] = int(ap)
@@ -335,6 +467,11 @@ func (s *Server) handleAccess(w http.ResponseWriter, r *http.Request) {
 				if uOID, ok := a["userObjectId"].(string); ok && uOID != "" {
 					newEntry["userObjectId"] = uOID
 					newEntry["userId"] = s.nextUserID
+					newEntry["userType"] = 0
+					newEntry["givenName"] = "Jane"
+					newEntry["familyName"] = "Doe"
+					newEntry["emailAddress"] = "user@example.com"
+					newEntry["userPrincipalName"] = "user@example.com"
 					s.nextUserID++
 				}
 				if gOID, ok := a["groupObjectId"].(string); ok && gOID != "" {
@@ -376,11 +513,12 @@ func (s *Server) handleAccess(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	callback := s.OnMutation
 	s.mu.Unlock()
 
-	for _, ev := range events {
-		if s.OnMutation != nil {
-			s.OnMutation(ev.action, ev.itemID, ev.principalID, ev.perms)
+	if callback != nil {
+		for _, ev := range events {
+			callback(ev.action, ev.itemID, ev.principalID, ev.perms)
 		}
 	}
 
@@ -426,15 +564,29 @@ func (s *Server) handleGroups(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleArtifactAccess(w http.ResponseWriter, r *http.Request) {
-	itemID := filepath.Base(r.URL.Path)
+	itemID := path.Base(strings.TrimRight(r.URL.Path, "/"))
 	s.mu.RLock()
 	authStatus := s.accessAuthStatus
 	authErr := s.accessAuthError
 	deleted := s.deletedItems != nil && s.deletedItems[itemID]
-	entries := s.entries[itemID]
 	rootID := s.artifactID
 	if rootID == 0 {
 		rootID = 1
+	}
+	allowAppOnly := s.allowAppOnlyArtifactRead
+	rawJSON := ""
+	if s.rawResponses != nil {
+		rawJSON = s.rawResponses[itemID]
+	}
+
+	var entries []map[string]any
+	if raw := s.entries[itemID]; raw != nil {
+		entries = make([]map[string]any, len(raw))
+		for i, e := range raw {
+			entries[i] = deepCopyMap(e)
+		}
+	} else {
+		entries = []map[string]any{}
 	}
 	s.mu.RUnlock()
 
@@ -454,6 +606,19 @@ func (s *Server) handleArtifactAccess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if isAppOnlyToken(r.Header.Get("Authorization")) && !allowAppOnly {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("RequestId", "test-request-id-1234")
+		w.WriteHeader(http.StatusForbidden)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error": map[string]string{
+				"code":    "PowerBINotAuthorizedException",
+				"message": "API is not accessible for application",
+			},
+		})
+		return
+	}
+
 	if deleted {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
@@ -466,8 +631,11 @@ func (s *Server) handleArtifactAccess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if entries == nil {
-		entries = []map[string]any{}
+	if rawJSON != "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(rawJSON))
+		return
 	}
 
 	resp := map[string]any{
@@ -485,23 +653,23 @@ func (s *Server) handleArtifactAccess(w http.ResponseWriter, r *http.Request) {
 
 func matchPrincipal(a, b map[string]any) bool {
 	if aObj, ok := a["objectId"].(string); ok && aObj != "" {
-		if bObj, ok := b["objectId"].(string); ok && bObj == aObj {
+		if bObj, ok := b["objectId"].(string); ok && strings.EqualFold(bObj, aObj) {
 			return true
 		}
-		if bU, ok := b["userObjectId"].(string); ok && bU == aObj {
+		if bU, ok := b["userObjectId"].(string); ok && strings.EqualFold(bU, aObj) {
 			return true
 		}
-		if bG, ok := b["groupObjectId"].(string); ok && bG == aObj {
+		if bG, ok := b["groupObjectId"].(string); ok && strings.EqualFold(bG, aObj) {
 			return true
 		}
 	}
 	if aU, ok := a["userObjectId"].(string); ok && aU != "" {
-		if bU, ok := b["userObjectId"].(string); ok && bU == aU {
+		if bU, ok := b["userObjectId"].(string); ok && strings.EqualFold(bU, aU) {
 			return true
 		}
 	}
 	if aG, ok := a["groupObjectId"].(string); ok && aG != "" {
-		if bG, ok := b["groupObjectId"].(string); ok && bG == aG {
+		if bG, ok := b["groupObjectId"].(string); ok && strings.EqualFold(bG, aG) {
 			return true
 		}
 	}

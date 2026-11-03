@@ -169,7 +169,7 @@ In Microsoft Fabric, creating a `Lakehouse` or `SQLDatabase` named `analytics_go
 - **Rate Limiting (`429 Too Many Requests`)**: Parses the `Retry-After` response header (seconds) and waits for the specified duration (or exponential backoff with jitter starting at `BaseBackoff` (`100ms` default) if `Retry-After` is absent), respecting `ctx.Done()`.
 - **Transient Server Errors (`502`, `503`, `504`)**: Retries up to `MaxRetries` (default `5`) with exponential backoff (`BaseBackoff * 2^attempt`) plus bounded jitter, respecting `ctx.Done()`.
 
-### 5.3 Item Permissions Concurrency & Lifecycle
+### 5.3 Item Permissions Concurrency
 
 Direct item-level sharing on Warehouses, SQL Databases, and Lakehouses is managed via Power BI metadata access endpoints (`/metadata/access` and `/metadata/access/notify`) discovered from the regional cluster cookie (`ClusterUri`). Because multiple resources or configurations may mutate permissions on the same item concurrently, mutations are synchronized using an in-memory per-item mutex (`getItemAccessLock(workspaceID, itemID)`).
 
@@ -267,7 +267,7 @@ sequenceDiagram
 | `endpoint` | `String` | Optional | `FABRIC_ENDPOINT` | Base URL for the Microsoft Fabric REST API. Defaults to `"https://api.fabric.microsoft.com"`. |
 | `access_token` | `String` (`Sensitive`) | Optional | `FABRIC_ACCESS_TOKEN` | Static Microsoft Entra ID bearer token for the Fabric API (`FabricScope`). |
 | `powerbi_endpoint` | `String` | Optional | `FABRIC_POWERBI_ENDPOINT` | Regional Power BI cluster endpoint (e.g. `"https://wabi-west-europe-redirect.analysis.windows.net"`), bypassing bootstrap portal discovery. |
-| `powerbi_access_token` | `String` (`Sensitive`) | Optional | `FABRIC_POWERBI_ACCESS_TOKEN` | Static Microsoft Entra ID bearer token for the Power BI metadata API (`PowerBIScope`). |
+| `powerbi_access_token` | `String` (`Sensitive`) | Optional | `FABRIC_POWERBI_ACCESS_TOKEN`, `POWERBI_ACCESS_TOKEN`, `ARM_POWERBI_ACCESS_TOKEN`, `AZURE_POWERBI_ACCESS_TOKEN` | Static Microsoft Entra ID bearer token for the Power BI metadata API (`PowerBIScope`). Required for item-level permissions in CI/CD under Service Principals. |
 | `tenant_id` | `String` | Optional | `AZURE_TENANT_ID`, `ARM_TENANT_ID`, `FABRIC_TENANT_ID` | Microsoft Entra ID tenant UUID. |
 | `tenant_id_file_path` | `String` | Optional | `FABRIC_TENANT_ID_FILE_PATH`, `AZURE_TENANT_ID_FILE_PATH`, `ARM_TENANT_ID_FILE_PATH` | Path to file containing Microsoft Entra ID tenant UUID. |
 | `client_id` | `String` | Optional | `AZURE_CLIENT_ID`, `ARM_CLIENT_ID`, `FABRIC_CLIENT_ID` | Service Principal or Managed Identity client UUID. |
@@ -315,8 +315,8 @@ See the embedded Terraform Registry guide [`docs/guides/official_provider_compar
   - **Core Identifiers**:
     - `id` (`String`, `Computed`, `UseStateForUnknown`)
     - `workspace_id` (`String`, `Required`, `RequiresReplace`, UUID validator)
-    - `lakehouse_name` (`String`, `Optional` + `Computed`, `RequiresReplace`, non-empty validator)
-    - `lakehouse_id` (`String`, `Optional` + `Computed`, `RequiresReplace`, UUID validator; at least one of `lakehouse_name` or `lakehouse_id` must be provided)
+    - `lakehouse_name` (`String`, `Optional` + `Computed`, `RequiresReplaceIfConfigured`, non-empty validator)
+    - `lakehouse_id` (`String`, `Optional` + `Computed`, `RequiresReplaceIfConfigured`, UUID validator; at least one of `lakehouse_name` or `lakehouse_id` must be provided)
     - `role_name` (`String`, `Required`, `RequiresReplace`, `^[a-zA-Z][a-zA-Z0-9_]*$` validator)
     - `kind` (`String`, `Optional` + `Computed`, default `"Policy"`, `OneOf("Policy")`)
   - **Simple Flat Mode (100% Backward Compatible)**:
@@ -341,8 +341,8 @@ See the embedded Terraform Registry guide [`docs/guides/official_provider_compar
 - **Attributes**:
   - `id` (`String`, `Computed`, `UseStateForUnknown`): Composite key `{workspace_id}/{lakehouse_id}`.
   - `workspace_id` (`String`, `Required`, `RequiresReplace`, UUID validator): Target Fabric workspace UUID.
-  - `lakehouse_id` (`String`, `Optional` + `Computed`, `RequiresReplace`, UUID validator; at least one of `lakehouse_name` or `lakehouse_id` must be provided).
-  - `lakehouse_name` (`String`, `Optional` + `Computed`, `RequiresReplace`, 1-256 chars; at least one of `lakehouse_name` or `lakehouse_id` must be provided).
+  - `lakehouse_id` (`String`, `Optional` + `Computed`, `RequiresReplaceIfConfigured`, UUID validator; at least one of `lakehouse_name` or `lakehouse_id` must be provided).
+  - `lakehouse_name` (`String`, `Optional` + `Computed`, `RequiresReplaceIfConfigured`, 1-256 chars; at least one of `lakehouse_name` or `lakehouse_id` must be provided).
   - `remove_default_reader_role` (`Bool`, `Optional` + `Computed`, default `true`): Whether to purge the built-in `DefaultReader` role during create/apply. `ModifyPlan` blocks reverting from `true` to `false` because Fabric provides no API to restore deleted `DefaultReader` roles.
   - `default_reader_role_exists` (`Bool`, `Computed`): Reflects remote presence of `DefaultReader` in Fabric for drift observability.
   - `enabled` (`Bool`, `Computed`): Reflects verified OneLake security enablement status.
@@ -633,7 +633,7 @@ Item-level permissions across Fabric Warehouses, Lakehouses, and SQL Databases a
 4. **Backend Cluster Validation & Sovereign Clouds**: `validateBackendClusterURI` ensures that frontend portal URLs (`app.powerbi.*`) and REST gateways (`api.powerbi.*`) are never cached as regional backend clusters, while allowing sovereign regional clusters (`.analysis.windows.net`, `.analysis.usgovcloudapi.net`, `.analysis.chinacloudapi.cn`).
 5. **Structured Default Error Diagnostics**: Non-2xx responses across Power BI metadata, cluster discovery, and Fabric Admin calls format actionable diagnostics directly into default Terraform `Error:` output (zero `TF_LOG` required, zero warnings on `2xx` success), reporting `fault_class` (`ServicePrincipalTenantRoleConflict`, `ServicePrincipalMetadataAccessRejected`, `AdminAPIAccessDenied`, `ClusterDiscoveryExhausted`), `x_powerbi_error`, `request_id`, `activity_id`, `cluster_source`, `caller_posture`, and token-scrubbed `response_body`.
 
-### 15.3 Principal XOR & Payload Fidelity
+### 15.3 Principal XOR Fidelity
 
 1. **Principal XOR Rule**: Every mutation payload to `/metadata/access` sets either internal Power BI IDs (`userId`/`groupId` on existing shares) XOR Entra Object IDs (`userObjectId` for Users and Service Principals/Managed Identities, XOR `groupObjectId` for Groups), never both.
 2. **Explicit `null` JSON Serialization**: In accordance with `grant.py:228-238`, unused principal fields (`userId`, `groupId`, `userObjectId`, `groupObjectId`) are serialized as explicit JSON `null` values rather than being omitted via `omitempty`.
@@ -645,7 +645,7 @@ Item-level permissions across Fabric Warehouses, Lakehouses, and SQL Databases a
 2. **Managed-Bit Mask Check on `PUT`**: When updating existing grants via `PUT /metadata/access`, read-back verifies `(stored & managedMask) == (sent & managedMask)`, ensuring configured bits match while ignoring unmanaged system flags.
 3. **Standalone `"Read"` Validation**: Standalone resources (`fabricext_warehouse_permission`, `fabricext_sql_database_permission`, `fabricext_lakehouse_permission`) enforce that `"Read"` is included in `permissions` during `ValidateConfig`, preventing perpetual plan drift.
 
-### 15.5 Share Gate Sanity Lever & Backoff
+### 15.5 Share Gate & Backoff
 
 Every `fabricext_*_permission` inside `modules/permissions` chains directly to a post-grant `fabricext_item_share_gate` Admin API verification resource:
 
@@ -662,3 +662,16 @@ Item permissions support optional recipient notification and custom message deli
    - When `notify = false` (default): Grants execute silently via `POST /metadata/access` (new grant) or `PUT /metadata/access` (update) with `accessRequestBody`.
 2. **Schema Validation Invariant**: `message` strictly requires `notify = true`. Configuring `message` without enabling `notify` fails configuration validation with an actionable diagnostic.
 3. **Module Composition**: `modules/permissions` exposes top-level inputs `variable "notify"` and `variable "message"` providing module-level defaults, with optional per-principal overrides in the permission matrix (`coalesce(p.notify, var.notify)` and `coalesce(p.message, var.message)`).
+
+### 15.7 Dual-Plane Authentication Separation
+
+1. **Dual-Plane Authentication Separation**:
+   - **Fabric Control Plane (`api.fabric.microsoft.com`)**: Powers OneLake Data Access Roles (`fabricext_lakehouse_data_access_role`), OneLake security enablement (`fabricext_lakehouse_onelake_security`), and item share verification gates (`fabricext_item_share_gate`). Supports Service Principals and Managed Identities (`app-only` tokens) natively without restrictions.
+   - **Power BI Metadata Plane (`/metadata/access/*`)**: Powers direct item-level sharing permissions (`fabricext_warehouse_permission`, `fabricext_sql_database_permission`, `fabricext_lakehouse_permission`). Strictly requires a delegated user token. The Microsoft backend unconditionally rejects app-only tokens (Service Principals / Managed Identities) with HTTP 403 `PowerBINotAuthorizedException: API is not accessible for application`, prioritizing fault class `AppOnlyMetadataAccessUnsupported` in default error diagnostics.
+2. **Workstation Parity & Headless CI/CD**:
+   - **Workstations (`az login`)**: Automatically acquires delegated user tokens for both Fabric and Power BI scopes without manual token injection.
+   - **CI/CD Pipelines**: In automated headless runs under a Service Principal or Managed Identity, supply a pre-acquired delegated user token via `powerbi_access_token` or `FABRIC_POWERBI_ACCESS_TOKEN` (or aliases `POWERBI_ACCESS_TOKEN`, `ARM_POWERBI_ACCESS_TOKEN`, `AZURE_POWERBI_ACCESS_TOKEN`).
+3. **Response Unmarshaling Hardening**:
+   - **`FlexibleUserType`**: Custom unmarshaler deserializing `userType` from integer (`0` for member, `1` for guest), string (`"0"`, `"Member"`, `"Guest"`), null, or omitted values without unmarshaling crashes.
+   - **Pointer Integers (`*int`)**: Models `userId` and `groupId` as nullable pointer integers to preserve wire fidelity and avoid unmarshal errors when values are omitted or null.
+   - **Sibling Attribute Parity**: Models `id` (internal artifact ID), `givenName`, `familyName`, `emailAddress`, `userPrincipalName`, and `aadAppId` to capture complete ACL detail across user, group, and service principal grants.

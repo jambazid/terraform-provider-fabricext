@@ -491,7 +491,7 @@
           }
         },
         "required": ["artifactAccessEntities"],
-        "additionalProperties": false
+        "additionalProperties": true
       },
       "ArtifactAccessEntity": {
         "type": "object",
@@ -526,21 +526,53 @@
       "AccessDetailEntry": {
         "type": "object",
         "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Internal Power BI artifact or entry identifier"
+          },
           "user": {
             "type": "string"
           },
           "userType": {
-            "type": "string"
+            "description": "User type code (numeric 0 for member, 1 for guest, or string)",
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "nullable": true
           },
           "userId": {
-            "type": "integer"
+            "type": "integer",
+            "nullable": true
           },
           "groupId": {
-            "type": "integer"
+            "type": "integer",
+            "nullable": true
+          },
+          "givenName": {
+            "type": "string",
+            "nullable": true
+          },
+          "familyName": {
+            "type": "string",
+            "nullable": true
+          },
+          "emailAddress": {
+            "type": "string",
+            "nullable": true
+          },
+          "userPrincipalName": {
+            "type": "string",
+            "nullable": true
           },
           "aadAppId": {
             "type": "string",
-            "format": "uuid"
+            "format": "uuid",
+            "nullable": true
           },
           "objectId": {
             "type": "string",
@@ -548,11 +580,13 @@
           },
           "userObjectId": {
             "type": "string",
-            "format": "uuid"
+            "format": "uuid",
+            "nullable": true
           },
           "groupObjectId": {
             "type": "string",
-            "format": "uuid"
+            "format": "uuid",
+            "nullable": true
           },
           "groupType": {
             "type": "string"
@@ -574,7 +608,27 @@
                 "type": "object",
                 "properties": {
                   "folderRole": {
-                    "type": "string"
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "tenantId": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "name": {
+                            "type": "string"
+                          }
+                        },
+                        "additionalProperties": true
+                      }
+                    ]
                   }
                 },
                 "additionalProperties": true

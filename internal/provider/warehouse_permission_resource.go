@@ -162,6 +162,18 @@ func (r *WarehousePermissionResource) ValidateConfig(ctx context.Context, req re
 		return
 	}
 
+	if !config.WarehouseName.IsUnknown() && !config.WarehouseID.IsUnknown() {
+		hasName := !config.WarehouseName.IsNull() && strings.TrimSpace(config.WarehouseName.ValueString()) != ""
+		hasID := !config.WarehouseID.IsNull() && strings.TrimSpace(config.WarehouseID.ValueString()) != ""
+		if !hasName && !hasID {
+			resp.Diagnostics.AddAttributeError(
+				path.Root("warehouse_name"),
+				"Missing Required Warehouse Identifier",
+				"At least one of 'warehouse_name' or 'warehouse_id' must be configured.",
+			)
+		}
+	}
+
 	if !config.Permissions.IsNull() && !config.Permissions.IsUnknown() {
 		var perms []string
 		resp.Diagnostics.Append(config.Permissions.ElementsAs(ctx, &perms, false)...)

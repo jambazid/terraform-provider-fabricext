@@ -277,11 +277,16 @@ type SilentPermissionDropError struct {
 	ExpectedArtifact int64
 	ActualCore       int64
 	ActualArtifact   int64
+	LastError        string
 }
 
 func (e *SilentPermissionDropError) Error() string {
-	return fmt.Sprintf("silent permission drop on %s %s in workspace %s for principal %s: expected (core=%d, artifact=%d), got (core=%d, artifact=%d)",
+	msg := fmt.Sprintf("silent permission drop on %s %s in workspace %s for principal %s: expected (core=%d, artifact=%d), got (core=%d, artifact=%d)",
 		e.ItemType, e.ItemID, e.WorkspaceID, e.PrincipalID, e.ExpectedCore, e.ExpectedArtifact, e.ActualCore, e.ActualArtifact)
+	if e.LastError != "" {
+		msg += fmt.Sprintf("; last verification check error: %s", e.LastError)
+	}
+	return msg
 }
 
 // Config configures a FabricClient instance.

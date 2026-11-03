@@ -150,7 +150,7 @@ func (r *LakehouseDataAccessRoleResource) Schema(_ context.Context, _ resource.S
 		Description: "Manages a OneLake Data Access Role on a Microsoft Fabric Lakehouse to grant fine-grained folder, table, row-level (RLS), and column-level (CLS) access control to Microsoft Entra users, groups, service principals, or managed identities.",
 		MarkdownDescription: "Manages a OneLake Data Access Role on a Microsoft Fabric **Lakehouse** to grant fine-grained folder, table, row-level (RLS), and column-level (CLS) access control to Microsoft Entra users, groups, service principals, or managed identities.\n\n" +
 			"~> **Note:** Microsoft's official provider (`registry.terraform.io/microsoft/fabric`) provides the [`fabric_onelake_data_access_security`](https://registry.terraform.io/providers/microsoft/fabric/latest/docs/resources/onelake_data_access_security) resource (preview) for managing OneLake Data Access Roles. If consolidating on the official provider with `preview = true`, consider using upstream.\n\n" +
-			"~> **Note:** This resource manages **OneLake Data Access Roles** (storage layer access control via the OneLake Data Access Security API). It does **not** manage Fabric workspace item-level sharing (`ReadAll` workspace share grants), as Microsoft does not currently provide a public REST API for Lakehouse item sharing (see [microsoft/terraform-provider-fabric#425](https://github.com/microsoft/terraform-provider-fabric/issues/425)).\n\n" +
+			"~> **Note:** This resource manages **OneLake Data Access Roles** (storage layer access control via the OneLake Data Access Security API). It does **not** manage Fabric workspace item-level sharing (`ReadAll` workspace share grants); use [`fabricext_lakehouse_permission`](lakehouse_permission.md) to manage direct Lakehouse item sharing.\n\n" +
 			"~> **Note:** Role modifications automatically coordinate via a per-Lakehouse mutex and an `If-Match` ETag optimistic concurrency loop to safely support parallel applies.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
@@ -175,7 +175,7 @@ func (r *LakehouseDataAccessRoleResource) Schema(_ context.Context, _ resource.S
 				Computed:            true,
 				MarkdownDescription: "Display name of the target Microsoft Fabric Lakehouse. At least one of `lakehouse_name` or `lakehouse_id` must be specified.",
 				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.RequiresReplace(),
+					RequiresReplaceIfConfigured(),
 					stringplanmodifier.UseStateForUnknown(),
 				},
 				Validators: []validator.String{
@@ -187,7 +187,7 @@ func (r *LakehouseDataAccessRoleResource) Schema(_ context.Context, _ resource.S
 				Computed:            true,
 				MarkdownDescription: "Resolved or explicitly specified UUID of the Microsoft Fabric Lakehouse. At least one of `lakehouse_name` or `lakehouse_id` must be specified.",
 				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.RequiresReplace(),
+					RequiresReplaceIfConfigured(),
 					stringplanmodifier.UseStateForUnknown(),
 				},
 				Validators: []validator.String{

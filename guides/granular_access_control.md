@@ -156,22 +156,24 @@ A frequent practitioner question is how Microsoft Entra ID identities map betwee
 
 2. **In T-SQL Engine**:
 
-   - For **Security Groups**: Use the exact Display Name:
+   In Microsoft Fabric Data Warehouse, external users and groups are provisioned implicitly upon executing a `GRANT` statement. Running explicit `CREATE USER ... FROM EXTERNAL PROVIDER` in a Warehouse is unsupported and fails with an error (explicit `CREATE USER` is supported only in Microsoft Fabric SQL Database):
+
+   - For **Security Groups**: Use the exact Display Name in `GRANT`:
 
      ```sql
-     CREATE USER [SEC-Fabric-Finance-Analysts] FROM EXTERNAL PROVIDER;
+     GRANT SELECT ON SCHEMA::finance TO [SEC-Fabric-Finance-Analysts];
      ```
 
-   - For **Individual Users**: Strictly require the UserPrincipalName (UPN):
+   - For **Individual Users**: Strictly require the UserPrincipalName (UPN) in `GRANT`:
 
      ```sql
-     CREATE USER [bob@contoso.com] FROM EXTERNAL PROVIDER;
+     GRANT SELECT ON SCHEMA::finance TO [bob@contoso.com];
      ```
 
    - For **B2B Guest Users**: Use the external transformed UPN:
 
      ```sql
-     CREATE USER [external_user#EXT#@tenant.onmicrosoft.com] FROM EXTERNAL PROVIDER;
+     GRANT SELECT ON SCHEMA::finance TO [external_user#EXT#@tenant.onmicrosoft.com];
      ```
 
    - **Why Bracketed UUIDs Fail**: T-SQL queries Microsoft Graph filtering strictly on `displayName eq '<name>'` or `userPrincipalName eq '<name>'`. It does not filter on `id eq '<guid>'`. Passing a raw UUID fails unless the object's display name literally matches that UUID string.

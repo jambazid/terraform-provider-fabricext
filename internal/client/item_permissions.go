@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -88,20 +89,65 @@ type rawArtifactAccessResponse struct {
 	} `json:"artifactAccessEntities"`
 }
 
+// FlexibleUserType unmarshals userType from an integer (0=member, 1=guest), string ("0", "Member", "Guest"), or null without error.
+type FlexibleUserType int
+
+// UnmarshalJSON implements json.Unmarshaler with defensive nil guards and string mapping.
+func (f *FlexibleUserType) UnmarshalJSON(data []byte) error {
+	if f == nil {
+		return errors.New("FlexibleUserType: UnmarshalJSON on nil pointer")
+	}
+	trimmed := strings.TrimSpace(string(data))
+	if trimmed == "" || trimmed == "null" {
+		*f = 0
+		return nil
+	}
+	var n int
+	if err := json.Unmarshal(data, &n); err == nil {
+		*f = FlexibleUserType(n)
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		if val, err := strconv.Atoi(s); err == nil {
+			*f = FlexibleUserType(val)
+			return nil
+		}
+		switch strings.ToLower(strings.TrimSpace(s)) {
+		case "member":
+			*f = 0
+			return nil
+		case "guest":
+			*f = 1
+			return nil
+		case "admin":
+			*f = 2
+			return nil
+		}
+	}
+	*f = 0
+	return nil
+}
+
 type accessDetailEntry struct {
-	User                string          `json:"user"`
-	UserType            string          `json:"userType"`
-	UserID              int             `json:"userId"`
-	GroupID             int             `json:"groupId"`
-	AADAppID            string          `json:"aadAppId"`
-	ObjectID            string          `json:"objectId"`
-	UserObjectID        string          `json:"userObjectId"`
-	GroupObjectID       string          `json:"groupObjectId"`
-	GroupType           string          `json:"groupType"`
-	IsServicePrincipal  bool            `json:"isServicePrincipal"`
-	Permissions         int64           `json:"permissions"`
-	ArtifactPermissions int64           `json:"artifactPermissions"`
-	AccessSource        json.RawMessage `json:"accessSource"` // null for direct item grants, object for inherited
+	ID                  int               `json:"id"`
+	User                string            `json:"user"`
+	UserType            *FlexibleUserType `json:"userType"`
+	UserID              *int              `json:"userId"`
+	GroupID             *int              `json:"groupId"`
+	GivenName           string            `json:"givenName"`
+	FamilyName          string            `json:"familyName"`
+	EmailAddress        string            `json:"emailAddress"`
+	UserPrincipalName   string            `json:"userPrincipalName"`
+	AADAppID            string            `json:"aadAppId"`
+	ObjectID            string            `json:"objectId"`
+	UserObjectID        string            `json:"userObjectId"`
+	GroupObjectID       string            `json:"groupObjectId"`
+	GroupType           string            `json:"groupType"`
+	IsServicePrincipal  bool              `json:"isServicePrincipal"`
+	Permissions         int64             `json:"permissions"`
+	ArtifactPermissions int64             `json:"artifactPermissions"`
+	AccessSource        json.RawMessage   `json:"accessSource"` // null for direct item grants, object for inherited
 }
 
 func (c *FabricClient) getItemAccessLock(workspaceID, itemID string) *sync.Mutex {
@@ -134,6 +180,7 @@ type cookieCollectorTransport struct {
 func (t *cookieCollectorTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	host := strings.ToLower(req.URL.Hostname())
 	if host == strings.ToLower(t.initialHost) || (t.customHost != "" && host == strings.ToLower(t.customHost)) {
+		req = req.Clone(req.Context())
 		req.Header.Set("Authorization", "Bearer "+t.token)
 	}
 
@@ -229,6 +276,7 @@ func (c *FabricClient) discoverClusterURI(ctx context.Context, workspaceID strin
 			req.Header.Set("Authorization", "Bearer "+tok)
 			resp, doErr := c.httpClient.Do(req)
 			if doErr == nil {
+				_, _ = io.Copy(io.Discard, resp.Body)
 				_ = resp.Body.Close()
 				for _, sc := range resp.Header.Values("Set-Cookie") {
 					if cluster := extractClusterURIFromCookie(sc); cluster != "" {
@@ -336,6 +384,7 @@ func (c *FabricClient) discoverViaPortalCookie(ctx context.Context, tok string, 
 	var lastStatus int
 	if resp != nil {
 		lastStatus = resp.StatusCode
+		_, _ = io.Copy(io.Discard, resp.Body)
 		_ = resp.Body.Close()
 	}
 	if err != nil {
@@ -442,7 +491,10 @@ func (c *FabricClient) discoverViaHomeClusterHeader(ctx context.Context, workspa
 		req.Header.Set("Accept", "application/json")
 		pbiResp, pbiDoErr := c.httpClient.Do(req)
 		if pbiDoErr == nil {
-			defer func() { _ = pbiResp.Body.Close() }()
+			defer func() {
+				_, _ = io.Copy(io.Discard, pbiResp.Body)
+				_ = pbiResp.Body.Close()
+			}()
 			if hcu := pbiResp.Header.Get("home-cluster-uri"); hcu != "" {
 				clean := strings.TrimRight(strings.TrimSpace(hcu), "/")
 				if err := validateBackendClusterURI(clean, customHost); err == nil {
@@ -741,7 +793,7 @@ func DecodePermissions(itemType string, coreBitmask, artifactBitmask int64) ([]s
 	if (coreBitmask&4 != 0) || (artifactBitmask&8 != 0) {
 		permSet["Reshare"] = true
 	}
-	if normType != "Warehouse" && (coreBitmask&64 != 0) {
+	if normType != "Warehouse" && ((coreBitmask&64 != 0) || (artifactBitmask&64 != 0)) {
 		permSet["Execute"] = true
 	}
 
@@ -822,6 +874,7 @@ func (c *FabricClient) doPowerBIRequest(ctx context.Context, req *http.Request) 
 		if shouldRetryStatus(resp.StatusCode) {
 			if attempt < maxRetries {
 				delay := c.retryDelay(resp.Header.Get("Retry-After"), attempt)
+				_, _ = io.Copy(io.Discard, resp.Body)
 				_ = resp.Body.Close()
 				if sleepErr := sleepWithContext(ctx, delay); sleepErr != nil {
 					return nil, sleepErr
@@ -878,6 +931,12 @@ func (e *PowerBIHTTPError) Error() string {
 
 	hint := ""
 	switch e.FaultClass {
+	case "AppOnlyMetadataAccessUnsupported":
+		hint = " (hint: The Power BI metadata plane ('/metadata/access/*') strictly rejects app-only tokens (Service Principals / Managed Identities) with HTTP 403 'API is not accessible for application'. Item-level direct permissions (fabricext_*_permission) require a delegated user token. Authenticate with 'az login' locally, or inject a pre-acquired delegated user token in CI/CD via 'powerbi_access_token' or FABRIC_POWERBI_ACCESS_TOKEN (or its aliases POWERBI_ACCESS_TOKEN, ARM_POWERBI_ACCESS_TOKEN, AZURE_POWERBI_ACCESS_TOKEN).)"
+	case "DelegatedUserMetadataAccessDenied":
+		hint = " (hint: The delegated user token was rejected by the Power BI metadata plane (HTTP 403). Ensure the authenticated user has Admin or Member permissions on the target workspace and is authorized to manage item permissions.)"
+	case "MetadataAccessDenied":
+		hint = fmt.Sprintf(" (hint: Access to the Power BI metadata plane ('/metadata/access/*') was denied (HTTP %d). If authenticating with a Service Principal or Managed Identity, note that '/metadata/access/*' strictly requires a delegated user token supplied via 'powerbi_access_token' or FABRIC_POWERBI_ACCESS_TOKEN (or its aliases).)", e.StatusCode)
 	case "ServicePrincipalTenantRoleConflict":
 		hint = " (hint: The Service Principal has Power BI tenant-scoped application permissions ('Tenant.ReadWrite.All' or 'Tenant.Read.All'). Microsoft Power BI Admin APIs paradoxically reject SPNs bearing Tenant.* app roles with HTTP 401 PowerBINotAuthorizedException when 'Allow service principals to use Fabric APIs' tenant setting is enabled. Workarounds: (1) Use an SPN without Tenant.* app roles for Fabric/PowerBI metadata operations, or (2) Configure 'powerbi_endpoint' / FABRIC_POWERBI_ENDPOINT directly.)"
 	case "ServicePrincipalMetadataAccessRejected":
@@ -916,13 +975,29 @@ func (c *FabricClient) formatPowerBIHTTPError(resp *http.Response, bodyBytes []b
 
 	faultClass := "PowerBIHTTPError"
 	if status == http.StatusUnauthorized || status == http.StatusForbidden {
-		switch {
-		case posture.HasTenantRoles:
-			faultClass = "ServicePrincipalTenantRoleConflict"
-		case posture.TokenType == "app-only":
-			faultClass = "ServicePrincipalMetadataAccessRejected"
-		default:
-			faultClass = "AdminAPIAccessDenied"
+		isMetadataAccessOp := strings.Contains(operation, "artifact access") ||
+			strings.Contains(operation, "access grant") ||
+			strings.Contains(operation, "access update") ||
+			strings.Contains(operation, "revocation")
+
+		if isMetadataAccessOp {
+			switch posture.TokenType {
+			case "app-only":
+				faultClass = "AppOnlyMetadataAccessUnsupported"
+			case "delegated-user":
+				faultClass = "DelegatedUserMetadataAccessDenied"
+			default:
+				faultClass = "MetadataAccessDenied"
+			}
+		} else {
+			switch {
+			case posture.HasTenantRoles:
+				faultClass = "ServicePrincipalTenantRoleConflict"
+			case posture.TokenType == "app-only":
+				faultClass = "ServicePrincipalMetadataAccessRejected"
+			default:
+				faultClass = "AdminAPIAccessDenied"
+			}
 		}
 	}
 
@@ -945,6 +1020,10 @@ func (c *FabricClient) formatPowerBIHTTPError(resp *http.Response, bodyBytes []b
 
 // GetItemDirectPermissions reads direct item-level permissions for a principal on a Fabric item.
 func (c *FabricClient) GetItemDirectPermissions(ctx context.Context, workspaceID, itemID, itemType, principalID string) (*ItemDirectShare, error) {
+	if strings.TrimSpace(principalID) == "" {
+		return nil, errors.New("principalID cannot be empty")
+	}
+
 	cluster, err := c.discoverClusterURI(ctx, workspaceID)
 	if err != nil {
 		return nil, fmt.Errorf("discovering cluster uri: %w", err)
@@ -970,6 +1049,7 @@ func (c *FabricClient) GetItemDirectPermissions(ctx context.Context, workspaceID
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusNotFound {
+		_, _ = io.Copy(io.Discard, resp.Body)
 		return nil, &NotFoundError{
 			ResourceType: itemType,
 			ResourceID:   itemID,
@@ -978,6 +1058,7 @@ func (c *FabricClient) GetItemDirectPermissions(ctx context.Context, workspaceID
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
+	_, _ = io.Copy(io.Discard, resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("reading artifact access response: %w", err)
 	}
@@ -1012,9 +1093,18 @@ func (c *FabricClient) GetItemDirectPermissions(ctx context.Context, workspaceID
 			strings.EqualFold(detail.AADAppID, principalID)
 
 		if matched {
+			internalUserID := 0
+			if detail.UserID != nil {
+				internalUserID = *detail.UserID
+			}
+			internalGroupID := 0
+			if detail.GroupID != nil {
+				internalGroupID = *detail.GroupID
+			}
+
 			if matchedDirect == nil {
 				pType := "User"
-				if detail.GroupObjectID != "" || detail.GroupID != 0 {
+				if detail.GroupObjectID != "" || internalGroupID != 0 {
 					pType = "Group"
 				} else if detail.IsServicePrincipal || detail.AADAppID != "" {
 					pType = "ServicePrincipal"
@@ -1025,18 +1115,18 @@ func (c *FabricClient) GetItemDirectPermissions(ctx context.Context, workspaceID
 					InternalArtifactID:     artifactID,
 					RawPermissions:         detail.Permissions,
 					RawArtifactPermissions: detail.ArtifactPermissions,
-					InternalUserID:         detail.UserID,
-					InternalGroupID:        detail.GroupID,
+					InternalUserID:         internalUserID,
+					InternalGroupID:        internalGroupID,
 					IsServicePrincipal:     detail.IsServicePrincipal || detail.AADAppID != "",
 				}
 			} else {
 				matchedDirect.RawPermissions |= detail.Permissions
 				matchedDirect.RawArtifactPermissions |= detail.ArtifactPermissions
-				if detail.UserID != 0 {
-					matchedDirect.InternalUserID = detail.UserID
+				if internalUserID != 0 {
+					matchedDirect.InternalUserID = internalUserID
 				}
-				if detail.GroupID != 0 {
-					matchedDirect.InternalGroupID = detail.GroupID
+				if internalGroupID != 0 {
+					matchedDirect.InternalGroupID = internalGroupID
 				}
 				if detail.IsServicePrincipal || detail.AADAppID != "" {
 					matchedDirect.IsServicePrincipal = true
@@ -1151,12 +1241,15 @@ func (c *FabricClient) UpsertItemDirectPermissions(ctx context.Context, workspac
 		if err != nil {
 			return fmt.Errorf("executing put access update: %w", err)
 		}
-		defer func() { _ = putResp.Body.Close() }()
 		if putResp.StatusCode < 200 || putResp.StatusCode >= 300 {
 			putBody, _ := io.ReadAll(io.LimitReader(putResp.Body, 4096+1))
+			_, _ = io.Copy(io.Discard, putResp.Body)
+			_ = putResp.Body.Close()
 			posture := credentials.InspectTokenPosture(tok, c.getPowerBIAuthSource())
 			return c.formatPowerBIHTTPError(putResp, putBody, "put access update", posture)
 		}
+		_, _ = io.Copy(io.Discard, putResp.Body)
+		_ = putResp.Body.Close()
 	}
 
 	method := http.MethodPost
@@ -1255,13 +1348,22 @@ func (c *FabricClient) UpsertItemDirectPermissions(ctx context.Context, workspac
 	if err != nil {
 		return fmt.Errorf("executing access request (%s): %w", method, err)
 	}
-	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096+1))
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
 		posture := credentials.InspectTokenPosture(tok, c.getPowerBIAuthSource())
-		return c.formatPowerBIHTTPError(resp, body, fmt.Sprintf("access grant (%s)", method), posture)
+		op := fmt.Sprintf("access grant (%s)", method)
+		if share.Notify {
+			op = "access grant with notification (POST)"
+		} else if method == http.MethodPut {
+			op = "access update (PUT)"
+		}
+		return c.formatPowerBIHTTPError(resp, body, op, posture)
 	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	_ = resp.Body.Close()
 
 	// Read-back verification loop (up to 10 seconds, accelerated in test environments)
 	verificationTimeout := 10 * time.Second
@@ -1272,16 +1374,18 @@ func (c *FabricClient) UpsertItemDirectPermissions(ctx context.Context, workspac
 	}
 	deadline := time.Now().Add(verificationTimeout)
 	var lastCore, lastArtifact int64
+	var lastErr error
 	for time.Now().Before(deadline) {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 
 		check, checkErr := c.GetItemDirectPermissions(ctx, workspaceID, itemID, itemType, share.PrincipalID)
+		lastErr = checkErr
 		if checkErr == nil && check != nil {
 			lastCore = check.RawPermissions
 			lastArtifact = check.RawArtifactPermissions
-			if method == http.MethodPost || share.Notify {
+			if existing == nil && (method == http.MethodPost || share.Notify) {
 				if (check.RawPermissions&coreBitmask == coreBitmask) && (check.RawArtifactPermissions&artifactBitmask == artifactBitmask) {
 					return nil
 				}
@@ -1297,6 +1401,11 @@ func (c *FabricClient) UpsertItemDirectPermissions(ctx context.Context, workspac
 		}
 	}
 
+	lastErrMsg := ""
+	if lastErr != nil {
+		lastErrMsg = lastErr.Error()
+	}
+
 	return &SilentPermissionDropError{
 		WorkspaceID:      workspaceID,
 		ItemID:           itemID,
@@ -1306,6 +1415,7 @@ func (c *FabricClient) UpsertItemDirectPermissions(ctx context.Context, workspac
 		ExpectedArtifact: artifactBitmask,
 		ActualCore:       lastCore,
 		ActualArtifact:   lastArtifact,
+		LastError:        lastErrMsg,
 	}
 }
 
@@ -1404,13 +1514,16 @@ func (c *FabricClient) RevokeItemDirectPermissions(ctx context.Context, workspac
 	if err != nil {
 		return fmt.Errorf("executing revocation request: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096+1))
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
 		posture := credentials.InspectTokenPosture(tok, c.getPowerBIAuthSource())
 		return c.formatPowerBIHTTPError(resp, body, "revocation update", posture)
 	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	_ = resp.Body.Close()
 
 	// Read-back verification loop (up to 5 seconds, accelerated in test environments)
 	verificationTimeout := 5 * time.Second
@@ -1421,12 +1534,14 @@ func (c *FabricClient) RevokeItemDirectPermissions(ctx context.Context, workspac
 	}
 	deadline := time.Now().Add(verificationTimeout)
 	var lastCore, lastArtifact int64
+	var lastErr error
 	for time.Now().Before(deadline) {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 
 		check, checkErr := c.GetItemDirectPermissions(ctx, workspaceID, itemID, itemType, principalID)
+		lastErr = checkErr
 		if checkErr == nil {
 			if check == nil || (check.RawPermissions == 0 && check.RawArtifactPermissions == 0) {
 				return nil
@@ -1440,6 +1555,11 @@ func (c *FabricClient) RevokeItemDirectPermissions(ctx context.Context, workspac
 		}
 	}
 
+	lastErrMsg := ""
+	if lastErr != nil {
+		lastErrMsg = lastErr.Error()
+	}
+
 	return &SilentPermissionDropError{
 		WorkspaceID:      workspaceID,
 		ItemID:           itemID,
@@ -1449,12 +1569,15 @@ func (c *FabricClient) RevokeItemDirectPermissions(ctx context.Context, workspac
 		ExpectedArtifact: 0,
 		ActualCore:       lastCore,
 		ActualArtifact:   lastArtifact,
+		LastError:        lastErrMsg,
 	}
 }
 
-// InvalidateClusterURI clears the cached regional cluster URI.
+// InvalidateClusterURI clears the cached regional cluster URI and passive fallback state.
 func (c *FabricClient) InvalidateClusterURI() {
 	c.clusterURIMu.Lock()
 	defer c.clusterURIMu.Unlock()
 	c.cachedClusterURI = ""
+	c.cachedClusterSource = ""
+	c.passiveHomeClusterURI = ""
 }

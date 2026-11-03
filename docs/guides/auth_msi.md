@@ -43,10 +43,12 @@ export FABRIC_CLIENT_ID="<client-id-of-user-assigned-msi>"
 
 ## Tenant Permissions & Scopes
 
-To manage item-level permissions (`fabricext_*_permission`) and OneLake Data Access Roles (`fabricext_lakehouse_data_access_role`), the Managed Identity requires:
+Managed Identities natively manage Fabric REST control plane resources (`fabricext_lakehouse_data_access_role`, `fabricext_lakehouse_onelake_security`, `fabricext_item_share_gate`), requiring:
 
 1. **Workspace Access**: **Admin** or **Member** role on the target workspace.
 2. **Tenant Settings**: The tenant setting *"Service principals can use Fabric APIs"* enabled in Fabric Admin Portal under Developer settings.
+
+~> **Important:** **Item Permissions Delegated Token Requirement**: Microsoft Fabric's underlying Power BI metadata plane (`/metadata/access/*`) rejects app-only Managed Identity tokens with HTTP 403 `PowerBINotAuthorizedException`. To manage item-level permissions (`fabricext_*_permission`), automated CI/CD pipelines must supply a pre-acquired delegated user token via `powerbi_access_token` or `FABRIC_POWERBI_ACCESS_TOKEN` / aliases (see [Authentication Guide](authentication.md#cicd-headless-pipelines)).
 
 If using `fabricext_item_share_gate` or `modules/permissions` with `verify_item_shares = true`, the provider queries the Microsoft Fabric Admin API (`GET /v1/admin/workspaces/{workspaceId}/items/{itemId}/users`). This additionally requires:
 

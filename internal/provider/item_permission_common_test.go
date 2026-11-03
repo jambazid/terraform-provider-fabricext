@@ -72,6 +72,76 @@ func TestRequiresReplaceIfConfiguredModifier(t *testing.T) {
 	}
 }
 
+func TestShareGatePrincipalTypeModifier(t *testing.T) {
+	t.Parallel()
+
+	mod := shareGatePrincipalTypeModifier{}
+	if mod.Description(context.Background()) == "" {
+		t.Fatal("expected non-empty description")
+	}
+	if mod.MarkdownDescription(context.Background()) == "" {
+		t.Fatal("expected non-empty markdown description")
+	}
+
+	// 1. ConfigValue is null -> no replacement
+	var resp1 planmodifier.StringResponse
+	mod.PlanModifyString(context.Background(), planmodifier.StringRequest{
+		ConfigValue: types.StringNull(),
+		StateValue:  types.StringValue("ServicePrincipal"),
+		PlanValue:   types.StringValue("ManagedIdentity"),
+	}, &resp1)
+	if resp1.RequiresReplace {
+		t.Fatal("expected RequiresReplace = false when ConfigValue is null")
+	}
+
+	// 2. StateValue is null -> no replacement
+	var resp2 planmodifier.StringResponse
+	mod.PlanModifyString(context.Background(), planmodifier.StringRequest{
+		ConfigValue: types.StringValue("ManagedIdentity"),
+		StateValue:  types.StringNull(),
+		PlanValue:   types.StringValue("ManagedIdentity"),
+	}, &resp2)
+	if resp2.RequiresReplace {
+		t.Fatal("expected RequiresReplace = false when StateValue is null")
+	}
+
+	// 3. Plan equals State -> no replacement
+	var resp3 planmodifier.StringResponse
+	mod.PlanModifyString(context.Background(), planmodifier.StringRequest{
+		ConfigValue: types.StringValue("User"),
+		StateValue:  types.StringValue("User"),
+		PlanValue:   types.StringValue("User"),
+	}, &resp3)
+	if resp3.RequiresReplace {
+		t.Fatal("expected RequiresReplace = false when Plan equals State")
+	}
+
+	// 4. ManagedIdentity vs ServicePrincipal equivalence -> Plan adopts State, no replacement
+	var resp4 planmodifier.StringResponse
+	mod.PlanModifyString(context.Background(), planmodifier.StringRequest{
+		ConfigValue: types.StringValue("ManagedIdentity"),
+		StateValue:  types.StringValue("ServicePrincipal"),
+		PlanValue:   types.StringValue("ManagedIdentity"),
+	}, &resp4)
+	if resp4.RequiresReplace {
+		t.Fatal("expected RequiresReplace = false for ManagedIdentity/ServicePrincipal equivalence")
+	}
+	if resp4.PlanValue.ValueString() != "ServicePrincipal" {
+		t.Fatalf("expected PlanValue = ServicePrincipal, got %s", resp4.PlanValue.ValueString())
+	}
+
+	// 5. User vs Group -> requires replacement
+	var resp5 planmodifier.StringResponse
+	mod.PlanModifyString(context.Background(), planmodifier.StringRequest{
+		ConfigValue: types.StringValue("Group"),
+		StateValue:  types.StringValue("User"),
+		PlanValue:   types.StringValue("Group"),
+	}, &resp5)
+	if !resp5.RequiresReplace {
+		t.Fatal("expected RequiresReplace = true when transitioning from User to Group")
+	}
+}
+
 func TestParseItemPermissionImportID(t *testing.T) {
 	t.Parallel()
 

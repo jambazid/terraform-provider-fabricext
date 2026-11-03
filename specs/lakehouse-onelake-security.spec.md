@@ -48,6 +48,8 @@ resource "fabricext_lakehouse_onelake_security" "example" {
   `[@test] ../internal/provider/lakehouse_onelake_security_resource_test.go::TestAccLakehouseOnelakeSecurity_ValidationErrors`
 - `ModifyPlan` calls `reconcileItemIdentifiersPlan` so renames cleanly reset stale computed IDs to unknown
   `[@test] ../internal/provider/lakehouse_onelake_security_resource_test.go::TestAccLakehouseOnelakeSecurity_renameIdentifier`
+- Upstream Lakehouse renames under ID-based configuration preserve the resource in place without replacement via `RequiresReplaceIfConfigured()`
+  `[@test] ../internal/provider/lakehouse_onelake_security_resource_test.go::TestAccLakehouseOnelakeSecurity_RenameInvariance`
 
 ## Drift Detection
 
