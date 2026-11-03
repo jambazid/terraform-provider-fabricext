@@ -410,7 +410,7 @@ Entries within `fabric_item_members` support:
 | Name | Version |
 | :--- | :--- |
 | terraform | `>= 1.6.0` |
-| fabricext | `>= 0.7.2` |
+| fabricext | `>= 0.7.3` |
 
 ## Inputs
 
