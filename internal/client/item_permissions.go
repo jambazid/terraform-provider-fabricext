@@ -1344,7 +1344,11 @@ func (c *FabricClient) UpsertItemDirectPermissions(ctx context.Context, workspac
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096+1))
 		_ = resp.Body.Close()
 		posture := credentials.InspectTokenPosture(tok, c.getPowerBIAuthSource())
-		return c.formatPowerBIHTTPError(resp, body, fmt.Sprintf("access grant (%s)", method), posture)
+		op := fmt.Sprintf("access grant (%s)", method)
+		if share.Notify {
+			op = "access grant with notification (POST)"
+		}
+		return c.formatPowerBIHTTPError(resp, body, op, posture)
 	}
 	_, _ = io.Copy(io.Discard, resp.Body)
 	_ = resp.Body.Close()

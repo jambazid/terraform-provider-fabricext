@@ -27,22 +27,24 @@ import (
 
 // Server represents a stateful in-memory mock Power BI metadata server.
 type Server struct {
-	URL                string
-	Server             *httptest.Server
-	mu                 sync.RWMutex
-	router             routers.Router
-	doc                *openapi3.T
-	entries            map[string][]map[string]any // itemId -> entries
-	deletedItems       map[string]bool             // itemId -> deleted (returns 404)
-	portalForbidden    bool
-	portalRequestCount int
-	accessAuthStatus   int
-	accessAuthError    string
-	artifactID         int
-	lastArtifacts      []map[string]any
-	nextUserID         int
-	nextGroupID        int
-	OnMutation         func(action string, itemId string, principalId string, permissions []string)
+	URL                      string
+	Server                   *httptest.Server
+	mu                       sync.RWMutex
+	router                   routers.Router
+	doc                      *openapi3.T
+	entries                  map[string][]map[string]any // itemId -> entries
+	deletedItems             map[string]bool             // itemId -> deleted (returns 404)
+	portalForbidden          bool
+	portalRequestCount       int
+	accessAuthStatus         int
+	accessAuthError          string
+	artifactID               int
+	lastArtifacts            []map[string]any
+	allowAppOnlyArtifactRead bool
+	rawResponses             map[string]string // itemId -> raw response JSON (contract-validated)
+	nextUserID               int
+	nextGroupID              int
+	OnMutation               func(action string, itemId string, principalId string, permissions []string)
 }
 
 // NewServer creates a new stateful mock Power BI metadata server.
@@ -77,6 +79,7 @@ func NewServer() (*Server, error) {
 		doc:          doc,
 		entries:      make(map[string][]map[string]any),
 		deletedItems: make(map[string]bool),
+		rawResponses: make(map[string]string),
 		nextUserID:   1001,
 		nextGroupID:  2001,
 	}
@@ -148,6 +151,25 @@ func (s *Server) SetArtifactID(id int) {
 	s.artifactID = id
 }
 
+// SetRawArtifactAccessResponse sets an explicit JSON response for GET /metadata/access/artifacts/{itemId}.
+// The response is validated at runtime against specs/powerbi/metadata/openapi.json via openapi3filter.
+func (s *Server) SetRawArtifactAccessResponse(itemID, rawJSON string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.rawResponses == nil {
+		s.rawResponses = make(map[string]string)
+	}
+	s.rawResponses[itemID] = rawJSON
+}
+
+// SetAllowAppOnlyArtifactRead controls whether GET /metadata/access/artifacts/{itemId} allows
+// app-only tokens, enabling test suites to reach and validate rejection on POST and PUT mutation endpoints.
+func (s *Server) SetAllowAppOnlyArtifactRead(allowed bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.allowAppOnlyArtifactRead = allowed
+}
+
 // LastArtifacts returns the artifacts list from the last POST or PUT to /metadata/access.
 func (s *Server) LastArtifacts() []map[string]any {
 	s.mu.RLock()
@@ -157,6 +179,25 @@ func (s *Server) LastArtifacts() []map[string]any {
 	}
 	out := make([]map[string]any, len(s.lastArtifacts))
 	copy(out, s.lastArtifacts)
+	return out
+}
+
+// DirectAccessEntries returns a copy of the direct access entries for an item.
+func (s *Server) DirectAccessEntries(itemID string) []map[string]any {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	raw := s.entries[itemID]
+	if raw == nil {
+		return nil
+	}
+	out := make([]map[string]any, len(raw))
+	for i, e := range raw {
+		copied := make(map[string]any, len(e))
+		for k, v := range e {
+			copied[k] = v
+		}
+		out[i] = copied
+	}
 	return out
 }
 
@@ -496,6 +537,11 @@ func (s *Server) handleArtifactAccess(w http.ResponseWriter, r *http.Request) {
 	if rootID == 0 {
 		rootID = 1
 	}
+	allowAppOnly := s.allowAppOnlyArtifactRead
+	rawJSON := ""
+	if s.rawResponses != nil {
+		rawJSON = s.rawResponses[itemID]
+	}
 
 	var entries []map[string]any
 	if raw := s.entries[itemID]; raw != nil {
@@ -528,7 +574,7 @@ func (s *Server) handleArtifactAccess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if isAppOnlyToken(r.Header.Get("Authorization")) {
+	if isAppOnlyToken(r.Header.Get("Authorization")) && !allowAppOnly {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("RequestId", "test-request-id-1234")
 		w.WriteHeader(http.StatusForbidden)
@@ -538,6 +584,13 @@ func (s *Server) handleArtifactAccess(w http.ResponseWriter, r *http.Request) {
 				"message": "API is not accessible for application",
 			},
 		})
+		return
+	}
+
+	if rawJSON != "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(rawJSON))
 		return
 	}
 

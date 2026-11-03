@@ -121,13 +121,20 @@ In automated CI/CD pipelines running under a Service Principal or Managed Identi
   - `ARM_POWERBI_ACCESS_TOKEN`
   - `AZURE_POWERBI_ACCESS_TOKEN`
 - Recommended automated patterns:
-  - **JIT Token Brokering**: Mint short-lived delegated tokens on demand via HashiCorp Vault, Azure Key Vault, or an internal identity broker.
-  - **Pipeline Export**: Pre-acquire a delegated token before running Terraform:
+  - **JIT Token Brokering**: Fetch a short-lived delegated user token minted out-of-band via Azure Key Vault, HashiCorp Vault, or an identity broker:
+    ```bash
+    export FABRIC_POWERBI_ACCESS_TOKEN=$(az keyvault secret show \
+      --vault-name "my-corp-vault" \
+      --name "fabric-delegated-pbi-token" \
+      --query value -o tsv)
+    ```
+  - **User-Authenticated CLI Export**: When running on a machine with an active interactive user login (`az login` as a human identity, **not** `--service-principal`):
     ```bash
     export FABRIC_POWERBI_ACCESS_TOKEN=$(az account get-access-token \
       --resource https://analysis.windows.net/powerbi/api \
       --query accessToken -o tsv)
     ```
+    ~> **Note:** If the Azure CLI session is authenticated as a Service Principal or Managed Identity, `az account get-access-token` reuses that application identity and produces an `app-only` token that Power BI metadata endpoints unconditionally reject. CI/CD runners operating under an SPN/MSI must inject a delegated user token from a vault or secure pipeline secret.
 - Token lifetime: Standard Microsoft Entra ID access tokens carry a 60–90 minute TTL. Ensure automated CI/CD pipeline steps complete within the token validity window.
 - Security boundary: Avoid storing long-lived user refresh tokens or embedding user credentials in repository source code; treat delegated tokens as sensitive bearer credentials.
 

@@ -2204,7 +2204,23 @@ func TestItemPermissions_NonUserDataPlaneRejection(t *testing.T) {
 				t.Fatalf("expected 403 AppOnlyMetadataAccessUnsupported, got %d %s", pbiErr.StatusCode, pbiErr.FaultClass)
 			}
 
-			// 3. POST /metadata/access (silent grant) fails with 403 AppOnlyMetadataAccessUnsupported
+			// Enable artifact read for app-only tokens so mutations proceed past preflight GET
+			// and independently exercise rejection on POST/PUT endpoints.
+			srv.SetAllowAppOnlyArtifactRead(true)
+
+			existingPrincipalID := "44444444-4444-4444-4444-444444444444"
+			srv.SeedDirectAccess(itemID, map[string]any{
+				"id":                  100,
+				"userObjectId":        existingPrincipalID,
+				"permissions":         1,
+				"artifactPermissions": 1,
+			})
+			initialEntries := srv.DirectAccessEntries(itemID)
+			if len(initialEntries) != 1 {
+				t.Fatalf("expected 1 initial entry, got %d", len(initialEntries))
+			}
+
+			// 3. POST /metadata/access (silent grant) fails with 403 AppOnlyMetadataAccessUnsupported at mutation phase
 			err = c.UpsertItemDirectPermissions(ctx, wsID, itemID, "Lakehouse", client.ItemDirectShare{
 				PrincipalID:   principalID,
 				PrincipalType: "User",
@@ -2217,8 +2233,11 @@ func TestItemPermissions_NonUserDataPlaneRejection(t *testing.T) {
 			if !errors.As(err, &pbiErr) || pbiErr.StatusCode != 403 || pbiErr.FaultClass != "AppOnlyMetadataAccessUnsupported" {
 				t.Fatalf("expected 403 AppOnlyMetadataAccessUnsupported for POST, got %v", err)
 			}
+			if !strings.Contains(pbiErr.Operation, "access grant") {
+				t.Errorf("expected Operation to contain 'access grant', got %q", pbiErr.Operation)
+			}
 
-			// 4. POST /metadata/access/notify fails with 403 AppOnlyMetadataAccessUnsupported
+			// 4. POST /metadata/access/notify fails with 403 AppOnlyMetadataAccessUnsupported at mutation phase
 			err = c.UpsertItemDirectPermissions(ctx, wsID, itemID, "Lakehouse", client.ItemDirectShare{
 				PrincipalID:         principalID,
 				PrincipalType:       "User",
@@ -2232,14 +2251,29 @@ func TestItemPermissions_NonUserDataPlaneRejection(t *testing.T) {
 			if !errors.As(err, &pbiErr) || pbiErr.StatusCode != 403 || pbiErr.FaultClass != "AppOnlyMetadataAccessUnsupported" {
 				t.Fatalf("expected 403 AppOnlyMetadataAccessUnsupported for POST notify, got %v", err)
 			}
+			if !strings.Contains(pbiErr.Operation, "notification") {
+				t.Errorf("expected Operation to contain notification, got %q", pbiErr.Operation)
+			}
 
-			// 5. PUT /metadata/access (revoke/update) fails with 403 AppOnlyMetadataAccessUnsupported
-			err = c.RevokeItemDirectPermissions(ctx, wsID, itemID, "Lakehouse", principalID)
+			// 5. PUT /metadata/access (revoke) fails with 403 AppOnlyMetadataAccessUnsupported at mutation phase
+			err = c.RevokeItemDirectPermissions(ctx, wsID, itemID, "Lakehouse", existingPrincipalID)
 			if err == nil {
 				t.Fatalf("expected RevokeItemDirectPermissions to fail with 403 for %s, got nil", tc.name)
 			}
 			if !errors.As(err, &pbiErr) || pbiErr.StatusCode != 403 || pbiErr.FaultClass != "AppOnlyMetadataAccessUnsupported" {
 				t.Fatalf("expected 403 AppOnlyMetadataAccessUnsupported for PUT, got %v", err)
+			}
+			if !strings.Contains(pbiErr.Operation, "revocation") {
+				t.Errorf("expected Operation to contain revocation, got %q", pbiErr.Operation)
+			}
+
+			// 6. Assert mock server state is completely unchanged after all failed mutations
+			currentEntries := srv.DirectAccessEntries(itemID)
+			if len(currentEntries) != len(initialEntries) {
+				t.Fatalf("expected %d entries to remain after rejections, got %d", len(initialEntries), len(currentEntries))
+			}
+			if currentEntries[0]["userObjectId"] != existingPrincipalID {
+				t.Errorf("expected existing entry preserved, got %v", currentEntries[0])
 			}
 		})
 	}
@@ -2312,21 +2346,25 @@ func TestItemPermissions_FullAclWireCapture(t *testing.T) {
 		]
 	}`
 
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(sanitizedWireJSON))
-	}))
-	defer ts.Close()
+	srv, err := pbimock.NewServer()
+	if err != nil {
+		t.Fatalf("failed to create pbimock server: %v", err)
+	}
+	defer srv.Close()
+
+	itemID := "00000000-0000-0000-0000-000000000001"
+	srv.SetRawArtifactAccessResponse(itemID, sanitizedWireJSON)
+
+	token := createSyntheticJWT(`{"name":"Jane Doe","upn":"user@example.com","oid":"00000000-0000-0000-0000-000000000010","tid":"00000000-0000-0000-0000-000000000003","scp":"Artifact.Access.ReadWrite.All"}`)
 
 	c, err := client.NewFabricClient(client.Config{
-		Endpoint:        ts.URL,
-		PowerBIEndpoint: ts.URL,
+		Endpoint:        srv.URL,
+		PowerBIEndpoint: srv.URL,
 		TokenProvider: func(_ context.Context) (string, error) {
-			return "tok", nil
+			return token, nil
 		},
 		PowerBITokenProvider: func(_ context.Context) (string, error) {
-			return "tok", nil
+			return token, nil
 		},
 		BaseBackoff: 5 * time.Millisecond,
 	})
@@ -2336,7 +2374,6 @@ func TestItemPermissions_FullAclWireCapture(t *testing.T) {
 
 	ctx := context.Background()
 	wsID := "11111111-1111-1111-1111-111111111111"
-	itemID := "00000000-0000-0000-0000-000000000001"
 	userPrincipalID := "00000000-0000-0000-0000-000000000010"
 
 	share, err := c.GetItemDirectPermissions(ctx, wsID, itemID, "Warehouse", userPrincipalID)
